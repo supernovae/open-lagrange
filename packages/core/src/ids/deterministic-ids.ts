@@ -50,3 +50,19 @@ export function deterministicObservationId(input: unknown): string {
 export function deterministicReconciliationId(input: unknown): string {
   return id("reconciliation", input, 16);
 }
+
+export function deterministicApprovalRequestId(input: unknown): string {
+  return id("approval_request", input, 16);
+}
+
+export function deterministicContinuationRunId(input: unknown): string {
+  return id("task_continuation", input, 16);
+}
+
+export function deterministicRepositoryTaskRunId(input: unknown): string {
+  return id("repo_task_run", input, 18);
+}
+
+export function deterministicPatchPlanId(input: unknown): string {
+  return id("patch_plan", input, 18);
+}

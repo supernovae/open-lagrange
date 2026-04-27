@@ -9,6 +9,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./interface": {
+      "types": "./dist/interface.d.ts",
+      "import": "./dist/interface.js"
     }
   },
   "scripts": {

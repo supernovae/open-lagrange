@@ -54,12 +54,32 @@ export const CriticResult = z.object({
 }).strict();
 
 export const ApprovalRequest = z.object({
-  approval_id: z.string().min(1),
+  approval_request_id: z.string().min(1),
+  task_id: z.string().min(1),
+  project_id: z.string().min(1),
   intent_id: z.string().min(1),
+  requested_risk_level: RiskLevel,
+  requested_capability: z.string().min(1),
   task_run_id: z.string().min(1),
   requested_at: z.string().datetime(),
   prompt: z.string(),
-  promise_name: z.string().min(1),
+  trace_id: z.string().min(1),
+}).strict();
+
+export const ApprovalDecision = z.object({
+  approval_request_id: z.string().min(1),
+  task_id: z.string().min(1),
+  project_id: z.string().min(1),
+  intent_id: z.string().min(1),
+  requested_risk_level: RiskLevel,
+  requested_capability: z.string().min(1),
+  requested_at: z.string().datetime(),
+  decision: z.enum(["requested", "approved", "rejected"]),
+  approved_by: z.string().min(1).optional(),
+  rejected_by: z.string().min(1).optional(),
+  decided_at: z.string().datetime().optional(),
+  reason: z.string().optional(),
+  trace_id: z.string().min(1),
 }).strict();
 
 export const TaskReconcilerInput = z.object({
@@ -71,8 +91,36 @@ export const TaskReconcilerInput = z.object({
   bounds: ExecutionBounds,
 }).strict();
 
+export const ApprovalContinuationInput = z.object({
+  approval_request_id: z.string().min(1),
+  task_run_id: z.string().min(1),
+}).strict();
+
+export const ApprovalContinuationEnvelope = z.object({
+  kind: z.string().min(1),
+  approval_request: ApprovalRequest,
+  project_id: z.string().min(1),
+  task_run_id: z.string().min(1),
+  trace_id: z.string().min(1),
+  payload: z.unknown(),
+}).strict();
+
+export const ApprovalContinuationContext = z.object({
+  approval_request: ApprovalRequest,
+  parent_project_id: z.string().min(1),
+  parent_project_run_id: z.string().min(1),
+  task_run_id: z.string().min(1),
+  scoped_task: ScopedTask,
+  delegation_context: DelegationContext,
+  bounds: ExecutionBounds,
+  capability_snapshot: CapabilitySnapshot,
+  artifact: CognitiveArtifact,
+  intent: ExecutionIntent,
+}).strict();
+
 export const ProjectReconcilerInput = z.object({
   goal: z.string().min(1),
+  project_id: z.string().min(1).optional(),
   delegation_context: DelegationContext,
   metadata: z.record(z.string(), z.unknown()).optional(),
   bounds: ExecutionBounds.optional(),
@@ -113,7 +161,11 @@ export type ScopedTask = z.infer<typeof ScopedTask>;
 export type ExecutionPlan = z.infer<typeof ExecutionPlan>;
 export type CriticResult = z.infer<typeof CriticResult>;
 export type ApprovalRequest = z.infer<typeof ApprovalRequest>;
+export type ApprovalDecision = z.infer<typeof ApprovalDecision>;
 export type TaskReconcilerInput = z.infer<typeof TaskReconcilerInput>;
+export type ApprovalContinuationInput = z.infer<typeof ApprovalContinuationInput>;
+export type ApprovalContinuationEnvelope = z.infer<typeof ApprovalContinuationEnvelope>;
+export type ApprovalContinuationContext = z.infer<typeof ApprovalContinuationContext>;
 export type ProjectReconcilerInput = z.infer<typeof ProjectReconcilerInput>;
 export type TaskReconciliationResult = z.infer<typeof TaskReconciliationResult>;
 export type ProjectReconciliationResult = z.infer<typeof ProjectReconciliationResult>;

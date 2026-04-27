@@ -1,6 +1,6 @@
 import { getHatchetClient } from "../hatchet/client.js";
 import { toHatchetJsonObject, type HatchetJsonObject } from "../hatchet/json.js";
-import { inMemoryApprovalStore } from "../approval/approval-store.js";
+import { getStateStore } from "../storage/state-store.js";
 import { ApprovalRequest } from "../schemas/reconciliation.js";
 
 export const createApprovalRequestTask = getHatchetClient().task<HatchetJsonObject, HatchetJsonObject>({
@@ -8,6 +8,6 @@ export const createApprovalRequestTask = getHatchetClient().task<HatchetJsonObje
   retries: 0,
   executionTimeout: "10s",
   fn: async (input: HatchetJsonObject): Promise<HatchetJsonObject> => {
-    return toHatchetJsonObject(await inMemoryApprovalStore.createApprovalRequest(ApprovalRequest.parse(input)));
+    return toHatchetJsonObject(await getStateStore().createApprovalRequest(ApprovalRequest.parse(input)));
   },
 });

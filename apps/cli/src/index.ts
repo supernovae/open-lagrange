@@ -2,10 +2,14 @@
 import { Command } from "commander";
 import {
   DEFAULT_EXECUTION_BOUNDS,
-  DelegationContext,
+  approveTask,
+  createMockDelegationContext,
   deterministicProjectId,
-  deterministicProjectRunId,
+  deterministicRepositoryTaskRunId,
   getProjectRunStatus,
+  getTaskStatus,
+  rejectTask,
+  submitRepositoryTask,
   submitProjectRun,
   type ProjectReconcilerInput,
 } from "@open-lagrange/core";
@@ -29,6 +33,34 @@ program
     };
     const submitted = await submitProjectRun(input);
     console.log(JSON.stringify(submitted, null, 2));
+  });
+
+program
+  .command("approve")
+  .description("Approve a task that is waiting for review.")
+  .argument("<taskId>", "Task ID or task run ID")
+  .requiredOption("--reason <reason>", "Approval reason")
+  .option("--approved-by <approvedBy>", "Approver identifier", "human-local")
+  .action(async (taskId: string, options: { readonly reason: string; readonly approvedBy: string }) => {
+    console.log(JSON.stringify(await approveTask({
+      task_id: taskId,
+      decided_by: options.approvedBy,
+      reason: options.reason,
+    }), null, 2));
+  });
+
+program
+  .command("reject")
+  .description("Reject a task that is waiting for review.")
+  .argument("<taskId>", "Task ID or task run ID")
+  .requiredOption("--reason <reason>", "Rejection reason")
+  .option("--rejected-by <rejectedBy>", "Reviewer identifier", "human-local")
+  .action(async (taskId: string, options: { readonly reason: string; readonly rejectedBy: string }) => {
+    console.log(JSON.stringify(await rejectTask({
+      task_id: taskId,
+      decided_by: options.rejectedBy,
+      reason: options.reason,
+    }), null, 2));
   });
 
 program
@@ -57,37 +89,122 @@ program
       const status = await getProjectRunStatus(submitted.hatchet_run_id);
       console.log(JSON.stringify(status, null, 2));
       const current = status.status?.status ?? normalizeHatchetStatus(status.hatchet_status);
+      if (current === "requires_approval") {
+        const task = status.task_statuses.find((item) => item.status === "requires_approval");
+        if (task) {
+          console.log(`Approve with: npm run cli -- approve ${task.task_run_id} --reason "Approved for demo"`);
+          console.log(`Reject with: npm run cli -- reject ${task.task_run_id} --reason "Rejected for demo"`);
+        }
+      }
       if (current && isTerminal(current)) return;
     }
     throw new Error("Timed out waiting for workflow run completion.");
   });
 
+const repo = program.command("repo").description("Run repository-scoped task workflows.");
+
+repo
+  .command("run")
+  .requiredOption("--repo <path>", "Repository root")
+  .requiredOption("--goal <goal>", "Repository task goal")
+  .option("--workspace-id <workspaceId>", "Repository workspace ID")
+  .option("--dry-run", "Plan and require approval before writes", true)
+  .option("--apply", "Apply the approved patch immediately", false)
+  .option("--require-approval", "Require approval before applying", false)
+  .action(async (options: { readonly repo: string; readonly goal: string; readonly workspaceId?: string; readonly dryRun: boolean; readonly apply: boolean; readonly requireApproval: boolean }) => {
+    const project_id = deterministicProjectId({
+      goal: options.goal,
+      workspace_id: options.workspaceId ?? "workspace-local",
+      principal_id: "human-local",
+      delegate_id: "open-lagrange-cli",
+    });
+    const context = createMockDelegationContext({
+      goal: options.goal,
+      project_id,
+      delegate_id: "open-lagrange-cli",
+      allowed_scopes: ["project:read", "project:summarize", "project:write"],
+      ...(options.workspaceId ? { workspace_id: options.workspaceId } : {}),
+    });
+    const task_run_id = deterministicRepositoryTaskRunId({
+      project_id,
+      repo_root: options.repo,
+      goal: options.goal,
+    });
+    console.log(JSON.stringify(await submitRepositoryTask({
+      goal: options.goal,
+      repo_root: options.repo,
+      task_run_id,
+      project_id,
+      dry_run: options.dryRun && !options.apply,
+      apply: options.apply,
+      require_approval: options.requireApproval,
+      ...(options.workspaceId ? { workspace_id: options.workspaceId } : {}),
+      delegation_context: {
+        ...context,
+        allowed_capabilities: [
+          "repo.list_files",
+          "repo.read_file",
+          "repo.search_text",
+          "repo.propose_patch",
+          "repo.apply_patch",
+          "repo.run_verification",
+          "repo.get_diff",
+          "repo.create_review_report",
+        ],
+        max_risk_level: "external_side_effect",
+        task_run_id,
+      },
+      verification_command_ids: ["npm_run_typecheck"],
+    }), null, 2));
+  });
+
+repo
+  .command("status")
+  .argument("<taskId>", "Task ID or task run ID")
+  .action(async (taskId: string) => {
+    console.log(JSON.stringify(await getTaskStatus(taskId), null, 2));
+  });
+
+repo
+  .command("diff")
+  .argument("<taskId>", "Task ID or task run ID")
+  .action(async (taskId: string) => {
+    const status = await getTaskStatus(taskId);
+    console.log(status?.repository_status?.diff_text ?? status?.repository_status?.diff_summary ?? "No diff recorded.");
+  });
+
+repo
+  .command("review")
+  .argument("<taskId>", "Task ID or task run ID")
+  .action(async (taskId: string) => {
+    const status = await getTaskStatus(taskId);
+    console.log(JSON.stringify(status?.repository_status?.review_report ?? { message: "No review report recorded." }, null, 2));
+  });
+
+repo
+  .command("approve")
+  .argument("<taskId>", "Task ID or task run ID")
+  .requiredOption("--reason <reason>", "Approval reason")
+  .option("--approved-by <approvedBy>", "Approver identifier", "human-local")
+  .action(async (taskId: string, options: { readonly reason: string; readonly approvedBy: string }) => {
+    console.log(JSON.stringify(await approveTask({ task_id: taskId, decided_by: options.approvedBy, reason: options.reason }), null, 2));
+  });
+
+repo
+  .command("reject")
+  .argument("<taskId>", "Task ID or task run ID")
+  .requiredOption("--reason <reason>", "Rejection reason")
+  .option("--rejected-by <rejectedBy>", "Reviewer identifier", "human-local")
+  .action(async (taskId: string, options: { readonly reason: string; readonly rejectedBy: string }) => {
+    console.log(JSON.stringify(await rejectTask({ task_id: taskId, decided_by: options.rejectedBy, reason: options.reason }), null, 2));
+  });
+
 await program.parseAsync(process.argv);
 
-function mockDelegationContext(goal: string): DelegationContext {
-  const base = {
+function mockDelegationContext(goal: string) {
+  return createMockDelegationContext({
     goal,
-    workspace_id: "workspace-local",
-    principal_id: "human-local",
     delegate_id: "open-lagrange-cli",
-  };
-  const project_id = deterministicProjectId(base);
-  const parent_run_id = deterministicProjectRunId(project_id);
-  return DelegationContext.parse({
-    principal_id: base.principal_id,
-    principal_type: "human",
-    delegate_id: base.delegate_id,
-    delegate_type: "reconciler",
-    project_id,
-    workspace_id: base.workspace_id,
-    allowed_scopes: ["project:read", "project:summarize"],
-    denied_scopes: ["project:write"],
-    allowed_capabilities: ["read_file", "search_docs", "draft_readme_summary"],
-    max_risk_level: "read",
-    approval_required_for: ["write", "destructive", "external_side_effect"],
-    expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
-    trace_id: `trace_${project_id.replace(/^project_/, "")}`,
-    parent_run_id,
   });
 }
 

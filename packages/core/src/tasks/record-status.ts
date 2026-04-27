@@ -1,6 +1,7 @@
 import { getHatchetClient } from "../hatchet/client.js";
 import { toHatchetJsonObject, type HatchetJsonObject } from "../hatchet/json.js";
-import { inMemoryStatusStore, parseTaskStatus, type TaskStatusSnapshot } from "../status/status-store.js";
+import { getStateStore } from "../storage/state-store.js";
+import { parseTaskStatus, type TaskStatusSnapshot } from "../status/status-store.js";
 import { WorkflowStatusSnapshot } from "../schemas/reconciliation.js";
 import { z } from "zod";
 
@@ -15,7 +16,8 @@ export const recordStatusTask = getHatchetClient().task<HatchetJsonObject, Hatch
   executionTimeout: "10s",
   fn: async (input: HatchetJsonObject): Promise<HatchetJsonObject> => {
     const parsed = RecordStatusInput.parse(input);
-    if (parsed.kind === "project") return toHatchetJsonObject(await inMemoryStatusStore.recordProjectStatus(parsed.snapshot));
-    return toHatchetJsonObject(await inMemoryStatusStore.recordTaskStatus(parseTaskStatus(parsed.snapshot)));
+    const store = getStateStore();
+    if (parsed.kind === "project") return toHatchetJsonObject(await store.recordProjectStatus(parsed.snapshot));
+    return toHatchetJsonObject(await store.recordTaskStatus(parseTaskStatus(parsed.snapshot)));
   },
 });

@@ -4,32 +4,23 @@ Open Lagrange is an opinionated TypeScript cognitive execution framework. It is
 a deterministic reconciliation framework around non-deterministic cognitive
 functions.
 
-The cognitive step emits typed artifacts. The TypeScript runtime validates,
-authorizes, reconciles, and executes only through configured endpoint
-capabilities. MCP is the first local endpoint binding in this implementation.
+The model emits typed cognitive artifacts. The reconciler validates,
+authorizes, reconciles, and executes only through injected endpoint
+capabilities. Zod validation checks shape; the policy gate authorizes action.
 
 Open-COT is the reusable interface layer. Open Lagrange is the working
 implementation that pressure-tests Open-COT against durable workflow runs,
-capability injection, policy gates, MCP side effects, error handling,
-delegation, yield, approval placeholders, and reconciliation.
-
-## Runtime Pivot
-
-The first slice used a source-available runtime. This project now uses Hatchet
-as the durable workflow/task substrate because Hatchet is MIT licensed and
-fits the OSS foundation requirement.
-
-Hatchet does not provide the same replay-journal semantics as the prior
-runtime. Open Lagrange now isolates non-deterministic and side-effecting work
-as Hatchet-managed tasks with deterministic input, idempotency metadata, retry
-policy, persisted run history, and schema validation. Model output is
-untrusted and must be reconciled before any side effect occurs.
+capability injection, policy gates, MCP side effects, delegation, approval
+continuation, critic checks, yield, and reconciliation.
+The Repository Task Pack adds repo-scoped file inspection, validated patch
+planning, allowlisted verification, diff capture, and PR-ready review reports.
 
 ## Workspace Layout
 
-- `packages/core`: schemas, deterministic IDs, tasks, policy, MCP mocks,
-  Hatchet workflow runs, status state, and worker setup.
-- `apps/cli`: Commander CLI for submitting and polling project workflow runs.
+- `packages/core`: schemas, deterministic IDs, Hatchet tasks/workflows, policy,
+  MCP mocks, SQLite state, approval continuation, and shared workflow clients.
+- `apps/cli`: Commander CLI for submitting, polling, approving, and rejecting.
+- `apps/web`: Next.js App Router UI and API interface.
 
 ## Local Commands
 
@@ -40,10 +31,12 @@ npm test
 npm run build
 ```
 
-Start the worker:
+Start Hatchet, the worker, and the web UI:
 
 ```bash
+hatchet server start
 npm run dev:worker
+npm run dev:web
 ```
 
 Run the CLI demo:
@@ -52,19 +45,55 @@ Run the CLI demo:
 npm run cli -- run-demo
 ```
 
-## CLI
+Run the Repository Task Pack demo in dry-run mode:
 
 ```bash
-npm run cli -- submit "Create a short README summary for this repository."
-npm run cli -- status <project-id-or-run-id>
-npm run cli -- run-demo
+npm run cli -- repo run \
+  --repo . \
+  --goal "Add a short Repository Task Pack note to the README."
+```
+
+Apply mode is explicit:
+
+```bash
+npm run cli -- repo run \
+  --repo . \
+  --goal "Add a short Repository Task Pack note to the README." \
+  --apply
+```
+
+Submit through the web API:
+
+```bash
+curl -s http://localhost:3000/api/jobs \
+  -H 'content-type: application/json' \
+  -d '{"goal":"Create a short README summary for this repository."}'
+```
+
+Submit a repository task through the web API:
+
+```bash
+curl -s http://localhost:3000/api/repository/jobs \
+  -H 'content-type: application/json' \
+  -d '{"goal":"Add a short Repository Task Pack note to the README.","repo_root":".","dry_run":true}'
+```
+
+## Approval
+
+Tasks that require approval stop with `requires_approval`. Approval records a
+decision and starts a deterministic continuation workflow run that executes only
+the previously validated intent. Approval does not mutate arguments, capability
+digests, risk level, or delegated authority.
+
+```bash
+npm run cli -- approve <task-run-id> --reason "Approved for demo"
+npm run cli -- reject <task-run-id> --reason "Rejected for demo"
 ```
 
 ## Open-COT Relationship
 
-Open-COT is the portable schema and RFC layer. Open Lagrange is the
-opinionated TypeScript implementation that pressure-tests those schemas under
-durable execution, MCP side effects, policy gates, and reconciliation.
-
-Portable schema gaps found here are tracked in `open-cot-alignment.md` and
-must become Open-COT PRs when they are reusable core or extension concepts.
+Open-COT carries portable schemas and RFCs. Hatchet, Next.js, the Vercel AI SDK
+wrapper, SQLite, and the mock MCP registry are Open Lagrange implementation
+details. Portable schema gaps found here are tracked in `open-cot-alignment.md`
+and should become Open-COT PRs when they are reusable core or extension
+concepts.

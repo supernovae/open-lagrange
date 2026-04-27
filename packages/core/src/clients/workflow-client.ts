@@ -1,7 +1,17 @@
 export {
+  approveTask,
+  continueApprovedTask,
+  getProjectStatus,
   getProjectRunStatus,
+  getTaskStatus,
   parseStatusSnapshot,
+  rejectTask,
+  submitProject,
+  submitRepositoryTask,
   submitProjectRun,
+  type ApprovalActionInput,
+  type ApprovalActionResult,
   type ProjectRunStatus,
+  type SubmittedRepositoryTaskRun,
   type SubmittedProjectRun,
 } from "../hatchet/workflow-client.js";

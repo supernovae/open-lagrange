@@ -41,7 +41,7 @@ export const projectReconciler = getHatchetClient().task<HatchetJsonObject, Hatc
     }
 
     const requested = inputParsed.data;
-    const project_id = deterministicProjectId({
+    const project_id = requested.project_id ?? deterministicProjectId({
       goal: requested.goal,
       workspace_id: requested.delegation_context.workspace_id,
       principal_id: requested.delegation_context.principal_id,
@@ -156,6 +156,20 @@ export const projectReconciler = getHatchetClient().task<HatchetJsonObject, Hatc
       });
       const taskResult = TaskReconciliationResult.parse(taskResultCandidate);
       taskResults.push(taskResult);
+      await ctx.runChild(recordStatusTask, toHatchetJsonObject({
+        kind: "task",
+        snapshot: {
+          project_id,
+          task_id: taskResult.task_id,
+          task_run_id: taskResult.task_run_id,
+          status: taskResult.status,
+          observations: taskResult.observations,
+          errors: taskResult.errors,
+          final_message: taskResult.final_message,
+          result: taskResult,
+          updated_at: new Date().toISOString(),
+        },
+      }), { key: `${task_run_id}:status:final` });
       await ctx.runChild(recordStatusTask, toHatchetJsonObject({
         kind: "project",
         snapshot: statusSnapshot({

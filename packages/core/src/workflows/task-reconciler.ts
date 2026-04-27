@@ -1,7 +1,7 @@
 import type { Context } from "@hatchet-dev/typescript-sdk";
 import { getHatchetClient } from "../hatchet/client.js";
 import { toHatchetJsonObject, type HatchetJsonObject } from "../hatchet/json.js";
-import { deterministicReconciliationId } from "../ids/deterministic-ids.js";
+import { deterministicApprovalRequestId, deterministicReconciliationId } from "../ids/deterministic-ids.js";
 import { evaluatePolicy } from "../policy/policy-gate.js";
 import { validateIntentForSnapshot } from "../reconciliation/intent-validation.js";
 import { observation, structuredError } from "../reconciliation/records.js";
@@ -15,6 +15,7 @@ import { discoverCapabilitiesTask } from "../tasks/discover-capabilities.js";
 import { executeMcpIntentTask } from "../tasks/execute-mcp-intent.js";
 import { ExecuteMcpIntentOutput } from "../tasks/execute-mcp-intent.js";
 import { generateTaskArtifactTask } from "../tasks/generate-task-artifact.js";
+import { recordContinuationContextTask } from "../tasks/record-continuation-context.js";
 import { recordStatusTask } from "../tasks/record-status.js";
 import { runCriticTask } from "../tasks/run-critic.js";
 
@@ -166,14 +167,34 @@ export const taskReconciler = getHatchetClient().task<HatchetJsonObject, Hatchet
         state.observations.push(observation({ status: policy.outcome === "yield" ? "skipped" : "error", summary: policy.reason, now, intent_id: intent.intent_id, task_id: input.scoped_task.task_id }));
         if (policy.outcome === "requires_approval") {
           const approvalRequest: ApprovalRequest = {
-            approval_id: `approval_${intent.intent_id}`,
+            approval_request_id: deterministicApprovalRequestId({
+              task_run_id: input.task_run_id,
+              intent_id: intent.intent_id,
+              capability_digest: intent.capability_digest,
+            }),
+            task_id: input.scoped_task.task_id,
+            project_id: input.parent_project_id,
             intent_id: intent.intent_id,
+            requested_risk_level: intent.risk_level,
+            requested_capability: intent.capability_name,
             task_run_id: input.task_run_id,
             requested_at: now,
             prompt: `Approve ${intent.capability_name} for task ${input.scoped_task.title}`,
-            promise_name: `approval.${intent.intent_id}`,
+            trace_id: delegation.trace_id,
           };
           await ctx.runChild(createApprovalRequestTask, toHatchetJsonObject(approvalRequest), { key: `${input.task_run_id}:approval:${intent.intent_id}` });
+          await ctx.runChild(recordContinuationContextTask, toHatchetJsonObject({
+            approval_request: approvalRequest,
+            parent_project_id: input.parent_project_id,
+            parent_project_run_id: input.parent_project_run_id,
+            task_run_id: input.task_run_id,
+            scoped_task: input.scoped_task,
+            delegation_context: delegation,
+            bounds: input.bounds,
+            capability_snapshot: capabilitySnapshot,
+            artifact,
+            intent,
+          }), { key: `${input.task_run_id}:continuation:${intent.intent_id}` });
           return toHatchetJsonObject(taskResult("requires_approval", input, capabilitySnapshot, artifact, state, "Approval is required.", approvalRequest));
         }
         if (policy.outcome === "yield") return toHatchetJsonObject(taskResult("yielded", input, capabilitySnapshot, artifact, state, "The policy gate yielded."));

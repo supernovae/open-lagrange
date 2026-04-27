@@ -9,11 +9,12 @@
     "apps/*"
   ],
   "scripts": {
-    "build": "npm run build -w @open-lagrange/core && npm run build -w @open-lagrange/cli",
+    "build": "npm run build -w @open-lagrange/core && npm run build -w @open-lagrange/cli && npm run build -w @open-lagrange/web",
     "dev:worker": "npm run dev:worker -w @open-lagrange/core",
+    "dev:web": "npm run dev -w @open-lagrange/web",
     "cli": "npm run cli -w @open-lagrange/cli --",
     "test": "vitest run",
-    "typecheck": "npm run typecheck -w @open-lagrange/core && npm run build -w @open-lagrange/core && npm run typecheck -w @open-lagrange/cli"
+    "typecheck": "npm run typecheck -w @open-lagrange/core && npm run build -w @open-lagrange/core && npm run typecheck -w @open-lagrange/cli && npm run typecheck -w @open-lagrange/web"
   },
   "keywords": [
     "reconciliation",
