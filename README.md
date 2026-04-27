@@ -14,11 +14,16 @@ capability injection, policy gates, MCP side effects, delegation, approval
 continuation, critic checks, yield, and reconciliation.
 The Repository Task Pack adds repo-scoped file inspection, validated patch
 planning, allowlisted verification, diff capture, and PR-ready review reports.
+Capability Packs are now the extension unit: trusted local modules declare
+typed descriptors, stable digests, schemas, and bounded executors that run
+through the Pack Registry.
 
 ## Workspace Layout
 
 - `packages/core`: schemas, deterministic IDs, Hatchet tasks/workflows, policy,
   MCP mocks, SQLite state, approval continuation, and shared workflow clients.
+- `packages/capability-sdk`: runtime-neutral Capability Pack interfaces,
+  registry, digesting, execution result shape, and Open-COT adapters.
 - `apps/cli`: Commander CLI for submitting, polling, approving, and rejecting.
 - `apps/web`: Next.js App Router UI and API interface.
 
@@ -97,3 +102,7 @@ wrapper, SQLite, and the mock MCP registry are Open Lagrange implementation
 details. Portable schema gaps found here are tracked in `open-cot-alignment.md`
 and should become Open-COT PRs when they are reusable core or extension
 concepts.
+
+Capability Pack metadata, descriptors, side effect kinds, idempotency modes, and
+execution results are tracked as Open-COT candidates. The local Pack Registry
+and static loading policy remain Open Lagrange implementation details.

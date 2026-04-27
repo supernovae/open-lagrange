@@ -1,0 +1,10 @@
+{
+  "name": "@open-lagrange/capability-pack-template",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@open-lagrange/capability-sdk": "file:../../packages/capability-sdk",
+    "zod": "^4.3.6"
+  }
+}

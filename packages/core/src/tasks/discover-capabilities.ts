@@ -1,6 +1,6 @@
 import { getHatchetClient } from "../hatchet/client.js";
 import { toHatchetJsonObject, type HatchetJsonObject } from "../hatchet/json.js";
-import { discoverMockMcpCapabilities } from "../mcp/mock-registry.js";
+import { createCapabilitySnapshotForTask } from "../capability-registry/registry.js";
 import { CapabilitySnapshot, RiskLevel } from "../schemas/capabilities.js";
 import { DelegationContext } from "../schemas/delegation.js";
 import { ScopedTask } from "../schemas/reconciliation.js";
@@ -22,11 +22,12 @@ export const discoverCapabilitiesTask = getHatchetClient().task<HatchetJsonObjec
   executionTimeout: "30s",
   fn: async (input: HatchetJsonObject): Promise<HatchetJsonObject> => {
     const parsed = DiscoverCapabilitiesInput.parse(input);
-    return toHatchetJsonObject(CapabilitySnapshot.parse(discoverMockMcpCapabilities({
-      workspace_id: parsed.workspace_id,
-      task_scope: parsed.scoped_task,
-      delegation_context: parsed.delegation_context,
+    return toHatchetJsonObject(CapabilitySnapshot.parse(createCapabilitySnapshotForTask({
+      allowed_scopes: parsed.delegation_context.allowed_scopes.filter((scope) => parsed.scoped_task.allowed_scopes.includes(scope)),
+      denied_scopes: parsed.delegation_context.denied_scopes,
+      allowed_capabilities: [...parsed.delegation_context.allowed_capabilities, ...parsed.scoped_task.allowed_capabilities],
       max_risk_level: parsed.max_risk_level,
+      trust_levels: ["trusted_core", "trusted_local"],
       now: parsed.now,
     })));
   },

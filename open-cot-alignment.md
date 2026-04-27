@@ -19,6 +19,11 @@ Runtime-specific choices stay local; reusable interfaces should move upstream.
 | Approval Decision | ApprovalDecision | new portable candidate |
 | Continuation Input | ApprovalContinuationInput | new portable candidate |
 | Continuation Envelope | ApprovalContinuationEnvelope | new portable candidate |
+| Capability Pack | CapabilityPack | new portable candidate |
+| Capability Descriptor | CapabilityDescriptor | local SDK and compatibility schema |
+| Capability Execution Result | CapabilityExecutionResult | new portable candidate |
+| Side Effect Kind | SideEffectKind | new portable candidate |
+| Idempotency Mode | IdempotencyMode | new portable candidate |
 | Patch Plan | PatchPlan | new portable candidate |
 | Verification Report | VerificationReport | new portable candidate |
 | Review Report | ReviewReport | new portable candidate |
@@ -37,6 +42,8 @@ These should not become Open-COT requirements:
 - Local repository path policy, command allowlist, and repository capability
   pack executor.
 - Next.js repository route names and CLI repository command names.
+- Static Pack Registry implementation and Hatchet task wrappers around pack
+  execution.
 
 ## Proposed Open-COT Additions
 
@@ -161,6 +168,62 @@ PatchPlan may belong in an Open-COT extension first because patch semantics are
 domain-specific. VerificationReport and ReviewReport are broadly portable if
 they remain domain-neutral and avoid requiring local repository paths.
 
+Capability Pack SDK candidates:
+
+```ts
+export const SideEffectKind = z.enum([
+  "none",
+  "filesystem_read",
+  "filesystem_write",
+  "network_read",
+  "network_write",
+  "process_execution",
+  "cloud_control_plane",
+  "repository_mutation",
+  "ticket_mutation",
+  "message_send",
+]);
+
+export const IdempotencyMode = z.enum([
+  "required",
+  "recommended",
+  "not_applicable",
+]);
+
+export const CapabilityDescriptor = z.object({
+  capability_id: z.string().min(1),
+  pack_id: z.string().min(1),
+  name: z.string().min(1),
+  description: z.string(),
+  input_schema: z.record(z.string(), z.unknown()),
+  output_schema: z.record(z.string(), z.unknown()),
+  risk_level: RiskLevel,
+  side_effect_kind: SideEffectKind,
+  requires_approval: z.boolean(),
+  idempotency_mode: IdempotencyMode,
+  timeout_ms: z.number().int().min(1),
+  max_attempts: z.number().int().min(1),
+  scopes: z.array(z.string()),
+  tags: z.array(z.string()),
+  examples: z.array(z.unknown()),
+  capability_digest: z.string().regex(/^[a-f0-9]{64}$/),
+}).strict();
+
+export const CapabilityExecutionResult = z.object({
+  status: z.enum(["success", "failed", "yielded", "requires_approval"]),
+  output: z.unknown().optional(),
+  observations: z.array(z.unknown()),
+  structured_errors: z.array(StructuredError),
+  artifacts: z.array(z.unknown()),
+  started_at: z.string().datetime(),
+  completed_at: z.string().datetime(),
+  duration_ms: z.number().int().min(0),
+  idempotency_key: z.string().min(1),
+  retry_after: z.string().datetime().optional(),
+  approval_request: ApprovalRequest.optional(),
+}).strict();
+```
+
 ## Migration Notes
 
 - Existing Open-COT artifacts remain valid if they do not use approval.
@@ -178,6 +241,9 @@ they remain domain-neutral and avoid requiring local repository paths.
 | Approval request and decision | Core candidate across RFC 0006 and RFC 0010 | Pending PR |
 | Continuation input | Core if HITL resume is required for conformance, otherwise extension | Pending PR |
 | Continuation envelope | Core candidate for typed approval continuation payloads | Pending PR |
+| Capability Pack metadata | Core or extension candidate depending on Open-COT scope | Pending PR |
+| Capability Descriptor side effect and idempotency fields | Core candidate for safer snapshots | Pending PR |
+| Capability Execution Result | Core candidate for portable endpoint receipts | Pending PR |
 | MCP endpoint binding | Extension candidate | Pending PR |
 | PatchPlan | Extension candidate for repository/change artifacts | Pending PR |
 | VerificationReport and ReviewReport | Core candidate if generalized, extension if repository-scoped | Pending PR |

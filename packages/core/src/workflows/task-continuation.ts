@@ -2,7 +2,6 @@ import type { Context } from "@hatchet-dev/typescript-sdk";
 import { getHatchetClient } from "../hatchet/client.js";
 import { toHatchetJsonObject, type HatchetJsonObject } from "../hatchet/json.js";
 import { deterministicReconciliationId } from "../ids/deterministic-ids.js";
-import { validateMcpResult } from "../mcp/mock-registry.js";
 import { evaluatePolicy } from "../policy/policy-gate.js";
 import { validateIntentForSnapshot } from "../reconciliation/intent-validation.js";
 import { observation, structuredError } from "../reconciliation/records.js";
@@ -68,6 +67,7 @@ export const taskContinuation = getHatchetClient().task<HatchetJsonObject, Hatch
       arguments: context.intent.arguments,
       idempotency_key: context.intent.idempotency_key,
       delegation_context: context.delegation_context,
+      capability_snapshot_id: context.capability_snapshot.snapshot_id,
     }), {
       key: `${context.task_run_id}:approved-execute:${context.intent.idempotency_key}`,
       additionalMetadata: {
@@ -80,12 +80,6 @@ export const taskContinuation = getHatchetClient().task<HatchetJsonObject, Hatch
     if (output.status !== "ok") {
       const item = structuredError({ code: "MCP_EXECUTION_FAILED", message: output.message, now, task_id: context.scoped_task.task_id, intent_id: context.intent.intent_id });
       return toHatchetJsonObject(await recordAndReturn(ctx, resultFromContext("failed", context, [], [item], "Approved endpoint execution failed."), now));
-    }
-
-    const validation = validateMcpResult(prepared.capability, output.result);
-    if (!validation.ok) {
-      const item = structuredError({ code: "RESULT_VALIDATION_FAILED", message: validation.message, now, task_id: context.scoped_task.task_id, intent_id: context.intent.intent_id });
-      return toHatchetJsonObject(await recordAndReturn(ctx, resultFromContext("failed", context, [], [item], "Approved endpoint result was invalid."), now));
     }
 
     const observations = [observation({ status: "recorded", summary: output.message, now, task_id: context.scoped_task.task_id, intent_id: context.intent.intent_id, output: output.result })];

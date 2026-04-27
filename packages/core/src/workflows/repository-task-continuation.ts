@@ -44,6 +44,9 @@ export const repositoryTaskContinuation = getHatchetClient().task<HatchetJsonObj
     const preview = PatchPreview.parse(await ctx.runChild(proposeRepositoryPatchTask, toHatchetJsonObject({
       workspace: payload.workspace,
       patch_plan: payload.patch_plan,
+      delegation_context: payload.delegation_context,
+      task_run_id: input.task_run_id,
+      snapshot_id: payload.capability_snapshot.snapshot_id,
     }), { key: `${input.task_run_id}:approved-repo-propose:${payload.patch_plan.idempotency_key}` }));
     if (JSON.stringify(preview.touched_files) !== JSON.stringify(payload.patch_preview.touched_files)) {
       const item = structuredError({ code: "INVALID_ARTIFACT", message: "Approved patch preview changed before continuation", now, task_id: "repository-task", intent_id: payload.patch_plan.patch_plan_id });
@@ -54,13 +57,24 @@ export const repositoryTaskContinuation = getHatchetClient().task<HatchetJsonObj
     await ctx.runChild(applyRepositoryPatchTask, toHatchetJsonObject({
       workspace: payload.workspace,
       patch_plan: payload.patch_plan,
+      delegation_context: payload.delegation_context,
+      task_run_id: input.task_run_id,
+      snapshot_id: payload.capability_snapshot.snapshot_id,
     }), { key: `${input.task_run_id}:approved-repo-apply:${payload.patch_plan.idempotency_key}` });
 
     const verification = VerificationReport.parse(await ctx.runChild(runRepositoryVerificationTask, toHatchetJsonObject({
       workspace: payload.workspace,
       command_ids: payload.verification_command_ids,
+      delegation_context: payload.delegation_context,
+      task_run_id: input.task_run_id,
+      snapshot_id: payload.capability_snapshot.snapshot_id,
     }), { key: `${input.task_run_id}:approved-repo-verify` }));
-    const diff = DiffReport.parse(await ctx.runChild(getRepositoryDiffTask, toHatchetJsonObject({ workspace: payload.workspace }), {
+    const diff = DiffReport.parse(await ctx.runChild(getRepositoryDiffTask, toHatchetJsonObject({
+      workspace: payload.workspace,
+      delegation_context: payload.delegation_context,
+      task_run_id: input.task_run_id,
+      snapshot_id: payload.capability_snapshot.snapshot_id,
+    }), {
       key: `${input.task_run_id}:approved-repo-diff`,
     }));
     const review = ReviewReport.parse(await ctx.runChild(generateRepositoryReviewTask, toHatchetJsonObject({
@@ -187,4 +201,3 @@ function missingContextResult(taskRunId: string, now: string): TaskReconciliatio
     final_message: "Repository approval continuation context was not found.",
   });
 }
-

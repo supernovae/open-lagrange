@@ -5,7 +5,6 @@ import { deterministicApprovalRequestId, deterministicReconciliationId } from ".
 import { evaluatePolicy } from "../policy/policy-gate.js";
 import { validateIntentForSnapshot } from "../reconciliation/intent-validation.js";
 import { observation, structuredError } from "../reconciliation/records.js";
-import { validateMcpResult } from "../mcp/mock-registry.js";
 import { DelegationContext } from "../schemas/delegation.js";
 import { CognitiveArtifact, type ExecutionIntent, type Observation, type StructuredError } from "../schemas/open-cot.js";
 import { CriticResult, TaskReconcilerInput, TaskReconciliationResult, type ApprovalRequest, type TaskReconciliationResult as TaskReconciliationResultType } from "../schemas/reconciliation.js";
@@ -207,6 +206,7 @@ export const taskReconciler = getHatchetClient().task<HatchetJsonObject, Hatchet
         arguments: intent.arguments,
         idempotency_key: intent.idempotency_key,
         delegation_context: delegation,
+        capability_snapshot_id: capabilitySnapshot.snapshot_id,
       }), {
         key: `${input.task_run_id}:execute:${intent.idempotency_key}`,
         additionalMetadata: {
@@ -222,15 +222,6 @@ export const taskReconciler = getHatchetClient().task<HatchetJsonObject, Hatchet
         state.skipped.push(intent);
         state.errors.push(item);
         state.observations.push(observation({ status: "error", summary: output.message, now, intent_id: intent.intent_id, task_id: input.scoped_task.task_id }));
-        continue;
-      }
-
-      const outputValidation = validateMcpResult(prepared.capability, output.result);
-      if (!outputValidation.ok) {
-        const item = structuredError({ code: "RESULT_VALIDATION_FAILED", message: outputValidation.message, now, intent_id: intent.intent_id, task_id: input.scoped_task.task_id });
-        state.skipped.push(intent);
-        state.errors.push(item);
-        state.observations.push(observation({ status: "error", summary: item.message, now, intent_id: intent.intent_id, task_id: input.scoped_task.task_id, output: output.result }));
         continue;
       }
 

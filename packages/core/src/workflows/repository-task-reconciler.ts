@@ -31,12 +31,22 @@ export const repositoryTaskReconciler = getHatchetClient().task<HatchetJsonObjec
     }));
     await recordRepoStatus(ctx, input, repositoryStatus(input, workspace, "discovering_capabilities"));
 
-    const capabilitySnapshot = CapabilitySnapshot.parse(await ctx.runChild(discoverRepositoryCapabilitiesTask, toHatchetJsonObject(workspace), {
+    const capabilitySnapshot = CapabilitySnapshot.parse(await ctx.runChild(discoverRepositoryCapabilitiesTask, toHatchetJsonObject({
+      workspace,
+      delegation_context: input.delegation_context,
+      now,
+    }), {
       key: `${input.task_run_id}:repo-capabilities`,
     }));
     await recordRepoStatus(ctx, input, repositoryStatus(input, workspace, "inspecting"));
 
-    const inspection = await ctx.runChild(readRepositoryFilesTask, toHatchetJsonObject({ workspace, query: input.goal }), {
+    const inspection = await ctx.runChild(readRepositoryFilesTask, toHatchetJsonObject({
+      workspace,
+      delegation_context: input.delegation_context,
+      query: input.goal,
+      task_run_id: input.task_run_id,
+      snapshot_id: capabilitySnapshot.snapshot_id,
+    }), {
       key: `${input.task_run_id}:repo-inspect`,
     });
     const reads = zReads(inspection);
@@ -51,6 +61,9 @@ export const repositoryTaskReconciler = getHatchetClient().task<HatchetJsonObjec
     const preview = PatchPreview.parse(await ctx.runChild(proposeRepositoryPatchTask, toHatchetJsonObject({
       workspace,
       patch_plan: patchPlan,
+      delegation_context: input.delegation_context,
+      task_run_id: input.task_run_id,
+      snapshot_id: capabilitySnapshot.snapshot_id,
     }), { key: `${input.task_run_id}:repo-propose-patch` }));
     const needsApproval = preview.requires_approval || input.require_approval || (!input.apply && input.dry_run);
     if (needsApproval) {
@@ -65,6 +78,7 @@ export const repositoryTaskReconciler = getHatchetClient().task<HatchetJsonObjec
         payload: {
           goal: input.goal,
           workspace,
+          delegation_context: input.delegation_context,
           patch_plan: patchPlan,
           patch_preview: preview,
           capability_snapshot: capabilitySnapshot,
@@ -88,14 +102,25 @@ export const repositoryTaskReconciler = getHatchetClient().task<HatchetJsonObjec
     await ctx.runChild(applyRepositoryPatchTask, toHatchetJsonObject({
       workspace,
       patch_plan: patchPlan,
+      delegation_context: input.delegation_context,
+      task_run_id: input.task_run_id,
+      snapshot_id: capabilitySnapshot.snapshot_id,
     }), { key: `${input.task_run_id}:repo-apply:${patchPlan.idempotency_key}` });
 
     await recordRepoStatus(ctx, input, repositoryStatus(input, workspace, "verifying", { planned_files: preview.touched_files }));
     const verification = VerificationReport.parse(await ctx.runChild(runRepositoryVerificationTask, toHatchetJsonObject({
       workspace,
       command_ids: input.verification_command_ids,
+      delegation_context: input.delegation_context,
+      task_run_id: input.task_run_id,
+      snapshot_id: capabilitySnapshot.snapshot_id,
     }), { key: `${input.task_run_id}:repo-verify` }));
-    const diff = DiffReport.parse(await ctx.runChild(getRepositoryDiffTask, toHatchetJsonObject({ workspace }), {
+    const diff = DiffReport.parse(await ctx.runChild(getRepositoryDiffTask, toHatchetJsonObject({
+      workspace,
+      delegation_context: input.delegation_context,
+      task_run_id: input.task_run_id,
+      snapshot_id: capabilitySnapshot.snapshot_id,
+    }), {
       key: `${input.task_run_id}:repo-diff`,
     }));
     await recordRepoStatus(ctx, input, repositoryStatus(input, workspace, "reviewing", {

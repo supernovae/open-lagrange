@@ -127,6 +127,7 @@ export const RepositoryTaskInput = z.object({
 export const RepositoryApprovalContinuationPayload = z.object({
   goal: z.string().min(1),
   workspace: RepositoryWorkspace,
+  delegation_context: DelegationContext,
   patch_plan: PatchPlan,
   patch_preview: PatchPreview,
   capability_snapshot: CapabilitySnapshot,
