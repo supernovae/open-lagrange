@@ -2,20 +2,25 @@
   "name": "open-lagrange",
   "version": "0.1.0",
   "description": "Durable reconciliation around non-deterministic cognitive functions.",
+  "private": true,
   "type": "module",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
   "scripts": {
-    "build": "tsc",
+    "build": "npm run build -w @open-lagrange/core && npm run build -w @open-lagrange/cli",
+    "dev:worker": "npm run dev:worker -w @open-lagrange/core",
+    "cli": "npm run cli -w @open-lagrange/cli --",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "npm run typecheck -w @open-lagrange/core && npm run build -w @open-lagrange/core && npm run typecheck -w @open-lagrange/cli"
   },
   "keywords": [
     "reconciliation",
     "cognitive-pipeline",
     "runtime-boundary",
     "open-cot",
-    "restate",
+    "hatchet",
     "mcp"
   ],
   "license": "MIT",
@@ -24,11 +29,5 @@
     "tsx": "^4.19.0",
     "typescript": "^5.7.0",
     "vitest": "^3.1.0"
-  },
-  "dependencies": {
-    "@ai-sdk/openai": "^3.0.53",
-    "@restatedev/restate-sdk": "^1.13.0",
-    "ai": "^6.0.168",
-    "zod": "^4.3.6"
   }
 }

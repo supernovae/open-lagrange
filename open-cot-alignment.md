@@ -28,6 +28,16 @@ opening an upstream PR:
 Core v1 is not finalized. Prefer fixing true core completeness gaps upstream
 instead of carrying local-only compatibility behavior.
 
+## Active Drift Register
+
+| Gap | Pressure from Open Lagrange | Classification | Upstream action |
+| --- | --- | --- | --- |
+| Typed project execution plan | Project workflows need a validated plan that delegates scoped task workflows before endpoint execution. | Core candidate for RFC 0007 | PR https://github.com/supernovae/open-cot/pull/73 |
+| Delegation context | Every workflow and MCP call needs portable authority context so execution never happens as an ambient user. | Core candidate for RFC 0009 | PR https://github.com/supernovae/open-cot/pull/73 |
+| MCP endpoint binding | Open Lagrange uses MCP as the first endpoint substrate while Open-COT keeps generic `endpoint_id`. | Extension candidate | Pending PR |
+| Approval linkage | Task reconciliation can return `requires_approval`, but result-to-approval linkage is minimal upstream. | Core candidate across RFC 0006 and RFC 0010 | Pending PR |
+| Rich policy audit record | Runtime policy decisions need auditable inputs distinct from Zod validation. | Core if required for conformance, otherwise extension | Pending PR |
+
 ## Candidate Gaps To Evaluate
 
 - Whether `policy_gate` needs richer portable evaluation context for audit.
@@ -46,8 +56,11 @@ instead of carrying local-only compatibility behavior.
 - Add or update an example under `examples/<registry-shortname>/`.
 - Run `python3 tools/validate.py`.
 - Link the relevant RFC discussion thread.
+- Open a merge-ready PR in `supernovae/open-cot` for core or extension gaps.
 
 ## Compatibility Notes
 
-The local Zod schemas intentionally match Open CoT Core v1 snake_case fields.
-There is no backward compatibility layer for pre-reset field names.
+The local Zod schemas intentionally match Open-COT Core v1 snake_case fields.
+There is no backward compatibility layer for pre-reset field names. MCP remains
+a first-class Open Lagrange endpoint binding, not a forked Open-COT artifact
+shape.
