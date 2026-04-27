@@ -1,0 +1,79 @@
+import type { ProjectRunStatus, RuntimeHealth, UserFrameEvent } from "@open-lagrange/core/interface";
+import type { TaskStatusSnapshot } from "@open-lagrange/core/interface";
+
+export type PaneId = "chat" | "timeline" | "tasks" | "approvals" | "diff" | "verification" | "review" | "artifact_json" | "help";
+export type InputMode = "chat" | "command" | "approval_reason" | "rejection_reason" | "scope_adjustment";
+
+export interface ConversationTurn {
+  readonly turn_id: string;
+  readonly role: "user" | "system";
+  readonly text: string;
+  readonly created_at: string;
+  readonly project_id?: string;
+  readonly task_id?: string;
+  readonly artifact_refs?: readonly string[];
+}
+
+export interface ReconciliationTimelineItem {
+  readonly event_id: string;
+  readonly timestamp: string;
+  readonly phase: string;
+  readonly title: string;
+  readonly summary: string;
+  readonly project_id?: string;
+  readonly task_id?: string;
+  readonly capability_id?: string;
+  readonly artifact_id?: string;
+  readonly severity?: "info" | "warning" | "error" | "success";
+  readonly metadata?: Record<string, unknown>;
+}
+
+export interface ApprovalRequestSummary {
+  readonly approval_request_id: string;
+  readonly task_id: string;
+  readonly requested_capability: string;
+  readonly requested_risk_level: string;
+  readonly prompt: string;
+}
+
+export interface ArtifactSummary {
+  readonly artifact_id: string;
+  readonly artifact_type: "diff" | "review" | "verification" | "plan" | "artifact_json";
+  readonly title: string;
+  readonly value: unknown;
+}
+
+export interface ChangedFileSummary {
+  readonly path: string;
+}
+
+export interface VerificationResultSummary {
+  readonly command_id: string;
+  readonly command: string;
+  readonly exit_code: number;
+  readonly duration_ms: number;
+  readonly stdout_preview: string;
+  readonly stderr_preview: string;
+  readonly truncated: boolean;
+}
+
+export interface TuiViewModel {
+  readonly project?: ProjectRunStatus;
+  readonly activeTask?: TaskStatusSnapshot;
+  readonly conversation: readonly ConversationTurn[];
+  readonly timeline: readonly ReconciliationTimelineItem[];
+  readonly approvals: readonly ApprovalRequestSummary[];
+  readonly artifacts: readonly ArtifactSummary[];
+  readonly changedFiles: readonly ChangedFileSummary[];
+  readonly verificationResults: readonly VerificationResultSummary[];
+  readonly selectedPane: PaneId;
+  readonly inputMode: InputMode;
+  readonly isLoading: boolean;
+  readonly health: RuntimeHealth;
+  readonly lastError?: string;
+}
+
+export type ParsedInput =
+  | { readonly kind: "command"; readonly command: string; readonly event?: UserFrameEvent | undefined; readonly pane?: PaneId; readonly quit?: boolean; readonly attachProjectId?: string; readonly error?: string }
+  | { readonly kind: "event"; readonly event: UserFrameEvent }
+  | { readonly kind: "empty" };

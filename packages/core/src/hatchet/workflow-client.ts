@@ -1,6 +1,6 @@
 import { getHatchetClient } from "./client.js";
 import { toHatchetJsonObject } from "./json.js";
-import { deterministicContinuationRunId, deterministicProjectId, deterministicProjectRunId } from "../ids/deterministic-ids.js";
+import { deterministicContinuationRunId, deterministicIdempotencyKey, deterministicProjectId, deterministicProjectRunId } from "../ids/deterministic-ids.js";
 import { observation, structuredError } from "../reconciliation/records.js";
 import { ApprovalDecision, ProjectReconcilerInput, WorkflowStatusSnapshot, type ApprovalDecision as ApprovalDecisionType, type ProjectReconcilerInput as ProjectReconcilerInputType, type ProjectReconciliationResult, type WorkflowStatusSnapshot as WorkflowStatusSnapshotType } from "../schemas/reconciliation.js";
 import { RepositoryTaskInput, type RepositoryTaskInput as RepositoryTaskInputType } from "../schemas/repository.js";
@@ -39,6 +39,11 @@ export interface ApprovalActionResult {
   readonly decision?: ApprovalDecisionType;
   readonly continuation_run_id?: string;
   readonly task_status?: TaskStatusSnapshot | undefined;
+}
+
+export interface RequestedVerificationRun {
+  readonly verification_run_id: string;
+  readonly hatchet_run_id: string;
 }
 
 export async function submitProjectRun(input: ProjectReconcilerInputType): Promise<SubmittedProjectRun> {
@@ -279,6 +284,34 @@ export async function continueApprovedRepositoryTask(input: {
     },
   });
   return { continuation_run_id: await ref.runId };
+}
+
+export async function requestRepositoryVerification(input: {
+  readonly project_id: string;
+  readonly task_run_id: string;
+  readonly repo_root: string;
+  readonly workspace_id: string;
+  readonly command_id: string;
+}): Promise<RequestedVerificationRun> {
+  const verification_run_id = deterministicIdempotencyKey({
+    kind: "repository-verification-request",
+    project_id: input.project_id,
+    task_run_id: input.task_run_id,
+    command_id: input.command_id,
+  });
+  const { repositoryVerificationRequest } = await import("../workflows/repository-verification-request.js");
+  const ref = await repositoryVerificationRequest.runNoWait(toHatchetJsonObject(input), {
+    additionalMetadata: {
+      verification_run_id,
+      project_id: input.project_id,
+      task_run_id: input.task_run_id,
+      command_id: input.command_id,
+    },
+  });
+  return {
+    verification_run_id,
+    hatchet_run_id: await ref.runId,
+  };
 }
 
 export function parseStatusSnapshot(input: unknown): WorkflowStatusSnapshotType {

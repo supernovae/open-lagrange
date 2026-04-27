@@ -20,6 +20,7 @@ import { runCriticTask } from "../tasks/run-critic.js";
 import { projectReconciler } from "../workflows/project-reconciler.js";
 import { repositoryTaskContinuation } from "../workflows/repository-task-continuation.js";
 import { repositoryTaskReconciler } from "../workflows/repository-task-reconciler.js";
+import { repositoryVerificationRequest } from "../workflows/repository-verification-request.js";
 import { taskContinuation } from "../workflows/task-continuation.js";
 import { taskReconciler } from "../workflows/task-reconciler.js";
 
@@ -31,6 +32,7 @@ export const OPEN_LAGRANGE_WORKFLOWS = [
   taskContinuation,
   repositoryTaskReconciler,
   repositoryTaskContinuation,
+  repositoryVerificationRequest,
   generateExecutionPlanTask,
   discoverCapabilitiesTask,
   generateTaskArtifactTask,

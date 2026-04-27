@@ -26,6 +26,8 @@ through the Pack Registry.
   registry, digesting, execution result shape, and Open-COT adapters.
 - `apps/cli`: Commander CLI for submitting, polling, approving, and rejecting.
 - `apps/web`: Next.js App Router UI and API interface.
+- `apps/tui`: Ink terminal reconciliation cockpit for project status,
+  approvals, diffs, verification, and review reports.
 
 ## Local Commands
 
@@ -57,6 +59,20 @@ npm run cli -- repo run \
   --repo . \
   --goal "Add a short Repository Task Pack note to the README."
 ```
+
+Run the terminal cockpit:
+
+```bash
+npm run dev:tui -- \
+  --repo . \
+  --goal "Add a short Repository Task Pack note to the README." \
+  --dry-run
+```
+
+Inside the TUI, `/verify npm_run_typecheck` starts a Hatchet-managed
+repository verification request for the active repository task. Plain
+refinement text and `/scope` commands are recorded as typed frame observations;
+they do not rewrite an already validated intent.
 
 Apply mode is explicit:
 

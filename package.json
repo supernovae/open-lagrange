@@ -9,12 +9,13 @@
     "apps/*"
   ],
   "scripts": {
-    "build": "npm run build -w @open-lagrange/capability-sdk && npm run build -w @open-lagrange/core && npm run build -w @open-lagrange/cli && npm run build -w @open-lagrange/web",
+    "build": "npm run build -w @open-lagrange/capability-sdk && npm run build -w @open-lagrange/core && npm run build -w @open-lagrange/cli && npm run build -w @open-lagrange/tui && npm run build -w @open-lagrange/web",
     "dev:worker": "npm run build -w @open-lagrange/capability-sdk && npm run dev:worker -w @open-lagrange/core",
     "dev:web": "npm run dev -w @open-lagrange/web",
+    "dev:tui": "npm run build -w @open-lagrange/capability-sdk && npm run build -w @open-lagrange/core && npm run dev -w @open-lagrange/tui --",
     "cli": "npm run cli -w @open-lagrange/cli --",
     "test": "vitest run",
-    "typecheck": "npm run typecheck -w @open-lagrange/capability-sdk && npm run build -w @open-lagrange/capability-sdk && npm run typecheck -w @open-lagrange/core && npm run build -w @open-lagrange/core && npm run typecheck -w @open-lagrange/cli && npm run typecheck -w @open-lagrange/web"
+    "typecheck": "npm run typecheck -w @open-lagrange/capability-sdk && npm run build -w @open-lagrange/capability-sdk && npm run typecheck -w @open-lagrange/core && npm run build -w @open-lagrange/core && npm run typecheck -w @open-lagrange/cli && npm run typecheck -w @open-lagrange/tui && npm run typecheck -w @open-lagrange/web"
   },
   "keywords": [
     "reconciliation",
