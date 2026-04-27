@@ -6,10 +6,13 @@
   "scripts": {
     "build": "next build",
     "dev": "next dev",
+    "start": "next start",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
     "@open-lagrange/core": "file:../../packages/core",
+    "@open-lagrange/platform-client": "file:../../packages/platform-client",
+    "@open-lagrange/runtime-manager": "file:../../packages/runtime-manager",
     "next": "^16.0.10",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",

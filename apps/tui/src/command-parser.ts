@@ -53,6 +53,7 @@ function parseCommand(input: string, context: ParseContext): ParsedInput {
   if (command === "reject") return withProject(context, { kind: "command", command, event: { type: "reject", approval_request_id: context.approval_request_id ?? context.task_id ?? "", task_id: context.task_id ?? "", reason: text || "Rejected from TUI." } });
   if (command === "run") return { kind: "command", command, event: submitGoal(text, context) };
   if (command === "attach") return text ? { kind: "command", command, attachProjectId: text, pane: "timeline" } : { kind: "command", command, error: "Usage: /attach <project_id>" };
+  if (command === "profile") return { kind: "command", command, error: "Profile switching is available from the CLI: open-lagrange profile use <name>." };
   if (command === "scope") {
     if (!context.project_id) return { kind: "command", command, error: "No project is active." };
     const [mode, ...paths] = rest;

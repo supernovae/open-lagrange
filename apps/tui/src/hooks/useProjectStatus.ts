@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
-import { getProjectRunStatus, getRuntimeHealth, type ProjectRunStatus, type RuntimeHealth } from "@open-lagrange/core/interface";
+import type { ProjectRunStatus, RuntimeHealth } from "@open-lagrange/core/interface";
+import { createPlatformClientFromCurrentProfile } from "@open-lagrange/platform-client";
+import { getRuntimeStatus } from "@open-lagrange/runtime-manager";
 
 export function useProjectStatus(input: {
   readonly projectId?: string;
@@ -20,9 +22,16 @@ export function useProjectStatus(input: {
   async function refresh(): Promise<void> {
     setLoading(true);
     try {
-      const nextHealth = await getRuntimeHealth({ ...(input.apiUrl ? { api_url: input.apiUrl } : {}), ...(input.projectId ? { project_id: input.projectId } : {}) });
-      setHealth(nextHealth);
-      if (input.projectId) setProject(await getProjectRunStatus(input.projectId));
+      const runtimeStatus = await getRuntimeStatus();
+      setHealth({
+        profile: runtimeStatus.profileName,
+        api: runtimeStatus.api.state === "running" ? "up" : runtimeStatus.api.state === "unreachable" ? "down" : "unknown",
+        worker: runtimeStatus.worker?.state === "running" ? "up" : "unknown",
+        hatchet: runtimeStatus.hatchet?.state === "running" ? "up" : "unknown",
+        packs: runtimeStatus.registeredPacks?.length ?? 0,
+        model: runtimeStatus.modelProvider?.state === "running" ? "configured" : "not_configured",
+      });
+      if (input.projectId) setProject(await (await createPlatformClientFromCurrentProfile()).getProjectStatus(input.projectId) as ProjectRunStatus);
       setLastError(undefined);
     } catch (error) {
       setLastError(error instanceof Error ? error.message : "Status refresh failed.");

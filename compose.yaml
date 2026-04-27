@@ -1,0 +1,24 @@
+name: open-lagrange
+
+services:
+  open-lagrange-api:
+    image: ghcr.io/supernovae/open-lagrange-api:latest
+    build:
+      context: .
+      dockerfile: containers/api.Containerfile
+    ports:
+      - "4317:4317"
+
+  open-lagrange-worker:
+    image: ghcr.io/supernovae/open-lagrange-worker:latest
+    build:
+      context: .
+      dockerfile: containers/worker.Containerfile
+
+  open-lagrange-web:
+    image: ghcr.io/supernovae/open-lagrange-web:latest
+    build:
+      context: .
+      dockerfile: containers/web.Containerfile
+    ports:
+      - "3000:3000"

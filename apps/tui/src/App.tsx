@@ -8,6 +8,7 @@ import { useProjectStatus } from "./hooks/useProjectStatus.js";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts.js";
 import { useUserFrameEvents } from "./hooks/useUserFrameEvents.js";
 import { Layout } from "./components/Layout.js";
+import { runDoctor, startLocalRuntime, tailLogs } from "@open-lagrange/runtime-manager";
 
 export interface AppProps {
   readonly goal?: string;
@@ -63,8 +64,25 @@ export function App(props: AppProps): React.ReactElement {
     onApprove: () => setInput("/approve Approved from TUI."),
     onReject: () => setInput("/reject Rejected from TUI."),
     onRefresh: () => void status.refresh(),
+    onStartRuntime: () => void runtimeAction("Starting local runtime.", async () => JSON.stringify(await startLocalRuntime(), null, 2)),
+    onDoctor: () => void runtimeAction("Running doctor.", async () => JSON.stringify(await runDoctor(), null, 2)),
+    onLogs: () => void runtimeAction("Loading local logs.", async () => await tailLogs()),
+    onProfile: () => setInput("/profile use "),
     onQuit: () => app.exit(),
   });
+
+  async function runtimeAction(label: string, action: () => Promise<string>): Promise<void> {
+    setConversation((turns) => [...turns, systemTurn(label, projectId, activeTask?.task_run_id)]);
+    try {
+      const output = await action();
+      setConversation((turns) => [...turns, systemTurn(output.slice(0, 4000), projectId, activeTask?.task_run_id)]);
+      await status.refresh();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Runtime action failed.";
+      setLastError(message);
+      setConversation((turns) => [...turns, systemTurn(message, projectId, activeTask?.task_run_id)]);
+    }
+  }
 
   async function dispatch(event: UserFrameEvent): Promise<void> {
     setConversation((turns) => [...turns, userTurn(eventText(event), projectId, activeTask?.task_run_id)]);

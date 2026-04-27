@@ -26,4 +26,4 @@ storage boundary is shaped so a Postgres provider can be added for server or
 Kubernetes deployments without changing CLI, web, or workflow callers.
 
 Hatchet run IDs, worker names, retry policy, and continuation workflow names
-are local implementation details. They should not become Open-COT requirements.
+are local implementation details..

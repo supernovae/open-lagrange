@@ -310,6 +310,10 @@ export async function getRuntimeHealth(input: { readonly api_url?: string; reado
   };
 }
 
+export function listRegisteredPacks(): readonly string[] {
+  return packRegistry.listPacks().map((pack) => pack.manifest.pack_id);
+}
+
 async function probeHttp(url: string): Promise<RuntimeHealth["api"]> {
   try {
     const response = await fetch(url, { method: "GET" });

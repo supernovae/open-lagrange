@@ -1,110 +1,126 @@
 #!/usr/bin/env node
+import { spawn } from "node:child_process";
 import { Command } from "commander";
-import {
-  DEFAULT_EXECUTION_BOUNDS,
-  approveTask,
-  createMockDelegationContext,
-  deterministicProjectId,
-  deterministicRepositoryTaskRunId,
-  getProjectRunStatus,
-  getTaskStatus,
-  rejectTask,
-  submitRepositoryTask,
-  submitProjectRun,
-  type ProjectReconcilerInput,
-} from "@open-lagrange/core";
+import { createPlatformClientFromCurrentProfile } from "@open-lagrange/platform-client";
+import { addLocalProfile, addRemoteProfile, getCurrentProfile, initRuntime, loadConfig, removeProfile, restartLocalRuntime, runDoctor, setCurrentProfile, startLocalRuntime, stopLocalRuntime, tailLogs, getRuntimeStatus } from "@open-lagrange/runtime-manager";
 
 const program = new Command();
 
 program
   .name("open-lagrange")
-  .description("Submit and inspect Open Lagrange reconciliation workflow runs.");
+  .description("Open Lagrange Control Plane CLI.");
+
+program
+  .command("init")
+  .description("Create a local Open Lagrange runtime profile.")
+  .option("--runtime <runtime>", "docker or podman")
+  .action(async (options: { readonly runtime?: string }) => {
+    const runtime = runtimeOption(options.runtime);
+    console.log(JSON.stringify(await initRuntime({ ...(runtime ? { runtime } : {}) }), null, 2));
+  });
+
+program
+  .command("up")
+  .description("Start the local runtime for the current profile.")
+  .option("--runtime <runtime>", "docker or podman")
+  .option("--dev", "Run API and worker as local Node processes", false)
+  .action(async (options: { readonly runtime?: string; readonly dev: boolean }) => {
+    const runtime = runtimeOption(options.runtime);
+    console.log(JSON.stringify(await startLocalRuntime({ ...(runtime ? { runtime } : {}), dev: options.dev }), null, 2));
+  });
+
+program.command("down").description("Stop the local runtime.").action(async () => {
+  console.log(JSON.stringify(await stopLocalRuntime(), null, 2));
+});
+
+program.command("restart").description("Restart the local runtime.").option("--dev", "Run API and worker as local Node processes", false).action(async (options: { readonly dev: boolean }) => {
+  console.log(JSON.stringify(await restartLocalRuntime({ dev: options.dev }), null, 2));
+});
+
+program
+  .command("status")
+  .description("Show runtime status, or project status when an ID is provided.")
+  .argument("[projectOrRunId]", "Project ID or run ID")
+  .action(async (projectOrRunId: string | undefined) => {
+    if (projectOrRunId) console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).getProjectStatus(projectOrRunId), null, 2));
+    else console.log(JSON.stringify(await getRuntimeStatus(), null, 2));
+  });
+
+program.command("doctor").description("Run local or remote profile checks.").action(async () => {
+  console.log(JSON.stringify(await runDoctor(), null, 2));
+});
+
+program.command("logs").description("Show local runtime logs.").argument("[service]", "api, worker, web, hatchet, or compose service").action(async (service: string | undefined) => {
+  console.log(await tailLogs(service));
+});
+
+program.command("tui").description("Start the terminal reconciliation cockpit.").allowUnknownOption(true).action(async () => {
+  const args = process.argv.slice(process.argv.indexOf("tui") + 1);
+  const child = spawn("npm", ["run", "dev:tui", "--", ...args], { cwd: process.cwd(), stdio: "inherit" });
+  child.on("exit", (code) => process.exit(code ?? 0));
+});
 
 program
   .command("submit")
-  .description("Submit a project reconciliation workflow run.")
+  .description("Submit a project reconciliation run through the Control Plane API.")
   .argument("<goal>", "User goal")
   .action(async (goal: string) => {
-    const context = mockDelegationContext(goal);
-    const input: ProjectReconcilerInput = {
-      goal,
-      delegation_context: context,
-      bounds: DEFAULT_EXECUTION_BOUNDS,
-    };
-    const submitted = await submitProjectRun(input);
-    console.log(JSON.stringify(submitted, null, 2));
+    console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).submitProject({ goal }), null, 2));
   });
 
 program
   .command("approve")
-  .description("Approve a task that is waiting for review.")
+  .description("Approve a task.")
   .argument("<taskId>", "Task ID or task run ID")
   .requiredOption("--reason <reason>", "Approval reason")
   .option("--approved-by <approvedBy>", "Approver identifier", "human-local")
   .action(async (taskId: string, options: { readonly reason: string; readonly approvedBy: string }) => {
-    console.log(JSON.stringify(await approveTask({
-      task_id: taskId,
-      decided_by: options.approvedBy,
-      reason: options.reason,
-    }), null, 2));
+    console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).approveTask(taskId, { decided_by: options.approvedBy, reason: options.reason }), null, 2));
   });
 
 program
   .command("reject")
-  .description("Reject a task that is waiting for review.")
+  .description("Reject a task.")
   .argument("<taskId>", "Task ID or task run ID")
   .requiredOption("--reason <reason>", "Rejection reason")
   .option("--rejected-by <rejectedBy>", "Reviewer identifier", "human-local")
   .action(async (taskId: string, options: { readonly reason: string; readonly rejectedBy: string }) => {
-    console.log(JSON.stringify(await rejectTask({
-      task_id: taskId,
-      decided_by: options.rejectedBy,
-      reason: options.reason,
-    }), null, 2));
+    console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).rejectTask(taskId, { decided_by: options.rejectedBy, reason: options.reason }), null, 2));
   });
 
-program
-  .command("status")
-  .description("Poll project reconciliation status.")
-  .argument("<projectOrRunId>", "Project ID, project run ID, or Hatchet run ID")
-  .action(async (projectOrRunId: string) => {
-    console.log(JSON.stringify(await getProjectRunStatus(projectOrRunId), null, 2));
-  });
+program.command("run-demo").description("Submit the README summary demo.").action(async () => {
+  console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).submitProject({ goal: "Create a short README summary for this repository." }), null, 2));
+});
 
-program
-  .command("run-demo")
-  .description("Submit the README summary demo and poll until terminal status.")
-  .action(async () => {
-    const goal = "Create a short README summary for this repository.";
-    const context = mockDelegationContext(goal);
-    const submitted = await submitProjectRun({
-      goal,
-      delegation_context: context,
-      bounds: DEFAULT_EXECUTION_BOUNDS,
-    });
-    console.log(JSON.stringify(submitted, null, 2));
+const profile = program.command("profile").description("Manage runtime profiles.");
 
-    for (let attempt = 0; attempt < 60; attempt += 1) {
-      await sleep(1000);
-      const status = await getProjectRunStatus(submitted.hatchet_run_id);
-      console.log(JSON.stringify(status, null, 2));
-      const current = status.status?.status ?? normalizeHatchetStatus(status.hatchet_status);
-      if (current === "requires_approval") {
-        const task = status.task_statuses.find((item) => item.status === "requires_approval");
-        if (task) {
-          console.log(`Approve with: npm run cli -- approve ${task.task_run_id} --reason "Approved for demo"`);
-          console.log(`Reject with: npm run cli -- reject ${task.task_run_id} --reason "Rejected for demo"`);
-        }
-      }
-      if (current && isTerminal(current)) return;
-    }
-    throw new Error("Timed out waiting for workflow run completion.");
-  });
+profile.command("list").description("List profiles.").action(async () => {
+  console.log(JSON.stringify(await loadConfig(), null, 2));
+});
 
-const repo = program.command("repo").description("Run repository-scoped task workflows.");
+profile.command("current").description("Show the current profile.").action(async () => {
+  console.log(JSON.stringify(await getCurrentProfile(), null, 2));
+});
 
-repo
-  .command("run")
+profile.command("use").argument("<name>", "Profile name").description("Switch current profile.").action(async (name: string) => {
+  console.log(JSON.stringify(await setCurrentProfile(name), null, 2));
+});
+
+profile.command("add-local").argument("<name>", "Profile name").requiredOption("--runtime <runtime>", "docker or podman").description("Add a local profile.").action(async (name: string, options: { readonly runtime: string }) => {
+  console.log(JSON.stringify(await addLocalProfile(name, runtimeOption(options.runtime) ?? "podman"), null, 2));
+});
+
+profile.command("add-remote").argument("<name>", "Profile name").requiredOption("--api-url <url>", "Control Plane API URL").description("Add a remote profile.").action(async (name: string, options: { readonly apiUrl: string }) => {
+  console.log(JSON.stringify(await addRemoteProfile(name, options.apiUrl), null, 2));
+});
+
+profile.command("remove").argument("<name>", "Profile name").description("Remove a profile.").action(async (name: string) => {
+  console.log(JSON.stringify(await removeProfile(name), null, 2));
+});
+
+const repo = program.command("repo").description("Run repository-scoped workflows.");
+
+repo.command("run")
   .requiredOption("--repo <path>", "Repository root")
   .requiredOption("--goal <goal>", "Repository task goal")
   .option("--workspace-id <workspaceId>", "Repository workspace ID")
@@ -112,115 +128,40 @@ repo
   .option("--apply", "Apply the approved patch immediately", false)
   .option("--require-approval", "Require approval before applying", false)
   .action(async (options: { readonly repo: string; readonly goal: string; readonly workspaceId?: string; readonly dryRun: boolean; readonly apply: boolean; readonly requireApproval: boolean }) => {
-    const project_id = deterministicProjectId({
+    console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).submitRepositoryGoal({
       goal: options.goal,
-      workspace_id: options.workspaceId ?? "workspace-local",
-      principal_id: "human-local",
-      delegate_id: "open-lagrange-cli",
-    });
-    const context = createMockDelegationContext({
-      goal: options.goal,
-      project_id,
-      delegate_id: "open-lagrange-cli",
-      allowed_scopes: ["project:read", "project:summarize", "project:write"],
+      repo_root: options.repo,
       ...(options.workspaceId ? { workspace_id: options.workspaceId } : {}),
-    });
-    const task_run_id = deterministicRepositoryTaskRunId({
-      project_id,
-      repo_root: options.repo,
-      goal: options.goal,
-    });
-    console.log(JSON.stringify(await submitRepositoryTask({
-      goal: options.goal,
-      repo_root: options.repo,
-      task_run_id,
-      project_id,
       dry_run: options.dryRun && !options.apply,
       apply: options.apply,
       require_approval: options.requireApproval,
-      ...(options.workspaceId ? { workspace_id: options.workspaceId } : {}),
-      delegation_context: {
-        ...context,
-        allowed_capabilities: [
-          "repo.list_files",
-          "repo.read_file",
-          "repo.search_text",
-          "repo.propose_patch",
-          "repo.apply_patch",
-          "repo.run_verification",
-          "repo.get_diff",
-          "repo.create_review_report",
-        ],
-        max_risk_level: "external_side_effect",
-        task_run_id,
-      },
-      verification_command_ids: ["npm_run_typecheck"],
     }), null, 2));
   });
 
-repo
-  .command("status")
-  .argument("<taskId>", "Task ID or task run ID")
-  .action(async (taskId: string) => {
-    console.log(JSON.stringify(await getTaskStatus(taskId), null, 2));
-  });
+repo.command("status").argument("<taskId>", "Task ID or task run ID").action(async (taskId: string) => {
+  console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).getTaskStatus(taskId), null, 2));
+});
 
-repo
-  .command("diff")
-  .argument("<taskId>", "Task ID or task run ID")
-  .action(async (taskId: string) => {
-    const status = await getTaskStatus(taskId);
-    console.log(status?.repository_status?.diff_text ?? status?.repository_status?.diff_summary ?? "No diff recorded.");
-  });
+repo.command("diff").argument("<taskId>", "Task ID or task run ID").action(async (taskId: string) => {
+  console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).getArtifact("diff", { task_id: taskId, type: "diff" }), null, 2));
+});
 
-repo
-  .command("review")
-  .argument("<taskId>", "Task ID or task run ID")
-  .action(async (taskId: string) => {
-    const status = await getTaskStatus(taskId);
-    console.log(JSON.stringify(status?.repository_status?.review_report ?? { message: "No review report recorded." }, null, 2));
-  });
+repo.command("review").argument("<taskId>", "Task ID or task run ID").action(async (taskId: string) => {
+  console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).getArtifact("review", { task_id: taskId, type: "review" }), null, 2));
+});
 
-repo
-  .command("approve")
-  .argument("<taskId>", "Task ID or task run ID")
-  .requiredOption("--reason <reason>", "Approval reason")
-  .option("--approved-by <approvedBy>", "Approver identifier", "human-local")
-  .action(async (taskId: string, options: { readonly reason: string; readonly approvedBy: string }) => {
-    console.log(JSON.stringify(await approveTask({ task_id: taskId, decided_by: options.approvedBy, reason: options.reason }), null, 2));
-  });
+repo.command("approve").argument("<taskId>", "Task ID or task run ID").requiredOption("--reason <reason>", "Approval reason").option("--approved-by <approvedBy>", "Approver identifier", "human-local").action(async (taskId: string, options: { readonly reason: string; readonly approvedBy: string }) => {
+  console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).approveTask(taskId, { decided_by: options.approvedBy, reason: options.reason }), null, 2));
+});
 
-repo
-  .command("reject")
-  .argument("<taskId>", "Task ID or task run ID")
-  .requiredOption("--reason <reason>", "Rejection reason")
-  .option("--rejected-by <rejectedBy>", "Reviewer identifier", "human-local")
-  .action(async (taskId: string, options: { readonly reason: string; readonly rejectedBy: string }) => {
-    console.log(JSON.stringify(await rejectTask({ task_id: taskId, decided_by: options.rejectedBy, reason: options.reason }), null, 2));
-  });
+repo.command("reject").argument("<taskId>", "Task ID or task run ID").requiredOption("--reason <reason>", "Rejection reason").option("--rejected-by <rejectedBy>", "Reviewer identifier", "human-local").action(async (taskId: string, options: { readonly reason: string; readonly rejectedBy: string }) => {
+  console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).rejectTask(taskId, { decided_by: options.rejectedBy, reason: options.reason }), null, 2));
+});
 
 await program.parseAsync(process.argv);
 
-function mockDelegationContext(goal: string) {
-  return createMockDelegationContext({
-    goal,
-    delegate_id: "open-lagrange-cli",
-  });
-}
-
-function normalizeHatchetStatus(status: string | undefined): string | undefined {
-  if (!status) return undefined;
-  const lower = status.toLowerCase();
-  if (lower.includes("succeed") || lower.includes("complete")) return "completed";
-  if (lower.includes("fail")) return "failed";
-  if (lower.includes("cancel")) return "failed";
-  return "running";
-}
-
-function isTerminal(status: string): boolean {
-  return ["completed", "completed_with_errors", "yielded", "requires_approval", "failed"].includes(status);
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function runtimeOption(value: string | undefined): "docker" | "podman" | undefined {
+  if (value === "docker" || value === "podman") return value;
+  if (!value) return undefined;
+  throw new Error("--runtime must be docker or podman");
 }

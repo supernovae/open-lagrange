@@ -1,124 +1,188 @@
 # Open Lagrange
 
-Open Lagrange is an opinionated TypeScript cognitive execution framework. It is
-a deterministic reconciliation framework around non-deterministic cognitive
-functions.
+[![CI](https://github.com/supernovae/open-lagrange/actions/workflows/ci.yml/badge.svg)](https://github.com/supernovae/open-lagrange/actions/workflows/ci.yml)
+[![Containers](https://github.com/supernovae/open-lagrange/actions/workflows/containers.yml/badge.svg)](https://github.com/supernovae/open-lagrange/actions/workflows/containers.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue.svg)](https://www.typescriptlang.org/)
 
-The model emits typed cognitive artifacts. The reconciler validates,
-authorizes, reconciles, and executes only through injected endpoint
-capabilities. Zod validation checks shape; the policy gate authorizes action.
+Open Lagrange is a TypeScript platform for deterministic reconciliation around
+non-deterministic cognitive functions.
 
-Open-COT is the reusable interface layer. Open Lagrange is the working
-implementation that pressure-tests Open-COT against durable workflow runs,
-capability injection, policy gates, MCP side effects, delegation, approval
-continuation, critic checks, yield, and reconciliation.
-The Repository Task Pack adds repo-scoped file inspection, validated patch
-planning, allowlisted verification, diff capture, and PR-ready review reports.
-Capability Packs are now the extension unit: trusted local modules declare
-typed descriptors, stable digests, schemas, and bounded executors that run
-through the Pack Registry.
+The model does not own the loop. It emits typed cognitive artifacts. Open
+Lagrange validates shape, checks policy, freezes capability snapshots, records
+observations, asks for approval when needed, and only then executes bounded
+capabilities.
 
-## Workspace Layout
+Think of it as a control plane for cognitive pipelines:
 
-- `packages/core`: schemas, deterministic IDs, Hatchet tasks/workflows, policy,
-  MCP mocks, SQLite state, approval continuation, and shared workflow clients.
-- `packages/capability-sdk`: runtime-neutral Capability Pack interfaces,
-  registry, digesting, execution result shape, and Open-COT adapters.
-- `apps/cli`: Commander CLI for submitting, polling, approving, and rejecting.
-- `apps/web`: Next.js App Router UI and API interface.
-- `apps/tui`: Ink terminal reconciliation cockpit for project status,
-  approvals, diffs, verification, and review reports.
+- typed cognition proposes
+- policy validates
+- the reconciler executes
+- Capability Packs provide bounded skills
+- observations and review reports explain what happened
 
-## Local Commands
+## Why It Exists
+
+Most tool-calling systems blur intent, execution, and authority into one
+transcript. Open Lagrange keeps those pieces separate.
+
+The practical result is a workflow you can inspect:
+
+- what the user asked for
+- what capabilities were available
+- what the model proposed
+- what policy allowed or denied
+- what was executed
+- what changed
+- what verification said
+- what needs approval
+
+That makes it useful for repository work, team runbooks, platform operations,
+and any workflow where “the model said so” is not an acceptable execution
+boundary.
+
+## Quickstart
 
 ```bash
+git clone git@github.com:supernovae/open-lagrange.git
+cd open-lagrange
 npm install
-npm run typecheck
-npm test
 npm run build
 ```
 
-Start Hatchet, the worker, and the web UI:
+Create a local runtime profile and start the stack:
 
 ```bash
-hatchet server start
-npm run dev:worker
-npm run dev:web
+npm run cli -- init
+npm run cli -- up --runtime podman
 ```
 
-Run the CLI demo:
+Docker works too:
 
 ```bash
-npm run cli -- run-demo
-```
-
-Run the Repository Task Pack demo in dry-run mode:
-
-```bash
-npm run cli -- repo run \
-  --repo . \
-  --goal "Add a short Repository Task Pack note to the README."
+npm run cli -- up --runtime docker
 ```
 
 Run the terminal cockpit:
 
 ```bash
-npm run dev:tui -- \
-  --repo . \
-  --goal "Add a short Repository Task Pack note to the README." \
-  --dry-run
+npm run cli -- tui --repo . --goal "Add a short README example." --dry-run
 ```
 
-Inside the TUI, `/verify npm_run_typecheck` starts a Hatchet-managed
-repository verification request for the active repository task. Plain
-refinement text and `/scope` commands are recorded as typed frame observations;
-they do not rewrite an already validated intent.
+Check runtime health:
 
-Apply mode is explicit:
+```bash
+npm run cli -- status
+npm run cli -- doctor
+```
+
+Stop local services:
+
+```bash
+npm run cli -- down
+```
+
+## Native Commands
+
+```bash
+open-lagrange init
+open-lagrange up
+open-lagrange tui
+open-lagrange status
+open-lagrange doctor
+open-lagrange logs
+open-lagrange down
+```
+
+Profiles make local and remote use the same interface:
+
+```bash
+open-lagrange profile list
+open-lagrange profile add-remote team-dev --api-url https://lagrange.example.com
+open-lagrange profile use team-dev
+```
+
+Remote profiles connect only to the Open Lagrange Control Plane API. They do
+not manage Hatchet, containers, Kubernetes, OpenShift, or a VM directly.
+
+## Repository Task Pack
+
+The first serious Capability Pack is repository-scoped development work.
+
+Example:
 
 ```bash
 npm run cli -- repo run \
   --repo . \
-  --goal "Add a short Repository Task Pack note to the README." \
-  --apply
+  --goal "Add a --json flag to the status command and document it." \
+  --dry-run
 ```
 
-Submit through the web API:
+The Repository Task Pack can:
+
+- inspect allowed files
+- search text
+- propose a patch plan
+- require approval before writes
+- apply validated patches
+- run allowlisted verification commands
+- capture a diff
+- produce a PR-ready review report
+
+It cannot read outside the repository root, read common secret files by default,
+or run arbitrary shell commands.
+
+## Runtime Model
+
+Open Lagrange has two runtime modes.
+
+**Local Runtime** is for a developer workstation. The CLI can manage Docker or
+Podman compose services for Hatchet, dependencies, the Control Plane API,
+worker, and web UI.
+
+**Remote Runtime** is for externally managed deployments: Kubernetes,
+OpenShift, a VM, remote compose, a shared team environment, or hosted setup.
+The CLI and TUI connect to the Control Plane API only.
+
+Hatchet is internal runtime plumbing. The product boundary is the Open Lagrange
+Control Plane API.
+
+## Packages
+
+- `packages/core`: reconciliation schemas, workflows, policy, approval, status,
+  and trusted local Capability Packs.
+- `packages/capability-sdk`: interfaces for building bounded Capability Packs.
+- `packages/runtime-manager`: profiles, Docker/Podman detection, local runtime
+  supervision, doctor, and logs.
+- `packages/platform-client`: fetch client for the Control Plane API.
+- `apps/cli`: native command line entrypoint.
+- `apps/tui`: Ink terminal reconciliation cockpit.
+- `apps/web`: Next.js Control Plane API and lightweight web UI.
+
+## Containers
+
+Images are published to GHCR:
+
+- `ghcr.io/supernovae/open-lagrange-api`
+- `ghcr.io/supernovae/open-lagrange-worker`
+- `ghcr.io/supernovae/open-lagrange-web`
+
+Containerfiles are compatible with Docker and Podman.
 
 ```bash
-curl -s http://localhost:3000/api/jobs \
-  -H 'content-type: application/json' \
-  -d '{"goal":"Create a short README summary for this repository."}'
+docker compose -f compose.yaml build
+podman compose -f compose.yaml build
 ```
 
-Submit a repository task through the web API:
+## Development
 
 ```bash
-curl -s http://localhost:3000/api/repository/jobs \
-  -H 'content-type: application/json' \
-  -d '{"goal":"Add a short Repository Task Pack note to the README.","repo_root":".","dry_run":true}'
+npm run typecheck
+npm test
+npm run build
+npm audit
 ```
 
-## Approval
-
-Tasks that require approval stop with `requires_approval`. Approval records a
-decision and starts a deterministic continuation workflow run that executes only
-the previously validated intent. Approval does not mutate arguments, capability
-digests, risk level, or delegated authority.
-
-```bash
-npm run cli -- approve <task-run-id> --reason "Approved for demo"
-npm run cli -- reject <task-run-id> --reason "Rejected for demo"
-```
-
-## Open-COT Relationship
-
-Open-COT carries portable schemas and RFCs. Hatchet, Next.js, the Vercel AI SDK
-wrapper, SQLite, and the mock MCP registry are Open Lagrange implementation
-details. Portable schema gaps found here are tracked in `open-cot-alignment.md`
-and should become Open-COT PRs when they are reusable core or extension
-concepts.
-
-Capability Pack metadata, descriptors, side effect kinds, idempotency modes, and
-execution results are tracked as Open-COT candidates. The local Pack Registry
-and static loading policy remain Open Lagrange implementation details.
+The current local runtime is intentionally conservative. If a health check is
+uncertain, `doctor` reports that uncertainty instead of pretending the stack is
+healthy.

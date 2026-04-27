@@ -18,7 +18,7 @@ Repository-specific concepts stay in the pack:
 - diff handling
 - Review Report
 
-General concepts stay in the SDK or Open-COT alignment notes:
+General concepts stay in the SDK:
 
 - Capability Pack
 - Capability Descriptor

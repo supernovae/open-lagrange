@@ -31,9 +31,6 @@ Approval continuation is a two-phase flow:
 2. Approval records a decision and starts a deterministic continuation workflow
    run that revalidates the stored context before endpoint execution.
 
-Open-COT remains implementation-neutral. Hatchet workflow names, run IDs,
-worker names, retry policy, Next.js routes, SQLite, MCP mocks, and Vercel AI SDK
-wrappers stay in Open Lagrange. Portable structures such as DelegationContext,
-CapabilitySnapshot, ExecutionIntent, ApprovalRequest, ApprovalDecision,
-ContinuationInput, Observation, StructuredError, and ReconciliationResult are
-tracked for upstream standardization.
+Portable runtime interfaces remain implementation-neutral. Hatchet workflow
+names, run IDs, worker names, retry policy, Next.js routes, SQLite, MCP mocks,
+and Vercel AI SDK wrappers stay in Open Lagrange.

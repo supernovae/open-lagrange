@@ -15,6 +15,10 @@ export function useKeyboardShortcuts(input: {
   readonly onApprove: () => void;
   readonly onReject: () => void;
   readonly onRefresh: () => void;
+  readonly onStartRuntime: () => void;
+  readonly onDoctor: () => void;
+  readonly onLogs: () => void;
+  readonly onProfile: () => void;
   readonly onQuit: () => void;
 }): void {
   useInput((value, key) => {
@@ -22,11 +26,13 @@ export function useKeyboardShortcuts(input: {
     if (value === "?") input.setSelectedPane("help");
     if (value === "q") input.onQuit();
     if (value === "r") input.onRefresh();
+    if (value === "s") input.onStartRuntime();
+    if (value === "d") input.onDoctor();
+    if (value === "l") input.onLogs();
+    if (value === "p") input.onProfile();
     if (value === "a") input.onApprove();
     if (value === "x" || value === "R") input.onReject();
-    if (value === "d") input.setSelectedPane("diff");
     if (value === "v") input.setSelectedPane("verification");
-    if (value === "p") input.setSelectedPane("artifact_json");
     if (value === "o") input.setSelectedPane("timeline");
     if (value === "e") input.setSelectedPane("timeline");
     if (value === "j") input.setSelectedPane("artifact_json");

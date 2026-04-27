@@ -6,8 +6,7 @@ executors. The reconciler supplies policy, delegation, idempotency, status, and
 approval context.
 
 The SDK is runtime-neutral. It does not depend on Hatchet, Next.js, CLI code, or
-Open-COT. Open Lagrange adapts SDK descriptors into Open-COT-compatible
-capability snapshots.
+the web API. Open Lagrange adapts SDK descriptors into capability snapshots.
 
 ## Pack Registry
 
@@ -28,4 +27,3 @@ authority.
 
 Executors validate input before execution and output after execution. Zod checks
 shape only; the policy gate remains the authorization layer.
-
