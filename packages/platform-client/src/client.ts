@@ -1,6 +1,6 @@
 import { getCurrentProfile } from "@open-lagrange/runtime-manager";
 import type { RuntimeProfile } from "@open-lagrange/runtime-manager";
-import type { ApprovalInput, PlatformClientOptions, SubmitProjectInput, SubmitRepositoryGoalInput } from "./types.js";
+import type { ApprovalInput, ApplyPlanfileInput, PlatformClientOptions, SubmitProjectInput, SubmitRepositoryGoalInput } from "./types.js";
 
 export class PlatformClient {
   constructor(private readonly options: PlatformClientOptions) {}
@@ -31,6 +31,32 @@ export class PlatformClient {
 
   async getTaskStatus(taskId: string): Promise<unknown> {
     return this.get(`/v1/tasks/${encodeURIComponent(taskId)}`);
+  }
+
+  async applyPlanfile(input: ApplyPlanfileInput): Promise<unknown> {
+    return this.post("/v1/plans/apply", input);
+  }
+
+  async resumePlan(planId: string): Promise<unknown> {
+    return this.post(`/v1/plans/${encodeURIComponent(planId)}/resume`, {});
+  }
+
+  async getPlanStatus(planId: string): Promise<unknown> {
+    return this.get(`/v1/plans/${encodeURIComponent(planId)}`);
+  }
+
+  async approvePlan(planId: string, input: ApprovalInput): Promise<unknown> {
+    return this.post(`/v1/plans/${encodeURIComponent(planId)}/approve`, {
+      approved_by: input.decided_by,
+      reason: input.reason,
+    });
+  }
+
+  async rejectPlan(planId: string, input: ApprovalInput): Promise<unknown> {
+    return this.post(`/v1/plans/${encodeURIComponent(planId)}/reject`, {
+      rejected_by: input.decided_by,
+      reason: input.reason,
+    });
   }
 
   async submitUserFrameEvent(event: unknown): Promise<unknown> {

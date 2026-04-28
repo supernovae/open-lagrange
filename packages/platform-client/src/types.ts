@@ -23,3 +23,7 @@ export interface ApprovalInput {
   readonly decided_by: string;
   readonly reason: string;
 }
+
+export interface ApplyPlanfileInput {
+  readonly planfile: unknown;
+}

@@ -1,6 +1,6 @@
 import type { ProjectRunStatus, RuntimeHealth } from "@open-lagrange/core/interface";
 import type { TaskStatusSnapshot } from "@open-lagrange/core/interface";
-import type { ApprovalRequestSummary, ArtifactSummary, ChangedFileSummary, ConversationTurn, InputMode, PaneId, ReconciliationTimelineItem, TuiViewModel, VerificationResultSummary } from "./types.js";
+import type { ApprovalRequestSummary, ArtifactSummary, ChangedFileSummary, ConversationTurn, InputMode, PaneId, PlanViewSummary, ReconciliationTimelineItem, TuiViewModel, VerificationResultSummary } from "./types.js";
 
 const fallbackHealth: RuntimeHealth = {
   profile: "local",
@@ -23,6 +23,7 @@ export function buildViewModel(input: {
   const activeTask = input.project?.task_statuses[0];
   const approvals = approvalSummaries(input.project?.task_statuses ?? []);
   const artifacts = artifactSummaries(input.project, activeTask);
+  const plan = planSummary(input.project);
   return {
     ...(input.project ? { project: input.project } : {}),
     ...(activeTask ? { activeTask } : {}),
@@ -32,11 +33,27 @@ export function buildViewModel(input: {
     artifacts,
     changedFiles: changedFiles(activeTask),
     verificationResults: verificationResults(activeTask),
+    ...(plan ? { plan } : {}),
     selectedPane: input.selectedPane,
     inputMode: input.inputMode,
     isLoading: input.isLoading,
     health: input.health ?? fallbackHealth,
     ...(input.lastError ? { lastError: input.lastError } : {}),
+  };
+}
+
+function planSummary(project: ProjectRunStatus | undefined): PlanViewSummary | undefined {
+  const plan = project?.output?.plan;
+  if (!plan) return undefined;
+  const active = plan.tasks.find((task) => project?.task_statuses.some((status) => status.task_id === task.task_id && status.status === "running")) ?? plan.tasks[0];
+  return {
+    plan_id: plan.plan_id,
+    status: project?.status?.status ?? "unknown",
+    ...(active ? { current_node: active.task_id } : {}),
+    dag_lines: plan.tasks.map((task, index) => `${index + 1}. ${task.task_id}: ${task.title}`),
+    approval_requirements: approvalSummaries(project?.task_statuses ?? []).map((approval) => `${approval.task_id}: ${approval.requested_risk_level}`),
+    artifact_refs: artifactSummaries(project, project?.task_statuses[0]).map((artifact) => artifact.artifact_id),
+    validation_errors: project?.status?.errors.map((error) => error.message) ?? [],
   };
 }
 

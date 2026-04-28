@@ -1,5 +1,8 @@
 export * from "./clients/mock-delegation.js";
 export * from "./clients/workflow-client.js";
+export * from "./planning/control-plane.js";
+export * from "./planning/plan-state.js";
+export * from "./planning/planfile-schema.js";
 export * from "./user-frame-events.js";
 export { deterministicProjectId, deterministicRepositoryTaskRunId } from "./ids/deterministic-ids.js";
 export { DEFAULT_EXECUTION_BOUNDS } from "./schemas/reconciliation.js";

@@ -7,6 +7,7 @@ import { ConversationPane } from "./ConversationPane.js";
 import { TimelinePane } from "./TimelinePane.js";
 import { TaskListPane } from "./TaskListPane.js";
 import { ApprovalPane } from "./ApprovalPane.js";
+import { PlanPane } from "./PlanPane.js";
 import { DiffViewer } from "./DiffViewer.js";
 import { VerificationPane } from "./VerificationPane.js";
 import { ReviewPane } from "./ReviewPane.js";
@@ -26,6 +27,7 @@ function content(model: TuiViewModel): React.ReactElement {
   if (model.selectedPane === "chat") return <ConversationPane turns={model.conversation} />;
   if (model.selectedPane === "timeline") return <TimelinePane items={model.timeline} />;
   if (model.selectedPane === "tasks") return <TaskListPane tasks={model.project?.task_statuses ?? []} />;
+  if (model.selectedPane === "plan") return <PlanPane model={model} />;
   if (model.selectedPane === "approvals") return <ApprovalPane approvals={model.approvals} />;
   if (model.selectedPane === "diff") return <DiffViewer model={model} />;
   if (model.selectedPane === "verification") return <VerificationPane results={model.verificationResults} />;

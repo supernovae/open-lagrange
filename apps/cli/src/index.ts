@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
+import { readFile, writeFile } from "node:fs/promises";
 import { Command } from "commander";
+import { generateGoalFrame, generatePlanfile, parsePlanfileMarkdown, parsePlanfileYaml, renderPlanfileMarkdown, renderPlanMermaid, validatePlanfile, withCanonicalPlanDigest } from "@open-lagrange/core/planning";
 import { createPlatformClientFromCurrentProfile } from "@open-lagrange/platform-client";
 import { addLocalProfile, addRemoteProfile, getCurrentProfile, initRuntime, loadConfig, removeProfile, restartLocalRuntime, runDoctor, setCurrentProfile, startLocalRuntime, stopLocalRuntime, tailLogs, getRuntimeStatus } from "@open-lagrange/runtime-manager";
 
@@ -158,10 +160,87 @@ repo.command("reject").argument("<taskId>", "Task ID or task run ID").requiredOp
   console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).rejectTask(taskId, { decided_by: options.rejectedBy, reason: options.reason }), null, 2));
 });
 
+const plan = program.command("plan").description("Author and execute Planfiles.");
+
+plan.command("create")
+  .requiredOption("--goal <goal>", "Goal to frame as a Planfile")
+  .option("--dry-run", "Create a dry-run Planfile", true)
+  .option("--out <path>", "Write Markdown Planfile to a path")
+  .action(async (options: { readonly goal: string; readonly dryRun: boolean; readonly out?: string }) => {
+    const goalFrame = await generateGoalFrame({ original_prompt: options.goal });
+    const planfile = withCanonicalPlanDigest(await generatePlanfile({ goal_frame: goalFrame, mode: options.dryRun ? "dry_run" : "apply" }));
+    const markdown = renderPlanfileMarkdown(planfile);
+    if (options.out) {
+      await writeFile(options.out, markdown, "utf8");
+      console.log(JSON.stringify({ plan_id: planfile.plan_id, path: options.out, canonical_plan_digest: planfile.canonical_plan_digest }, null, 2));
+      return;
+    }
+    console.log(markdown);
+  });
+
+plan.command("show").argument("<planfile>", "Planfile Markdown or YAML path").action(async (path: string) => {
+  const planfile = withCanonicalPlanDigest(await loadLocalPlanfile(path));
+  console.log(renderPlanfileMarkdown(planfile));
+});
+
+plan.command("validate").argument("<planfile>", "Planfile Markdown or YAML path").action(async (path: string) => {
+  const planfile = withCanonicalPlanDigest(await loadLocalPlanfile(path));
+  const result = validatePlanfile(planfile);
+  console.log(JSON.stringify({ ...result, plan_id: planfile.plan_id, canonical_plan_digest: planfile.canonical_plan_digest }, null, 2));
+  if (!result.ok) process.exitCode = 1;
+});
+
+plan.command("graph").argument("<planfile>", "Planfile Markdown or YAML path").action(async (path: string) => {
+  console.log(renderPlanMermaid(await loadLocalPlanfile(path)));
+});
+
+plan.command("render").argument("<planfile>", "Planfile Markdown or YAML path").option("--out <path>", "Write regenerated Markdown to a path").action(async (path: string, options: { readonly out?: string }) => {
+  const planfile = withCanonicalPlanDigest(await loadLocalPlanfile(path));
+  const markdown = renderPlanfileMarkdown(planfile);
+  if (options.out) {
+    await writeFile(options.out, markdown, "utf8");
+    console.log(JSON.stringify({ plan_id: planfile.plan_id, path: options.out, canonical_plan_digest: planfile.canonical_plan_digest }, null, 2));
+    return;
+  }
+  console.log(markdown);
+});
+
+plan.command("apply").argument("<planfile>", "Planfile Markdown or YAML path").action(async (path: string) => {
+  const planfile = withCanonicalPlanDigest(await loadLocalPlanfile(path));
+  const validation = validatePlanfile(planfile);
+  if (!validation.ok) {
+    console.log(JSON.stringify({ ...validation, plan_id: planfile.plan_id }, null, 2));
+    process.exitCode = 1;
+    return;
+  }
+  console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).applyPlanfile({ planfile }), null, 2));
+});
+
+plan.command("resume").argument("<planId>", "Plan ID").action(async (planId: string) => {
+  console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).resumePlan(planId), null, 2));
+});
+
+plan.command("status").argument("<planId>", "Plan ID").action(async (planId: string) => {
+  console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).getPlanStatus(planId), null, 2));
+});
+
+plan.command("approve").argument("<planId>", "Plan ID").requiredOption("--reason <reason>", "Approval reason").option("--approved-by <approvedBy>", "Approver identifier", "human-local").action(async (planId: string, options: { readonly reason: string; readonly approvedBy: string }) => {
+  console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).approvePlan(planId, { decided_by: options.approvedBy, reason: options.reason }), null, 2));
+});
+
+plan.command("reject").argument("<planId>", "Plan ID").requiredOption("--reason <reason>", "Rejection reason").option("--rejected-by <rejectedBy>", "Reviewer identifier", "human-local").action(async (planId: string, options: { readonly reason: string; readonly rejectedBy: string }) => {
+  console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).rejectPlan(planId, { decided_by: options.rejectedBy, reason: options.reason }), null, 2));
+});
+
 await program.parseAsync(process.argv);
 
 function runtimeOption(value: string | undefined): "docker" | "podman" | undefined {
   if (value === "docker" || value === "podman") return value;
   if (!value) return undefined;
   throw new Error("--runtime must be docker or podman");
+}
+
+async function loadLocalPlanfile(path: string) {
+  const text = await readFile(path, "utf8");
+  return path.endsWith(".yaml") || path.endsWith(".yml") ? parsePlanfileYaml(text) : parsePlanfileMarkdown(text);
 }

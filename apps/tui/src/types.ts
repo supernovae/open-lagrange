@@ -1,7 +1,7 @@
 import type { ProjectRunStatus, RuntimeHealth, UserFrameEvent } from "@open-lagrange/core/interface";
 import type { TaskStatusSnapshot } from "@open-lagrange/core/interface";
 
-export type PaneId = "chat" | "timeline" | "tasks" | "approvals" | "diff" | "verification" | "review" | "artifact_json" | "help";
+export type PaneId = "chat" | "timeline" | "tasks" | "plan" | "approvals" | "diff" | "verification" | "review" | "artifact_json" | "help";
 export type InputMode = "chat" | "command" | "approval_reason" | "rejection_reason" | "scope_adjustment";
 
 export interface ConversationTurn {
@@ -57,6 +57,16 @@ export interface VerificationResultSummary {
   readonly truncated: boolean;
 }
 
+export interface PlanViewSummary {
+  readonly plan_id: string;
+  readonly status: string;
+  readonly current_node?: string;
+  readonly dag_lines: readonly string[];
+  readonly approval_requirements: readonly string[];
+  readonly artifact_refs: readonly string[];
+  readonly validation_errors: readonly string[];
+}
+
 export interface TuiViewModel {
   readonly project?: ProjectRunStatus;
   readonly activeTask?: TaskStatusSnapshot;
@@ -66,6 +76,7 @@ export interface TuiViewModel {
   readonly artifacts: readonly ArtifactSummary[];
   readonly changedFiles: readonly ChangedFileSummary[];
   readonly verificationResults: readonly VerificationResultSummary[];
+  readonly plan?: PlanViewSummary;
   readonly selectedPane: PaneId;
   readonly inputMode: InputMode;
   readonly isLoading: boolean;

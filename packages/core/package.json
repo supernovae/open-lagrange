@@ -13,6 +13,10 @@
     "./interface": {
       "types": "./dist/interface.d.ts",
       "import": "./dist/interface.js"
+    },
+    "./planning": {
+      "types": "./dist/planning/index.d.ts",
+      "import": "./dist/planning/index.js"
     }
   },
   "scripts": {
@@ -25,6 +29,7 @@
     "@ai-sdk/openai": "^3.0.53",
     "@hatchet-dev/typescript-sdk": "^1.21.2",
     "ai": "^6.0.168",
+    "yaml": "^2.8.3",
     "zod": "^4.3.6"
   }
 }

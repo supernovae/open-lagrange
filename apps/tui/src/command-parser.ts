@@ -30,6 +30,7 @@ function parseCommand(input: string, context: ParseContext): ParsedInput {
   if (command === "quit") return { kind: "command", command, quit: true };
   if (command === "help") return { kind: "command", command, pane: "help" };
   if (command === "status") return { kind: "command", command, pane: "timeline" };
+  if (command === "plan") return commandWithArtifact(command, "plan", context, "plan");
   if (command === "diff") return commandWithArtifact(command, "diff", context, "diff");
   if (command === "verify") {
     if (text && context.project_id) {

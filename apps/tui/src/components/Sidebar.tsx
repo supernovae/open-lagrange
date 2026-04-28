@@ -17,13 +17,14 @@ export function Sidebar({ model }: { readonly model: TuiViewModel }): React.Reac
       <Text>Workspace: {repo?.workspace_id ?? "unknown"}</Text>
       <Text>Repo: {repo?.repo_root ? truncateText(repo.repo_root, 28) : "none"}</Text>
       <Text>Approvals: {model.approvals.length}</Text>
+      <Text>Plan: {model.plan?.plan_id ?? "none"}</Text>
       <Text>Changed: {model.changedFiles.length}</Text>
       <Text>Verification: {model.verificationResults.length > 0 ? verificationLabel(model) : "none"}</Text>
       <Box marginTop={1} flexDirection="column">
         <Text color={theme.title}>Controls</Text>
         <Text>a approve   x reject</Text>
-        <Text>d diff      v verify</Text>
-        <Text>j json      ? help</Text>
+        <Text>p plan      d diff</Text>
+        <Text>v verify    j json</Text>
         <Text>tab pane    q quit</Text>
       </Box>
     </Box>

@@ -1,7 +1,7 @@
 import { useInput } from "ink";
 import type { PaneId } from "../types.js";
 
-const panes: readonly PaneId[] = ["chat", "timeline", "tasks", "approvals", "diff", "verification", "review", "artifact_json", "help"];
+const panes: readonly PaneId[] = ["chat", "timeline", "tasks", "plan", "approvals", "diff", "verification", "review", "artifact_json", "help"];
 
 export function nextPane(current: PaneId, direction: 1 | -1): PaneId {
   const index = panes.indexOf(current);
@@ -29,7 +29,8 @@ export function useKeyboardShortcuts(input: {
     if (value === "s") input.onStartRuntime();
     if (value === "d") input.onDoctor();
     if (value === "l") input.onLogs();
-    if (value === "p") input.onProfile();
+    if (value === "P") input.onProfile();
+    if (value === "p") input.setSelectedPane("plan");
     if (value === "a") input.onApprove();
     if (value === "x" || value === "R") input.onReject();
     if (value === "v") input.setSelectedPane("verification");

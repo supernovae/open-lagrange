@@ -1,4 +1,4 @@
-import { approveTask, createMockDelegationContext, DEFAULT_EXECUTION_BOUNDS, deterministicProjectId, deterministicRepositoryTaskRunId, getProjectStatus, getRuntimeHealth, getTaskStatus, listRegisteredPacks, rejectTask, requestArtifact, submitProject, submitRepositoryTask, submitUserFrameEvent, UserFrameEvent } from "@open-lagrange/core/interface";
+import { applyPlanfile, approvePlan, approveTask, createMockDelegationContext, DEFAULT_EXECUTION_BOUNDS, deterministicProjectId, deterministicRepositoryTaskRunId, getPlanExecutionStatus, getProjectStatus, getRuntimeHealth, getTaskStatus, listRegisteredPacks, rejectPlan, rejectTask, requestArtifact, submitProject, submitRepositoryTask, submitUserFrameEvent, UserFrameEvent } from "@open-lagrange/core/interface";
 import { z } from "zod";
 import { SubmitJobPayload } from "../jobs/schema";
 import { SubmitRepositoryJobPayload } from "../repository/jobs/schema";
@@ -91,6 +91,30 @@ export function handleProjectStatus(projectId: string): Promise<unknown> {
 
 export function handleTaskStatus(taskId: string): Promise<unknown> {
   return getTaskStatus(taskId);
+}
+
+export function handleApplyPlan(raw: unknown): Promise<unknown> {
+  const payload = z.object({ planfile: z.unknown() }).strict().parse(raw);
+  return applyPlanfile({ planfile: payload.planfile });
+}
+
+export function handlePlanStatus(planId: string): Promise<unknown> {
+  return getPlanExecutionStatus(planId);
+}
+
+export async function handleResumePlan(planId: string): Promise<unknown> {
+  const state = await getPlanExecutionStatus(planId);
+  return state ?? { plan_id: planId, status: "missing" };
+}
+
+export function handleApprovePlan(planId: string, raw: unknown): Promise<unknown> {
+  const payload = z.object({ approved_by: z.string().min(1), reason: z.string().min(1) }).strict().parse(raw);
+  return approvePlan(planId, payload.approved_by, payload.reason);
+}
+
+export function handleRejectPlan(planId: string, raw: unknown): Promise<unknown> {
+  const payload = z.object({ rejected_by: z.string().min(1), reason: z.string().min(1) }).strict().parse(raw);
+  return rejectPlan(planId, payload.rejected_by, payload.reason);
 }
 
 export function handleApprove(taskId: string, raw: unknown): Promise<unknown> {
