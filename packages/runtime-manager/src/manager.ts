@@ -5,6 +5,7 @@ import { defaultLocalProfile, loadConfig, saveConfig } from "./config.js";
 import { composeDown, composeFileExists, composeLogs, composeUp, detectRuntime, writeComposeTemplate } from "./compose.js";
 import { getRuntimePaths } from "./paths.js";
 import { getCurrentProfile } from "./profiles.js";
+import { credentialStatuses, resolveProfileAuthToken, resolveProfileSecretValue } from "./secrets.js";
 import { RuntimeStatus, type RuntimeConfig, type RuntimeProfile, type RuntimeStatus as RuntimeStatusType, type ServiceStatus } from "./types.js";
 
 interface DevState {
@@ -32,8 +33,9 @@ export async function startLocalRuntime(input: { readonly dev?: boolean; readonl
   const profile = await localProfile(input.runtime);
   if (profile.mode !== "local") return remoteRefusal(profile, "Remote profiles are externally managed and cannot be started locally.");
   if (profile.composeFile && !(await composeFileExists(profile.composeFile))) await writeComposeTemplate(profile.composeFile);
-  await composeUp(profile, input.dev ?? false);
-  if (input.dev) await startDevProcesses();
+  const env = await runtimeEnv(profile);
+  await composeUp(profile, input.dev ?? false, env);
+  if (input.dev) await startDevProcesses(env);
   return ensureRuntimeReady();
 }
 
@@ -94,6 +96,7 @@ export async function getRuntimeStatus(): Promise<RuntimeStatusType> {
   const api = await probe("api", profile.apiUrl);
   const packs = api.state === "running" ? await listPacks(profile.apiUrl, profile.auth) : undefined;
   const warnings: string[] = [];
+  const credentials = await credentialStatuses(profile);
   if (profile.auth?.type === "oidc") warnings.push("OIDC profiles are typed but interactive login is not implemented yet.");
   return RuntimeStatus.parse({
     profileName: profile.name,
@@ -102,7 +105,8 @@ export async function getRuntimeStatus(): Promise<RuntimeStatusType> {
     api,
     ...(profile.mode === "local" ? { hatchet: await probe("hatchet", profile.hatchetUrl), worker: workerStatus(api), web: await probe("web", profile.webUrl) } : {}),
     ...(packs ? { registeredPacks: packs } : {}),
-    modelProvider: await modelStatus(profile.apiUrl, profile.auth),
+    modelProvider: await modelStatus(profile.apiUrl, profile.auth, credentials.modelProvider),
+    credentials,
     configPath: paths.configPath,
     warnings,
     errors: api.state === "unreachable" ? [`Control Plane API is unreachable at ${profile.apiUrl}`] : [],
@@ -120,7 +124,15 @@ async function localProfile(runtime?: "docker" | "podman"): Promise<RuntimeProfi
   }
 }
 
-async function startDevProcesses(): Promise<void> {
+async function runtimeEnv(profile: RuntimeProfile): Promise<NodeJS.ProcessEnv> {
+  const openai = await resolveProfileSecretValue(profile, "openai", "runtime_model_provider");
+  return {
+    ...process.env,
+    ...(openai && !process.env.OPENAI_API_KEY ? { OPENAI_API_KEY: openai } : {}),
+  };
+}
+
+async function startDevProcesses(env: NodeJS.ProcessEnv = process.env): Promise<void> {
   const paths = getRuntimePaths();
   await mkdir(paths.logsDir, { recursive: true });
   const commands: Record<string, readonly string[]> = {
@@ -131,7 +143,7 @@ async function startDevProcesses(): Promise<void> {
   for (const [name, command] of Object.entries(commands)) {
     const logPath = join(paths.logsDir, `${name}.log`);
     const out = await import("node:fs").then((fs) => fs.openSync(logPath, "a"));
-    const child = spawn(command[0] ?? "", command.slice(1), { cwd: process.cwd(), detached: true, stdio: ["ignore", out, out] });
+    const child = spawn(command[0] ?? "", command.slice(1), { cwd: process.cwd(), detached: true, stdio: ["ignore", out, out], env });
     child.unref();
     if (child.pid) pids[name] = child.pid;
   }
@@ -166,7 +178,7 @@ async function probe(name: string, url: string | undefined): Promise<ServiceStat
 
 async function listPacks(apiUrl: string, auth: RuntimeProfile["auth"]): Promise<string[] | undefined> {
   try {
-    const response = await fetch(new URL("/v1/runtime/packs", apiUrl), { headers: authHeaders(auth), signal: AbortSignal.timeout(2500) });
+    const response = await fetch(new URL("/v1/runtime/packs", apiUrl), { headers: await authHeaders(auth), signal: AbortSignal.timeout(2500) });
     if (!response.ok) return undefined;
     const data = await response.json() as { packs?: string[] };
     return data.packs;
@@ -175,14 +187,14 @@ async function listPacks(apiUrl: string, auth: RuntimeProfile["auth"]): Promise<
   }
 }
 
-async function modelStatus(apiUrl: string, auth: RuntimeProfile["auth"]): Promise<ServiceStatus> {
+async function modelStatus(apiUrl: string, auth: RuntimeProfile["auth"], localStatus: ServiceStatus): Promise<ServiceStatus> {
   try {
-    const response = await fetch(new URL("/v1/runtime/status", apiUrl), { headers: authHeaders(auth), signal: AbortSignal.timeout(2500) });
-    if (!response.ok) return { name: "model", state: "unknown" };
+    const response = await fetch(new URL("/v1/runtime/status", apiUrl), { headers: await authHeaders(auth), signal: AbortSignal.timeout(2500) });
+    if (!response.ok) return localStatus;
     const data = await response.json() as { modelProvider?: ServiceStatus };
-    return data.modelProvider ?? { name: "model", state: "unknown" };
+    return data.modelProvider ?? localStatus;
   } catch {
-    return { name: "model", state: "unknown" };
+    return localStatus;
   }
 }
 
@@ -190,9 +202,10 @@ function workerStatus(api: ServiceStatus): ServiceStatus {
   return { name: "worker", state: api.state === "running" ? "unknown" : api.state };
 }
 
-function authHeaders(auth: RuntimeProfile["auth"]): HeadersInit {
-  if (auth?.type !== "token" || !auth.tokenEnv) return {};
-  const token = process.env[auth.tokenEnv];
+async function authHeaders(auth: RuntimeProfile["auth"]): Promise<HeadersInit> {
+  if (auth?.type !== "token") return {};
+  const profile = await getCurrentProfile().catch(() => undefined);
+  const token = profile ? await resolveProfileAuthToken(profile) : auth.tokenEnv ? process.env[auth.tokenEnv] : undefined;
   return token ? { authorization: `Bearer ${token}` } : {};
 }
 

@@ -11,7 +11,9 @@ export function StatusBar({ health }: { readonly health: RuntimeHealth }): React
       <Text color={color(health.worker)}>Worker:</Text><Text> {health.worker}  </Text>
       <Text color={color(health.hatchet)}>Hatchet:</Text><Text> {health.hatchet}  </Text>
       <Text color={theme.title}>Packs:</Text><Text> {health.packs}  </Text>
-      <Text color={health.model === "configured" ? theme.ok : theme.warn}>Model:</Text><Text> {health.model}</Text>
+      <Text color={health.model === "configured" ? theme.ok : theme.warn}>Model:</Text><Text> {health.model}  </Text>
+      <Text color={health.remote_auth === "configured" ? theme.ok : theme.warn}>Auth:</Text><Text> {health.remote_auth ?? "missing"}  </Text>
+      <Text color={theme.title}>Secrets:</Text><Text> {health.secret_provider ?? "env"}</Text>
     </Box>
   );
 }

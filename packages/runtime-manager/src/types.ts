@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { SecretRef } from "@open-lagrange/core/secrets";
 
 export const RuntimeMode = z.enum(["local", "remote"]);
 export const RuntimeOwnership = z.enum(["managed-by-cli", "external"]);
@@ -6,6 +7,7 @@ export const RuntimeManagerKind = z.enum(["docker", "podman", "external"]);
 export const AuthConfig = z.object({
   type: z.enum(["none", "token", "oidc"]),
   tokenEnv: z.string().min(1).optional(),
+  tokenRef: SecretRef.optional(),
 }).strict();
 
 export const RuntimeProfile = z.object({
@@ -18,6 +20,7 @@ export const RuntimeProfile = z.object({
   runtimeManager: RuntimeManagerKind.optional(),
   composeFile: z.string().min(1).optional(),
   auth: AuthConfig.optional(),
+  secretRefs: z.record(z.string(), SecretRef).optional(),
 }).strict();
 
 export const RuntimeConfig = z.object({
@@ -33,6 +36,12 @@ export const ServiceStatus = z.object({
   detail: z.string().optional(),
 }).strict();
 
+export const CredentialStatus = z.object({
+  modelProvider: ServiceStatus,
+  remoteAuth: ServiceStatus,
+  secretProvider: z.string().min(1),
+}).strict();
+
 export const RuntimeStatus = z.object({
   profileName: z.string().min(1),
   mode: RuntimeMode,
@@ -43,6 +52,7 @@ export const RuntimeStatus = z.object({
   web: ServiceStatus.optional(),
   registeredPacks: z.array(z.string()).optional(),
   modelProvider: ServiceStatus.optional(),
+  credentials: CredentialStatus.optional(),
   configPath: z.string().min(1),
   warnings: z.array(z.string()),
   errors: z.array(z.string()),
@@ -69,4 +79,5 @@ export type RuntimeProfile = z.infer<typeof RuntimeProfile>;
 export type RuntimeConfig = z.infer<typeof RuntimeConfig>;
 export type ServiceState = z.infer<typeof ServiceState>;
 export type ServiceStatus = z.infer<typeof ServiceStatus>;
+export type CredentialStatus = z.infer<typeof CredentialStatus>;
 export type RuntimeStatus = z.infer<typeof RuntimeStatus>;

@@ -289,6 +289,8 @@ export interface RuntimeHealth {
   readonly hatchet: "up" | "unknown";
   readonly packs: number;
   readonly model: "configured" | "not_configured";
+  readonly remote_auth?: "configured" | "missing";
+  readonly secret_provider?: string;
 }
 
 export async function getRuntimeHealth(input: { readonly api_url?: string; readonly project_id?: string } = {}): Promise<RuntimeHealth> {
@@ -307,6 +309,8 @@ export async function getRuntimeHealth(input: { readonly api_url?: string; reado
     hatchet,
     packs: packRegistry.listPacks().length,
     model: process.env.OPENAI_API_KEY || process.env.AI_GATEWAY_API_KEY ? "configured" : "not_configured",
+    remote_auth: "missing",
+    secret_provider: "env",
   };
 }
 

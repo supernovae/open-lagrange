@@ -30,6 +30,8 @@ export function useProjectStatus(input: {
         hatchet: runtimeStatus.hatchet?.state === "running" ? "up" : "unknown",
         packs: runtimeStatus.registeredPacks?.length ?? 0,
         model: runtimeStatus.modelProvider?.state === "running" ? "configured" : "not_configured",
+        remote_auth: runtimeStatus.credentials?.remoteAuth.state === "running" ? "configured" : "missing",
+        secret_provider: runtimeStatus.credentials?.secretProvider ?? "env",
       });
       if (input.projectId) setProject(await (await createPlatformClientFromCurrentProfile()).getProjectStatus(input.projectId) as ProjectRunStatus);
       setLastError(undefined);

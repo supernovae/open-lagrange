@@ -34,12 +34,12 @@ export async function composeFileExists(path: string): Promise<boolean> {
   }
 }
 
-export async function composeUp(profile: RuntimeProfile, dev = false): Promise<void> {
+export async function composeUp(profile: RuntimeProfile, dev = false, env: NodeJS.ProcessEnv = process.env): Promise<void> {
   const runtime = await detectRuntime(profile.runtimeManager === "docker" || profile.runtimeManager === "podman" ? profile.runtimeManager : undefined);
   if (!runtime) throw new Error("Docker or Podman compose was not found.");
   const composeFile = profile.composeFile ?? getRuntimePaths().composePath;
   const services = dev ? ["postgres", "rabbitmq", "hatchet-migration", "hatchet-config", "hatchet-engine", "hatchet-dashboard"] : [];
-  await execFileAsync(runtime.command[0] ?? "", [...runtime.command.slice(1), "-f", composeFile, "up", "-d", ...services], { cwd: process.cwd() });
+  await execFileAsync(runtime.command[0] ?? "", [...runtime.command.slice(1), "-f", composeFile, "up", "-d", ...services], { cwd: process.cwd(), env });
 }
 
 export async function composeDown(profile: RuntimeProfile): Promise<void> {

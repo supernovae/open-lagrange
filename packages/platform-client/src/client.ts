@@ -1,5 +1,6 @@
 import { getCurrentProfile } from "@open-lagrange/runtime-manager";
 import type { RuntimeProfile } from "@open-lagrange/runtime-manager";
+import { resolveProfileAuthToken } from "@open-lagrange/runtime-manager";
 import type { ApprovalInput, ApplyPlanfileInput, PlatformClientOptions, SubmitProjectInput, SubmitRepositoryGoalInput } from "./types.js";
 
 export class PlatformClient {
@@ -109,7 +110,8 @@ export class PlatformClient {
 
 export async function createPlatformClientFromCurrentProfile(): Promise<PlatformClient> {
   const profile = await getCurrentProfile();
-  return createPlatformClientFromProfile(profile);
+  const authToken = await resolveProfileAuthToken(profile);
+  return new PlatformClient({ apiUrl: profile.apiUrl, ...(authToken ? { authToken } : {}) });
 }
 
 export function createPlatformClientFromProfile(profile: RuntimeProfile): PlatformClient {

@@ -9,6 +9,8 @@ const fallbackHealth: RuntimeHealth = {
   hatchet: "unknown",
   packs: 0,
   model: "not_configured",
+  remote_auth: "missing",
+  secret_provider: "env",
 };
 
 export function buildViewModel(input: {

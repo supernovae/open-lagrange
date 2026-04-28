@@ -1,5 +1,5 @@
 import { RuntimeConfig, RuntimeProfile, type RuntimeConfig as RuntimeConfigType, type RuntimeProfile as RuntimeProfileType } from "./types.js";
-import { defaultLocalProfile, loadConfig, saveConfig } from "./config.js";
+import { defaultLocalProfile, defaultProfileSecretRefs, loadConfig, saveConfig } from "./config.js";
 import { getRuntimePaths } from "./paths.js";
 
 export async function getCurrentProfile(): Promise<RuntimeProfileType> {
@@ -19,7 +19,7 @@ export async function setCurrentProfile(name: string): Promise<RuntimeConfigType
 
 export async function addLocalProfile(name: string, runtime: "docker" | "podman"): Promise<RuntimeConfigType> {
   const config = await loadConfig();
-  const profile = RuntimeProfile.parse({ ...defaultLocalProfile({ runtime, composeFile: getRuntimePaths().composePath }), name, runtimeManager: runtime });
+  const profile = RuntimeProfile.parse({ ...defaultLocalProfile({ runtime, composeFile: getRuntimePaths().composePath }), name, runtimeManager: runtime, secretRefs: defaultProfileSecretRefs(name) });
   const next = RuntimeConfig.parse({ ...config, profiles: { ...config.profiles, [name]: profile } });
   await saveConfig(next);
   return next;
@@ -27,13 +27,17 @@ export async function addLocalProfile(name: string, runtime: "docker" | "podman"
 
 export async function addRemoteProfile(name: string, apiUrl: string): Promise<RuntimeConfigType> {
   const config = await loadConfig();
+  const refs = defaultProfileSecretRefs(name);
   const profile = RuntimeProfile.parse({
     name,
     mode: "remote",
     ownership: "external",
     apiUrl,
     runtimeManager: "external",
-    auth: { type: "none" },
+    auth: { type: "token", tokenRef: refs.open_lagrange_token },
+    secretRefs: {
+      open_lagrange_token: refs.open_lagrange_token,
+    },
   });
   const next = RuntimeConfig.parse({ ...config, profiles: { ...config.profiles, [name]: profile } });
   await saveConfig(next);

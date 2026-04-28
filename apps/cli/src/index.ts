@@ -4,7 +4,8 @@ import { readFile, writeFile } from "node:fs/promises";
 import { Command } from "commander";
 import { generateGoalFrame, generatePlanfile, parsePlanfileMarkdown, parsePlanfileYaml, renderPlanfileMarkdown, renderPlanMermaid, validatePlanfile, withCanonicalPlanDigest } from "@open-lagrange/core/planning";
 import { createPlatformClientFromCurrentProfile } from "@open-lagrange/platform-client";
-import { addLocalProfile, addRemoteProfile, getCurrentProfile, initRuntime, loadConfig, removeProfile, restartLocalRuntime, runDoctor, setCurrentProfile, startLocalRuntime, stopLocalRuntime, tailLogs, getRuntimeStatus } from "@open-lagrange/runtime-manager";
+import { addLocalProfile, addRemoteProfile, deleteCurrentProfileSecret, describeCurrentProfileSecret, getCurrentProfile, initRuntime, listCurrentProfileSecrets, loadConfig, removeProfile, restartLocalRuntime, runDoctor, setCurrentProfile, setCurrentProfileSecret, startLocalRuntime, stopLocalRuntime, tailLogs, getRuntimeStatus } from "@open-lagrange/runtime-manager";
+import type { SecretRef } from "@open-lagrange/core/secrets";
 
 const program = new Command();
 
@@ -118,6 +119,63 @@ profile.command("add-remote").argument("<name>", "Profile name").requiredOption(
 
 profile.command("remove").argument("<name>", "Profile name").description("Remove a profile.").action(async (name: string) => {
   console.log(JSON.stringify(await removeProfile(name), null, 2));
+});
+
+const secrets = program.command("secrets").description("Manage profile secret references.");
+
+secrets.command("set")
+  .argument("<name>", "Secret name, such as openai or open_lagrange_token")
+  .option("--provider <provider>", "os-keychain or env", "os-keychain")
+  .option("--from-stdin", "Read secret value from stdin", false)
+  .action(async (name: string, options: { readonly provider: string; readonly fromStdin: boolean }) => {
+    const value = options.fromStdin ? await readStdin() : await promptSecretValue(`Secret value for ${name}: `);
+    console.log(JSON.stringify(await setCurrentProfileSecret({ name, value, provider: secretProvider(options.provider) }), null, 2));
+  });
+
+secrets.command("get")
+  .argument("<name>", "Secret name")
+  .option("--redacted", "Show redacted metadata", true)
+  .action(async (name: string) => {
+    console.log(JSON.stringify(await describeCurrentProfileSecret(name), null, 2));
+  });
+
+secrets.command("delete").argument("<name>", "Secret name").action(async (name: string) => {
+  console.log(JSON.stringify(await deleteCurrentProfileSecret(name), null, 2));
+});
+
+secrets.command("list").action(async () => {
+  console.log(JSON.stringify(await listCurrentProfileSecrets(), null, 2));
+});
+
+secrets.command("status").action(async () => {
+  try {
+    const profile = await getCurrentProfile();
+    console.log(JSON.stringify({
+      profile: profile.name,
+      secrets: await listCurrentProfileSecrets(),
+    }, null, 2));
+  } catch (error) {
+    console.log(JSON.stringify({ status: "missing_profile", message: "Run open-lagrange init before configuring secrets." }, null, 2));
+  }
+});
+
+const auth = program.command("auth").description("Manage profile authentication.");
+
+auth.command("login").option("--from-stdin", "Read token from stdin", false).action(async (options: { readonly fromStdin: boolean }) => {
+  const value = options.fromStdin ? await readStdin() : await promptSecretValue("Open Lagrange token: ");
+  console.log(JSON.stringify(await setCurrentProfileSecret({ name: "open_lagrange_token", value, provider: "os-keychain" }), null, 2));
+});
+
+auth.command("logout").action(async () => {
+  console.log(JSON.stringify(await deleteCurrentProfileSecret("open_lagrange_token"), null, 2));
+});
+
+auth.command("status").action(async () => {
+  try {
+    console.log(JSON.stringify(await describeCurrentProfileSecret("open_lagrange_token"), null, 2));
+  } catch {
+    console.log(JSON.stringify({ status: "missing_profile", message: "Run open-lagrange init before configuring auth." }, null, 2));
+  }
 });
 
 const repo = program.command("repo").description("Run repository-scoped workflows.");
@@ -243,4 +301,50 @@ function runtimeOption(value: string | undefined): "docker" | "podman" | undefin
 async function loadLocalPlanfile(path: string) {
   const text = await readFile(path, "utf8");
   return path.endsWith(".yaml") || path.endsWith(".yml") ? parsePlanfileYaml(text) : parsePlanfileMarkdown(text);
+}
+
+function secretProvider(value: string): SecretRef["provider"] {
+  if (value === "os-keychain" || value === "env" || value === "vault" || value === "external") return value;
+  throw new Error("--provider must be os-keychain, env, vault, or external");
+}
+
+async function readStdin(): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of process.stdin) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
+  return Buffer.concat(chunks).toString("utf8").replace(/\r?\n$/, "");
+}
+
+async function promptSecretValue(prompt: string): Promise<string> {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) return readStdin();
+  process.stdout.write(prompt);
+  process.stdin.setRawMode(true);
+  process.stdin.resume();
+  process.stdin.setEncoding("utf8");
+  let value = "";
+  return new Promise((resolve, reject) => {
+    const onData = (chunk: string) => {
+      if (chunk === "\u0003") {
+        cleanup();
+        reject(new Error("Secret input cancelled."));
+        return;
+      }
+      if (chunk === "\r" || chunk === "\n") {
+        cleanup();
+        process.stdout.write("\n");
+        resolve(value);
+        return;
+      }
+      if (chunk === "\u007f") {
+        value = value.slice(0, -1);
+        return;
+      }
+      value += chunk;
+    };
+    const cleanup = () => {
+      process.stdin.off("data", onData);
+      process.stdin.setRawMode(false);
+      process.stdin.pause();
+    };
+    process.stdin.on("data", onData);
+  });
 }
