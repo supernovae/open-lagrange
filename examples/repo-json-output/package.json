@@ -1,0 +1,8 @@
+{
+  "name": "repo-json-output-demo",
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "status": "node src/cli.js status"
+  }
+}

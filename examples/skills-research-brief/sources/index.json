@@ -1,0 +1,17 @@
+{
+  "source_mode": "mocked",
+  "sources": [
+    {
+      "source_id": "planning",
+      "title": "Planning Primitive",
+      "path": "planning.md",
+      "url": "https://example.invalid/open-lagrange/planning"
+    },
+    {
+      "source_id": "skills",
+      "title": "Workflow Skill Builder",
+      "path": "skills.md",
+      "url": "https://example.invalid/open-lagrange/skills"
+    }
+  ]
+}

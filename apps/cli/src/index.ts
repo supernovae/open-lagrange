@@ -3,11 +3,15 @@ import { spawn } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { Command } from "commander";
+import { exportArtifact, listArtifacts, reindexArtifacts, showArtifact } from "@open-lagrange/core/artifacts";
+import { listDemos, openDemo, runDemo } from "@open-lagrange/core/demos";
+import { runCoreDoctor } from "@open-lagrange/core/doctor";
+import { inspectPack, listInspectablePacks, validateRegisteredPack } from "@open-lagrange/core/packs";
 import { generateGoalFrame, generatePlanfile, parsePlanfileMarkdown, parsePlanfileYaml, renderPlanfileMarkdown, renderPlanMermaid, validatePlanfile, withCanonicalPlanDigest } from "@open-lagrange/core/planning";
 import { createRepositoryPlanfile } from "@open-lagrange/core/repository";
 import { generateSkillFrame, generateWorkflowSkill, parseSkillfileMarkdown, parseWorkflowSkillMarkdown, previewWorkflowSkillRun, validateWorkflowSkill } from "@open-lagrange/core/skills";
 import { createPlatformClientFromCurrentProfile } from "@open-lagrange/platform-client";
-import { addLocalProfile, addRemoteProfile, deleteCurrentProfileSecret, describeCurrentProfileSecret, getCurrentProfile, initRuntime, listCurrentProfileSecrets, loadConfig, removeProfile, restartLocalRuntime, runDoctor, setCurrentProfile, setCurrentProfileSecret, startLocalRuntime, stopLocalRuntime, tailLogs, getRuntimeStatus } from "@open-lagrange/runtime-manager";
+import { addLocalProfile, addRemoteProfile, deleteCurrentProfileSecret, describeCurrentProfileSecret, getCurrentProfile, initRuntime, listCurrentProfileSecrets, loadConfig, removeProfile, restartLocalRuntime, setCurrentProfile, setCurrentProfileSecret, startLocalRuntime, stopLocalRuntime, tailLogs, getRuntimeStatus } from "@open-lagrange/runtime-manager";
 import type { SecretRef } from "@open-lagrange/core/secrets";
 
 const program = new Command();
@@ -53,7 +57,7 @@ program
   });
 
 program.command("doctor").description("Run local or remote profile checks.").action(async () => {
-  console.log(JSON.stringify(await runDoctor(), null, 2));
+  console.log(JSON.stringify(await runCoreDoctor(), null, 2));
 });
 
 program.command("logs").description("Show local runtime logs.").argument("[service]", "api, worker, web, hatchet, or compose service").action(async (service: string | undefined) => {
@@ -96,6 +100,80 @@ program
 
 program.command("run-demo").description("Submit the README summary demo.").action(async () => {
   console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).submitProject({ goal: "Create a short README summary for this repository." }), null, 2));
+});
+
+const demo = program.command("demo").description("Run golden-path demos.");
+
+demo.command("list").action(() => {
+  console.log(JSON.stringify(listDemos(), null, 2));
+});
+
+demo.command("run")
+  .argument("<demoId>", "Demo ID")
+  .option("--dry-run", "Run without real side effects", true)
+  .option("--live", "Run supported demos through live local execution in isolated fixtures", false)
+  .option("--output-dir <path>", "Write artifacts to a chosen directory")
+  .option("--stdout-only", "Print summaries without writing artifacts", false)
+  .option("--clean", "Remove prior demo artifacts for this demo before running", false)
+  .action(async (demoId: string, options: { readonly dryRun: boolean; readonly live: boolean; readonly outputDir?: string; readonly stdoutOnly: boolean; readonly clean: boolean }) => {
+    if (options.live && demoId !== "repo-json-output") throw new Error("Live local execution is currently available for repo-json-output only.");
+    console.log(JSON.stringify(await runDemo({
+      demo_id: demoId,
+      dry_run: !options.live,
+      ...(options.outputDir ? { output_dir: options.outputDir } : {}),
+      stdout_only: options.stdoutOnly,
+      clean: options.clean,
+    }), null, 2));
+  });
+
+demo.command("open").argument("<demoId>", "Demo ID").action((demoId: string) => {
+  console.log(JSON.stringify(openDemo(demoId), null, 2));
+});
+
+const artifact = program.command("artifact").description("Inspect local artifact index entries.");
+
+artifact.command("list").action(() => {
+  console.log(JSON.stringify(listArtifacts(), null, 2));
+});
+
+artifact.command("show").argument("<artifactId>", "Artifact ID").action((artifactId: string) => {
+  const result = showArtifact(artifactId);
+  if (!result) {
+    console.log(JSON.stringify({ artifact_id: artifactId, status: "missing" }, null, 2));
+    process.exitCode = 1;
+    return;
+  }
+  console.log(JSON.stringify(result, null, 2));
+});
+
+artifact.command("export").argument("<artifactId>", "Artifact ID").requiredOption("--output <path>", "Output path").action((artifactId: string, options: { readonly output: string }) => {
+  console.log(JSON.stringify(exportArtifact({ artifact_id: artifactId, output_path: options.output }), null, 2));
+});
+
+artifact.command("reindex").action(() => {
+  console.log(JSON.stringify(reindexArtifacts(), null, 2));
+});
+
+const pack = program.command("pack").description("Inspect and validate capability packs.");
+
+pack.command("list").action(() => {
+  console.log(JSON.stringify(listInspectablePacks(), null, 2));
+});
+
+pack.command("inspect").argument("<packId>", "Pack ID").action((packId: string) => {
+  const result = inspectPack(packId);
+  if (!result) {
+    console.log(JSON.stringify({ pack_id: packId, status: "missing" }, null, 2));
+    process.exitCode = 1;
+    return;
+  }
+  console.log(JSON.stringify(result, null, 2));
+});
+
+pack.command("validate").argument("<packId>", "Pack ID").action((packId: string) => {
+  const result = validateRegisteredPack(packId);
+  console.log(JSON.stringify(result, null, 2));
+  if (!result.ok) process.exitCode = 1;
 });
 
 const profile = program.command("profile").description("Manage runtime profiles.");

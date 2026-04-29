@@ -5,7 +5,7 @@ import { formatJson } from "../formatters.js";
 import { theme } from "../theme.js";
 
 export function ArtifactJsonPane({ model }: { readonly model: TuiViewModel }): React.ReactElement {
-  const value = model.activeTask?.result ?? model.project ?? {};
+  const value = model.artifacts.length > 0 ? model.artifacts : model.activeTask?.result ?? model.project ?? {};
   return (
     <Box flexDirection="column">
       <Text color={theme.title}>Artifact JSON</Text>

@@ -20,7 +20,22 @@ export interface RepositoryWorkOrderHandlerOptions {
   readonly task_run_id: string;
   readonly snapshot_id: string;
   readonly evidence?: EvidenceBundle;
+  readonly create_patch_plan?: (input: {
+    readonly work_order: WorkOrder;
+    readonly evidence: EvidenceBundle;
+    readonly plan_id: string;
+    readonly node_id: string;
+  }) => RepositoryPatchPlan;
+  readonly on_artifact?: (artifact: RepositoryHandlerArtifact) => void;
 }
+
+export type RepositoryHandlerArtifact =
+  | { readonly kind: "evidence_bundle"; readonly artifact: EvidenceBundle }
+  | { readonly kind: "patch_plan"; readonly artifact: RepositoryPatchPlan }
+  | { readonly kind: "patch_artifact"; readonly artifact: RepositoryPatchArtifact }
+  | { readonly kind: "verification_report"; readonly artifact: VerificationReport }
+  | { readonly kind: "review_report"; readonly artifact: ReviewReport }
+  | { readonly kind: "repair_attempt"; readonly artifact: RepairAttempt };
 
 export function createRepositoryWorkOrderHandlers(options: RepositoryWorkOrderHandlerOptions): Record<string, PlanNodeHandler> {
   const state: { evidence?: EvidenceBundle; patch_artifact?: RepositoryPatchArtifact; verification?: VerificationReport; repair_attempts: RepairAttempt[] } = {
@@ -33,6 +48,7 @@ export function createRepositoryWorkOrderHandlers(options: RepositoryWorkOrderHa
     inspect: async (workOrder, context) => {
       const evidence = await inspectRepository(workOrder, context.plan.plan_id, context.node.id, options);
       state.evidence = evidence;
+      options.on_artifact?.({ kind: "evidence_bundle", artifact: evidence });
       return {
         status: "completed",
         artifacts: [createArtifactRef({
@@ -51,7 +67,13 @@ export function createRepositoryWorkOrderHandlers(options: RepositoryWorkOrderHa
     patch: async (workOrder, context) => {
       if (!state.evidence) return { status: "failed", errors: ["Patch node requires an EvidenceBundle."] };
       if (context.node.acceptance_refs.length === 0) return { status: "failed", errors: ["Patch node must reference acceptance criteria."] };
-      const patchPlan = deterministicRepositoryPatchPlan(workOrder, state.evidence);
+      const patchPlan = options.create_patch_plan?.({
+        work_order: workOrder,
+        evidence: state.evidence,
+        plan_id: context.plan.plan_id,
+        node_id: context.node.id,
+      }) ?? deterministicRepositoryPatchPlan(workOrder, state.evidence);
+      options.on_artifact?.({ kind: "patch_plan", artifact: patchPlan });
       const validation = validateRepositoryPatchPlan(options.workspace, patchPlan);
       if (!validation.ok) return { status: "failed", errors: validation.errors };
       const legacyPlan = legacyPatchPlanFromRepositoryPlan(patchPlan, state.evidence);
@@ -79,6 +101,7 @@ export function createRepositoryWorkOrderHandlers(options: RepositoryWorkOrderHa
         created_at: new Date().toISOString(),
       });
       state.patch_artifact = artifact;
+      options.on_artifact?.({ kind: "patch_artifact", artifact });
       return {
         status: "completed",
         artifacts: [createArtifactRef({
@@ -109,6 +132,7 @@ export function createRepositoryWorkOrderHandlers(options: RepositoryWorkOrderHa
         summary: results.map((result) => `${result.command}: ${result.exit_code}`).join("; "),
       });
       state.verification = report;
+      options.on_artifact?.({ kind: "verification_report", artifact: report });
       return {
         status: "completed",
         artifacts: [createArtifactRef({
@@ -132,6 +156,7 @@ export function createRepositoryWorkOrderHandlers(options: RepositoryWorkOrderHa
         now: new Date().toISOString(),
       });
       state.repair_attempts.push(repair);
+      options.on_artifact?.({ kind: "repair_attempt", artifact: repair });
       return {
         status: "yielded",
         errors: [repair.status === "yielded" ? repair.failure_summary : "Repair work order recorded; patch expansion requires a repository patch producer."],
@@ -158,6 +183,7 @@ export function createRepositoryWorkOrderHandlers(options: RepositoryWorkOrderHa
         },
         context: repoContext(options, `repo-plan-review-${context.node.id}`),
       })).output);
+      options.on_artifact?.({ kind: "review_report", artifact: report });
       return {
         status: "completed",
         artifacts: [createArtifactRef({

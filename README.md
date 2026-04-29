@@ -33,6 +33,16 @@ It is built for workflows where “the model said so” is not enough.
 
 Start with the friendly walkthrough: [docs/ELI5_start.md](docs/ELI5_start.md).
 
+Fastest dry-run demo:
+
+```bash
+npm run cli -- demo run repo-json-output --dry-run
+```
+
+That command writes a Planfile, patch plan, patch artifact preview, verification
+report, review report, and timeline under `.open-lagrange/demos/`, then indexes
+them for `artifact list/show/export`.
+
 ## Quickstart
 
 ```bash
@@ -62,7 +72,43 @@ npm run cli -- status
 npm run cli -- doctor
 ```
 
-## Experiments
+## Demos And Experiments
+
+Run the repository Plan-to-Patch demo:
+
+```bash
+npm run cli -- demo run repo-json-output --dry-run
+npm run cli -- artifact list
+```
+
+Run the same demo through a live isolated fixture repo and git worktree:
+
+```bash
+npm run cli -- demo run repo-json-output --live
+npm run cli -- artifact list
+```
+
+Run the Research Brief Workflow Skill demo:
+
+```bash
+npm run cli -- demo run skills-research-brief --dry-run
+npm run cli -- artifact list
+```
+
+Inspect runtime and packs:
+
+```bash
+npm run cli -- doctor
+npm run cli -- pack list
+npm run cli -- pack inspect open-lagrange.repository
+```
+
+The current demos use deterministic fixtures. The repository dry-run previews
+the patch pipeline without mutating the tracked fixture. The repository live
+mode copies the fixture into `.open-lagrange/demos/`, creates a local git
+worktree, executes the PlanRunner through repository handlers, verifies the
+change, and exports a real final patch artifact. The research demo uses
+checked-in source notes rather than live network search.
 
 Create a generic Planfile:
 
@@ -111,6 +157,7 @@ Open Lagrange currently includes:
 - runtime profiles for local and remote control-plane use
 - CLI, TUI, and Next.js API surfaces
 - Workflow Skill Builder Phase 1
+- Golden Path demos, artifact index, doctor checks, and pack inspection
 
 ## How It Thinks About Work
 
@@ -136,6 +183,22 @@ runtime, authority, or owner of the work.
 - `apps/cli`: native command line entrypoint.
 - `apps/tui`: Ink terminal cockpit.
 - `apps/web`: Next.js Control Plane API and lightweight web UI.
+
+## More Docs
+
+- [Golden Path demos](docs/golden-path-demos.md)
+- [Artifacts](docs/artifacts.md)
+- [Doctor](docs/doctor.md)
+- [Pack inspection](docs/pack-inspection.md)
+- [Planfiles](docs/planfiles.md)
+- [Skills-to-Pack](docs/skills-to-pack.md)
+
+## Roadmap
+
+The next phase is wiring the demo previews into more live local execution while
+keeping the same boundaries: typed Planfiles, capability-pack execution, OS
+keychain-backed secrets, policy gates, approvals, verification, and exportable
+artifacts.
 
 ## Development
 

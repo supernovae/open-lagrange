@@ -29,6 +29,22 @@
     "./skills": {
       "types": "./dist/skills/index.d.ts",
       "import": "./dist/skills/index.js"
+    },
+    "./artifacts": {
+      "types": "./dist/artifacts/index.d.ts",
+      "import": "./dist/artifacts/index.js"
+    },
+    "./demos": {
+      "types": "./dist/demos/index.d.ts",
+      "import": "./dist/demos/index.js"
+    },
+    "./doctor": {
+      "types": "./dist/doctor/index.d.ts",
+      "import": "./dist/doctor/index.js"
+    },
+    "./packs": {
+      "types": "./dist/packs/index.d.ts",
+      "import": "./dist/packs/index.js"
     }
   },
   "scripts": {

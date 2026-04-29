@@ -167,12 +167,33 @@ function approvalSummaries(tasks: readonly TaskStatusSnapshot[]): readonly Appro
 
 function artifactSummaries(project: ProjectRunStatus | undefined, task: TaskStatusSnapshot | undefined): readonly ArtifactSummary[] {
   const items: ArtifactSummary[] = [];
+  const indexed = (project?.output as unknown as { readonly artifacts?: unknown } | undefined)?.artifacts;
+  if (Array.isArray(indexed)) {
+    for (const artifact of indexed) {
+      if (!artifact || typeof artifact !== "object") continue;
+      const item = artifact as Record<string, unknown>;
+      items.push({
+        artifact_id: typeof item.artifact_id === "string" ? item.artifact_id : "artifact",
+        artifact_type: artifactType(typeof item.kind === "string" ? item.kind : "artifact_json"),
+        title: typeof item.title === "string" ? item.title : "Artifact",
+        value: item,
+      });
+    }
+  }
   if (project?.output?.plan) items.push({ artifact_id: "plan", artifact_type: "plan", title: "Execution plan", value: project.output.plan });
   if (task?.repository_status?.diff_text || task?.repository_status?.diff_summary) items.push({ artifact_id: "diff", artifact_type: "diff", title: "Diff", value: task.repository_status.diff_text ?? task.repository_status.diff_summary });
   if (task?.repository_status?.verification_results) items.push({ artifact_id: "verification", artifact_type: "verification", title: "Verification", value: task.repository_status.verification_results });
   if (task?.repository_status?.review_report) items.push({ artifact_id: "review", artifact_type: "review", title: "Review report", value: task.repository_status.review_report });
   if (task?.result) items.push({ artifact_id: "artifact_json", artifact_type: "artifact_json", title: "Task result JSON", value: task.result });
   return items;
+}
+
+function artifactType(value: string): ArtifactSummary["artifact_type"] {
+  if (value === "planfile") return "plan";
+  if (value === "verification_report") return "verification";
+  if (value === "review_report") return "review";
+  if (value === "skill_frame" || value === "workflow_skill" || value === "patch_plan" || value === "patch_artifact" || value === "research_brief" || value === "approval_request" || value === "execution_timeline" || value === "raw_log") return value;
+  return "artifact_json";
 }
 
 function worktreePath(project: ProjectRunStatus | undefined): string | undefined {

@@ -106,4 +106,31 @@ describe("TUI view model", () => {
 
     expect(sortTimeline(items).map((item) => item.event_id)).toEqual(["earlier", "later"]);
   });
+
+  it("renders indexed artifact summaries from project output", () => {
+    const project = {
+      ...projectStatus(),
+      output: {
+        artifacts: [{
+          artifact_id: "research-brief-1",
+          kind: "research_brief",
+          title: "Research brief",
+          summary: "Fixture brief",
+          path_or_uri: ".open-lagrange/demos/research-brief.json",
+          created_at: updatedAt,
+          redacted: true,
+          exportable: true,
+        }],
+      },
+    } as unknown as ProjectRunStatus;
+
+    const view = buildViewModel({
+      project,
+      selectedPane: "artifact_json",
+      inputMode: "chat",
+      isLoading: false,
+    });
+
+    expect(view.artifacts.find((artifact) => artifact.artifact_id === "research-brief-1")?.artifact_type).toBe("research_brief");
+  });
 });

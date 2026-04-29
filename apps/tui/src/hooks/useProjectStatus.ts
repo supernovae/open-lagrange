@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { ProjectRunStatus, RuntimeHealth } from "@open-lagrange/core/interface";
+import { runCoreDoctor, type DoctorReport } from "@open-lagrange/core/doctor";
 import { createPlatformClientFromCurrentProfile } from "@open-lagrange/platform-client";
 import { getRuntimeStatus } from "@open-lagrange/runtime-manager";
 
@@ -23,15 +24,16 @@ export function useProjectStatus(input: {
     setLoading(true);
     try {
       const runtimeStatus = await getRuntimeStatus();
+      const doctor = await runCoreDoctor();
       setHealth({
-        profile: runtimeStatus.profileName,
+        profile: runtimeStatus.profileName || doctor.profile_name,
         api: runtimeStatus.api.state === "running" ? "up" : runtimeStatus.api.state === "unreachable" ? "down" : "unknown",
         worker: runtimeStatus.worker?.state === "running" ? "up" : "unknown",
         hatchet: runtimeStatus.hatchet?.state === "running" ? "up" : "unknown",
-        packs: runtimeStatus.registeredPacks?.length ?? 0,
-        model: runtimeStatus.modelProvider?.state === "running" ? "configured" : "not_configured",
+        packs: runtimeStatus.registeredPacks?.length ?? doctorPackCount(doctor),
+        model: doctorCheck(doctor, "model_credential") === "pass" || runtimeStatus.modelProvider?.state === "running" ? "configured" : "not_configured",
         remote_auth: runtimeStatus.credentials?.remoteAuth.state === "running" ? "configured" : "missing",
-        secret_provider: runtimeStatus.credentials?.secretProvider ?? "env",
+        secret_provider: runtimeStatus.credentials?.secretProvider ?? doctorSecretProvider(doctor),
       });
       if (input.projectId) setProject(await (await createPlatformClientFromCurrentProfile()).getProjectStatus(input.projectId) as ProjectRunStatus);
       setLastError(undefined);
@@ -55,4 +57,18 @@ export function useProjectStatus(input: {
     ...(lastError ? { lastError } : {}),
     refresh,
   };
+}
+
+function doctorCheck(report: DoctorReport, id: string): "pass" | "warn" | "fail" | undefined {
+  return report.checks.find((check) => check.id === id)?.status;
+}
+
+function doctorPackCount(report: DoctorReport): number {
+  const summary = report.checks.find((check) => check.id === "pack_registry")?.summary ?? "";
+  const match = /^(\d+)/.exec(summary);
+  return match ? Number(match[1]) : 0;
+}
+
+function doctorSecretProvider(report: DoctorReport): string {
+  return doctorCheck(report, "secret_provider") === "pass" ? "configured" : "env";
 }

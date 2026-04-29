@@ -1,7 +1,7 @@
 import type { ProjectRunStatus, RuntimeHealth, UserFrameEvent } from "@open-lagrange/core/interface";
 import type { TaskStatusSnapshot } from "@open-lagrange/core/interface";
 
-export type PaneId = "chat" | "timeline" | "tasks" | "plan" | "approvals" | "diff" | "verification" | "review" | "artifact_json" | "help";
+export type PaneId = "chat" | "timeline" | "tasks" | "plan" | "approvals" | "diff" | "verification" | "review" | "artifact_json" | "demo" | "help";
 export type InputMode = "chat" | "command" | "approval_reason" | "rejection_reason" | "scope_adjustment";
 
 export interface ConversationTurn {
@@ -38,7 +38,7 @@ export interface ApprovalRequestSummary {
 
 export interface ArtifactSummary {
   readonly artifact_id: string;
-  readonly artifact_type: "diff" | "review" | "verification" | "plan" | "artifact_json";
+  readonly artifact_type: "diff" | "review" | "verification" | "plan" | "artifact_json" | "skill_frame" | "workflow_skill" | "patch_plan" | "patch_artifact" | "research_brief" | "approval_request" | "execution_timeline" | "raw_log";
   readonly title: string;
   readonly value: unknown;
 }
