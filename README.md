@@ -1,45 +1,37 @@
 # Open Lagrange
 
-[![CI](https://github.com/supernovae/open-lagrange/actions/workflows/ci.yml/badge.svg)](https://github.com/supernovae/open-lagrange/actions/workflows/ci.yml)
-[![Containers](https://github.com/supernovae/open-lagrange/actions/workflows/containers.yml/badge.svg)](https://github.com/supernovae/open-lagrange/actions/workflows/containers.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue.svg)](https://www.typescriptlang.org/)
+<p align="center">
+  <img
+    src="https://upload.wikimedia.org/wikipedia/commons/0/09/JWST-at-L2-Lagragian-Point.jpg"
+    alt="NASA illustration of the James Webb Space Telescope near the Sun-Earth L2 Lagrange point"
+    width="100%"
+  />
+</p>
 
-Open Lagrange is a TypeScript platform for deterministic reconciliation around
-non-deterministic cognitive functions.
+<h3 align="center">The stable point between cognition and execution.</h3>
 
-The model does not own the loop. It emits typed cognitive artifacts. Open
-Lagrange validates shape, checks policy, freezes capability snapshots, records
-observations, asks for approval when needed, and only then executes bounded
-capabilities.
+<p align="center">
+  <a href="https://github.com/supernovae/open-lagrange/actions/workflows/ci.yml"><img src="https://github.com/supernovae/open-lagrange/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="https://github.com/supernovae/open-lagrange/actions/workflows/containers.yml"><img src="https://github.com/supernovae/open-lagrange/actions/workflows/containers.yml/badge.svg" alt="Containers" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green.svg" alt="MIT License" /></a>
+  <a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/TypeScript-strict-blue.svg" alt="TypeScript strict" /></a>
+</p>
 
-Think of it as a control plane for cognitive pipelines:
+Open Lagrange is a TypeScript control plane for reconciled work. Models can
+propose typed artifacts, but the platform owns state, policy, capability
+boundaries, approvals, verification, durable progress, and artifacts.
 
-- typed cognition proposes
-- policy validates
-- the reconciler executes
-- Capability Packs provide bounded skills
-- observations and review reports explain what happened
+It is built for workflows where “the model said so” is not enough.
 
-## Why It Exists
+## What You Can Try Now
 
-Most tool-calling systems blur intent, execution, and authority into one
-transcript. Open Lagrange keeps those pieces separate.
+- **Planfiles**: turn a vague goal into a reviewable Markdown plan with typed YAML execution data.
+- **Repository Task Pack**: inspect a repo, collect evidence, create patch plans, apply changes in an isolated worktree, verify, review, and export a final patch.
+- **Workflow Skill Builder**: bring a `skills.md` file, frame it, match it to existing packs, and generate a Planfile-backed Workflow Skill.
+- **Secrets**: store local credentials as OS keychain references instead of plaintext config.
+- **CLI/TUI/API**: use the native CLI, Ink TUI, or local Control Plane API.
 
-The practical result is a workflow you can inspect:
-
-- what the user asked for
-- what capabilities were available
-- what the model proposed
-- what policy allowed or denied
-- what was executed
-- what changed
-- what verification said
-- what needs approval
-
-That makes it useful for repository work, team runbooks, platform operations,
-and any workflow where “the model said so” is not an acceptable execution
-boundary.
+Start with the friendly walkthrough: [docs/ELI5_start.md](docs/ELI5_start.md).
 
 ## Quickstart
 
@@ -63,116 +55,87 @@ Docker works too:
 npm run cli -- up --runtime docker
 ```
 
-Run the terminal cockpit:
-
-```bash
-npm run cli -- tui --repo . --goal "Add a short README example." --dry-run
-```
-
-Check runtime health:
+Check health:
 
 ```bash
 npm run cli -- status
 npm run cli -- doctor
 ```
 
-Stop local services:
+## Experiments
+
+Create a generic Planfile:
 
 ```bash
-npm run cli -- down
+npm run cli -- plan create --goal "Draft a safe rollout checklist" --dry-run
 ```
 
-## Native Commands
+Plan a repository change without touching your working tree:
 
 ```bash
-open-lagrange init
-open-lagrange up
-open-lagrange tui
-open-lagrange status
-open-lagrange doctor
-open-lagrange logs
-open-lagrange down
-```
-
-Profiles make local and remote use the same interface:
-
-```bash
-open-lagrange profile list
-open-lagrange profile add-remote team-dev --api-url https://lagrange.example.com
-open-lagrange profile use team-dev
-```
-
-Remote profiles connect only to the Open Lagrange Control Plane API. They do
-not manage Hatchet, containers, Kubernetes, OpenShift, or a VM directly.
-
-## Repository Task Pack
-
-The first serious Capability Pack is repository-scoped development work.
-
-Example:
-
-```bash
-npm run cli -- repo run \
+npm run cli -- repo plan \
   --repo . \
-  --goal "Add a --json flag to the status command and document it." \
+  --goal "Add JSON output to the status command" \
   --dry-run
 ```
 
-The Repository Task Pack can:
+Build a Workflow Skill from ordinary Markdown:
 
-- inspect allowed files
-- search text
-- propose a patch plan
-- require approval before writes
-- apply validated patches
-- run allowlisted verification commands
-- capture a diff
-- produce a PR-ready review report
+```bash
+npm run cli -- skill plan ./skills.md
+```
 
-It cannot read outside the repository root, read common secret files by default,
-or run arbitrary shell commands.
+Configure a provider key without writing it to config:
 
-## Runtime Model
+```bash
+npm run cli -- secrets set openai
+npm run cli -- secrets status
+```
 
-Open Lagrange has two runtime modes.
+Open the terminal cockpit:
 
-**Local Runtime** is for a developer workstation. The CLI can manage Docker or
-Podman compose services for Hatchet, dependencies, the Control Plane API,
-worker, and web UI.
+```bash
+npm run cli -- tui
+```
 
-**Remote Runtime** is for externally managed deployments: Kubernetes,
-OpenShift, a VM, remote compose, a shared team environment, or hosted setup.
-The CLI and TUI connect to the Control Plane API only.
+## Current Capabilities
 
-Hatchet is internal runtime plumbing. The product boundary is the Open Lagrange
-Control Plane API.
+Open Lagrange currently includes:
+
+- Planning Primitive and Planfiles
+- Capability Pack SDK and PackRegistry
+- Repository Task Pack with isolated worktree execution
+- patch plans, patch artifacts, verification reports, and review reports
+- bounded repair attempt tracking
+- SecretProvider abstraction with OS keychain and env fallback
+- runtime profiles for local and remote control-plane use
+- CLI, TUI, and Next.js API surfaces
+- Workflow Skill Builder Phase 1
+
+## How It Thinks About Work
+
+Open Lagrange separates the loop:
+
+- models emit typed planning and execution artifacts
+- validators check shape and policy
+- Capability Packs expose bounded operations
+- approvals gate risky work
+- runners persist progress and artifacts
+- verification and review explain what happened
+
+That separation is the point: cognition can be useful without becoming the
+runtime, authority, or owner of the work.
 
 ## Packages
 
-- `packages/core`: reconciliation schemas, workflows, policy, approval, status,
-  and trusted local Capability Packs.
+- `packages/core`: planning, reconciliation, workflows, policy, approval,
+  status, secrets, skills, and trusted local packs.
 - `packages/capability-sdk`: interfaces for building bounded Capability Packs.
-- `packages/runtime-manager`: profiles, Docker/Podman detection, local runtime
-  supervision, doctor, and logs.
+- `packages/runtime-manager`: profiles, local runtime supervision, doctor, and logs.
 - `packages/platform-client`: fetch client for the Control Plane API.
 - `apps/cli`: native command line entrypoint.
-- `apps/tui`: Ink terminal reconciliation cockpit.
+- `apps/tui`: Ink terminal cockpit.
 - `apps/web`: Next.js Control Plane API and lightweight web UI.
-
-## Containers
-
-Images are published to GHCR:
-
-- `ghcr.io/supernovae/open-lagrange-api`
-- `ghcr.io/supernovae/open-lagrange-worker`
-- `ghcr.io/supernovae/open-lagrange-web`
-
-Containerfiles are compatible with Docker and Podman.
-
-```bash
-docker compose -f compose.yaml build
-podman compose -f compose.yaml build
-```
 
 ## Development
 
@@ -180,9 +143,7 @@ podman compose -f compose.yaml build
 npm run typecheck
 npm test
 npm run build
-npm audit
 ```
 
-The current local runtime is intentionally conservative. If a health check is
-uncertain, `doctor` reports that uncertainty instead of pretending the stack is
-healthy.
+Image: NASA illustration of JWST near L2, public domain via
+[Wikimedia Commons](https://commons.wikimedia.org/wiki/File:JWST-at-L2-Lagragian-Point.jpg).

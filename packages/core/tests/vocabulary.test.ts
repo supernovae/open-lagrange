@@ -12,6 +12,7 @@ const FILES = [
   "README.md",
   "open-cot-alignment.md",
   "docs/hatchet-notes.md",
+  "docs/ELI5_start.md",
   "docs/run-local.md",
   "docs/architecture.md",
   "docs/capability-pack-sdk.md",
