@@ -6,3 +6,4 @@ export * from "./skillfile-parser.js";
 export * from "./skillfile-schema.js";
 export * from "./workflow-skill.js";
 export * from "./workflow-skill-generator.js";
+export * from "./generated-pack/index.js";

@@ -24,6 +24,13 @@ Runtime-specific choices stay local; reusable interfaces should move upstream.
 | Capability Execution Result | CapabilityExecutionResult | new portable candidate |
 | Side Effect Kind | SideEffectKind | new portable candidate |
 | Idempotency Mode | IdempotencyMode | new portable candidate |
+| Skill Frame | SkillFrame | workflow skill and generated pack input artifact |
+| Workflow Skill | WorkflowSkill | plan-backed reusable workflow artifact |
+| Pack Build Plan | PackBuildPlan | generated pack review artifact |
+| Secret Reference | SecretRef | portable reference, provider-specific resolution local |
+| OAuth Requirement | OAuthRequirement | pack manifest and generated pack planning |
+| Network Requirement | NetworkRequirement | pack manifest and generated pack planning |
+| Pack Validation Report | ValidationReport | generated pack validation artifact |
 | Patch Plan | PatchPlan | new portable candidate |
 | Verification Report | VerificationReport | new portable candidate |
 | Review Report | ReviewReport | new portable candidate |
@@ -44,6 +51,8 @@ These should not become Open-COT requirements:
 - Next.js repository route names and CLI repository command names.
 - Static Pack Registry implementation and Hatchet task wrappers around pack
   execution.
+- Local generated pack directory shape, TypeScript package layout, npm
+  validation commands, and local install registry.
 
 ## Proposed Open-COT Additions
 

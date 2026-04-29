@@ -28,6 +28,7 @@ It is built for workflows where “the model said so” is not enough.
 - **Planfiles**: turn a vague goal into a reviewable Markdown plan with typed YAML execution data.
 - **Repository Task Pack**: inspect a repo, collect evidence, create patch plans, apply changes in an isolated worktree, verify, review, and export a final patch.
 - **Workflow Skill Builder**: bring a `skills.md` file, frame it, match it to existing packs, and generate a Planfile-backed Workflow Skill.
+- **Generated Capability Packs**: when existing packs are insufficient, generate a reviewable local pack scaffold and validation report.
 - **Secrets**: store local credentials as OS keychain references instead of plaintext config.
 - **CLI/TUI/API**: use the native CLI, Ink TUI, or local Control Plane API.
 
@@ -131,6 +132,29 @@ Build a Workflow Skill from ordinary Markdown:
 npm run cli -- skill plan ./skills.md
 ```
 
+Generate a reviewable Capability Pack scaffold from a skill:
+
+```bash
+npm run cli -- pack build examples/skills/http-json-fetcher.md --dry-run
+npm run cli -- pack inspect .open-lagrange/generated-packs/local.http-json-fetcher
+npm run cli -- pack validate .open-lagrange/generated-packs/local.http-json-fetcher
+```
+
+Try the generated pack lifecycle end to end with a safe Markdown Transformer:
+
+```bash
+npm run cli -- pack build examples/skills-markdown-transformer/skills.md --dry-run
+npm run cli -- pack validate .open-lagrange/generated-packs/local.markdown-transformer
+npm run cli -- pack install .open-lagrange/generated-packs/local.markdown-transformer
+npm run cli -- restart
+npm run cli -- pack health local.markdown-transformer
+npm run cli -- pack smoke local.markdown-transformer
+```
+
+Install writes to the active runtime profile by default:
+`~/.open-lagrange/profiles/<profile>/packs/`. Use `--workspace-local` when you
+want a disposable workspace registry instead.
+
 Configure a provider key without writing it to config:
 
 ```bash
@@ -157,6 +181,8 @@ Open Lagrange currently includes:
 - runtime profiles for local and remote control-plane use
 - CLI, TUI, and Next.js API surfaces
 - Workflow Skill Builder Phase 1
+- Generated Capability Packs Phase 2 with scaffold, static safety checks, compile/test validation, and explicit install
+- runtime activation for installed local packs, pack health, smoke tests, artifact lineage, and policy decision reports
 - Golden Path demos, artifact index, doctor checks, and pack inspection
 
 ## How It Thinks About Work
@@ -192,13 +218,21 @@ runtime, authority, or owner of the work.
 - [Pack inspection](docs/pack-inspection.md)
 - [Planfiles](docs/planfiles.md)
 - [Skills-to-Pack](docs/skills-to-pack.md)
+- [Skills-to-Pack Phase 2](docs/skills-to-pack-phase-2.md)
+- [Generated Capability Packs](docs/generated-capability-packs.md)
+- [Pack validation](docs/pack-validation.md)
+- [Pack security model](docs/pack-security-model.md)
+- [Pack runtime activation](docs/pack-runtime-activation.md)
+- [Pack health](docs/pack-health.md)
+- [Pack smoke tests](docs/pack-smoke-tests.md)
+- [Artifact lineage](docs/artifact-lineage.md)
+- [Policy decision reports](docs/policy-decision-reports.md)
 
 ## Roadmap
 
-The next phase is wiring the demo previews into more live local execution while
-keeping the same boundaries: typed Planfiles, capability-pack execution, OS
-keychain-backed secrets, policy gates, approvals, verification, and exportable
-artifacts.
+The next phase is isolated validation execution for generated pack source, then
+controlled reload after install. Hot reload stays behind explicit trust and
+validation gates.
 
 ## Development
 

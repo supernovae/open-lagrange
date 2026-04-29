@@ -25,7 +25,8 @@ export function Sidebar({ model, width, height }: { readonly model: TuiViewModel
         <Text color={theme.title}>Commands</Text>
         <Text>/approve   /reject</Text>
         <Text>/plan      /diff</Text>
-        <Text>/verify    /json</Text>
+        <Text>/verify    /pack</Text>
+        <Text>/json      /help</Text>
         <Text>tab pane   ctrl+q quit</Text>
       </Box>
     </Box>

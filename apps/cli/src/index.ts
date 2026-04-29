@@ -2,17 +2,17 @@
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { Command } from "commander";
 import { exportArtifact, listArtifacts, reindexArtifacts, showArtifact } from "@open-lagrange/core/artifacts";
 import { listDemos, openDemo, runDemo } from "@open-lagrange/core/demos";
 import { runCoreDoctor } from "@open-lagrange/core/doctor";
-import { inspectPack, listInspectablePacks, validateRegisteredPack } from "@open-lagrange/core/packs";
+import { getPackHealth, inspectPack, listInspectablePacks, runPackSmoke, validateRegisteredPack } from "@open-lagrange/core/packs";
 import { generateGoalFrame, generatePlanfile, parsePlanfileMarkdown, parsePlanfileYaml, renderPlanfileMarkdown, renderPlanMermaid, validatePlanfile, withCanonicalPlanDigest } from "@open-lagrange/core/planning";
 import { createRepositoryPlanfile } from "@open-lagrange/core/repository";
-import { generateSkillFrame, generateWorkflowSkill, parseSkillfileMarkdown, parseWorkflowSkillMarkdown, previewWorkflowSkillRun, validateWorkflowSkill } from "@open-lagrange/core/skills";
+import { buildGeneratedPackFromMarkdown, generateSkillFrame, generateWorkflowSkill, installGeneratedPack, parseSkillfileMarkdown, parseWorkflowSkillMarkdown, previewWorkflowSkillRun, scaffoldGeneratedPack, validateGeneratedPack, validateWorkflowSkill } from "@open-lagrange/core/skills";
 import { createPlatformClientFromCurrentProfile } from "@open-lagrange/platform-client";
-import { addLocalProfile, addRemoteProfile, configureCurrentProfileModelProvider, deleteCurrentProfileSecret, describeCurrentProfileModelProvider, describeCurrentProfileSecret, getCurrentProfile, initRuntime, listCurrentProfileModelProviders, listCurrentProfileSecrets, listKnownModelProviders, loadConfig, removeProfile, restartLocalRuntime, setCurrentProfile, setCurrentProfileSecret, startLocalRuntime, stopLocalRuntime, tailLogs, getRuntimeStatus } from "@open-lagrange/runtime-manager";
+import { addLocalProfile, addRemoteProfile, configureCurrentProfileModelProvider, deleteCurrentProfileSecret, describeCurrentProfileModelProvider, describeCurrentProfileSecret, getCurrentProfile, getProfilePackPaths, initRuntime, listCurrentProfileModelProviders, listCurrentProfileSecrets, listKnownModelProviders, loadConfig, removeProfile, restartLocalRuntime, setCurrentProfile, setCurrentProfileSecret, startLocalRuntime, stopLocalRuntime, tailLogs, getRuntimeStatus } from "@open-lagrange/runtime-manager";
 import type { SecretRef } from "@open-lagrange/core/secrets";
 
 const program = new Command();
@@ -155,27 +155,84 @@ artifact.command("reindex").action(() => {
   console.log(JSON.stringify(reindexArtifacts(), null, 2));
 });
 
-const pack = program.command("pack").description("Inspect and validate capability packs.");
+const pack = program.command("pack").description("Build, inspect, and validate capability packs.");
 
-pack.command("list").action(() => {
-  console.log(JSON.stringify(listInspectablePacks(), null, 2));
+pack.command("list").option("--profile <name>", "Runtime profile to read installed packs from").action(async (options: { readonly profile?: string }) => {
+  console.log(JSON.stringify(listInspectablePacks(getProfilePackPaths(options.profile ?? (await getCurrentProfile().catch(() => ({ name: "local" }))).name).profileDir), null, 2));
 });
 
-pack.command("inspect").argument("<packId>", "Pack ID").action((packId: string) => {
-  const result = inspectPack(packId);
+pack.command("build")
+  .argument("<skillfile>", "skills.md path")
+  .option("--dry-run", "Generate and validate without installing", true)
+  .option("--output-dir <path>", "Generated pack parent directory")
+  .option("--experimental-codegen", "Reserved flag for future model-assisted source generation", false)
+  .action(async (path: string, options: { readonly dryRun: boolean; readonly outputDir?: string; readonly experimentalCodegen: boolean }) => {
+    const result = await buildGeneratedPackFromMarkdown({
+      markdown: await readFile(cliPath(path), "utf8"),
+      dry_run: options.dryRun,
+      output_dir: options.outputDir ? cliPath(options.outputDir) : cliPath(".open-lagrange/generated-packs"),
+      experimental_codegen: options.experimentalCodegen,
+    });
+    console.log(JSON.stringify(result, null, 2));
+  });
+
+pack.command("scaffold").argument("<packId>", "Generated pack ID, such as local.http-json-fetcher").option("--output-dir <path>", "Generated pack parent directory").action((packId: string, options: { readonly outputDir?: string }) => {
+  console.log(JSON.stringify(scaffoldGeneratedPack({ pack_id: packId, output_dir: options.outputDir ? cliPath(options.outputDir) : cliPath(".open-lagrange/generated-packs") }), null, 2));
+});
+
+pack.command("inspect").argument("<packIdOrPath>", "Pack ID or generated pack path").option("--profile <name>", "Runtime profile to read installed packs from").action(async (packIdOrPath: string, options: { readonly profile?: string }) => {
+  const target = packTarget(packIdOrPath);
+  const result = inspectPack(target, getProfilePackPaths(options.profile ?? (await getCurrentProfile().catch(() => ({ name: "local" }))).name).profileDir);
   if (!result) {
-    console.log(JSON.stringify({ pack_id: packId, status: "missing" }, null, 2));
+    console.log(JSON.stringify({ pack_id: packIdOrPath, status: "missing" }, null, 2));
     process.exitCode = 1;
     return;
   }
   console.log(JSON.stringify(result, null, 2));
 });
 
-pack.command("validate").argument("<packId>", "Pack ID").action((packId: string) => {
-  const result = validateRegisteredPack(packId);
+pack.command("validate").argument("<packIdOrPath>", "Pack ID or generated pack path").action((packIdOrPath: string) => {
+  const target = packTarget(packIdOrPath);
+  const result = existsSync(target) ? validateGeneratedPack({ pack_path: target }) : validateRegisteredPack(target);
   console.log(JSON.stringify(result, null, 2));
-  if (!result.ok) process.exitCode = 1;
+  const ok = "ok" in result ? result.ok : result.status === "pass";
+  if (!ok) process.exitCode = 1;
 });
+
+pack.command("install")
+  .argument("<packPath>", "Generated pack directory")
+  .option("--allow-manual-review-install", "Install a pack that requires manual review", false)
+  .option("--profile <name>", "Runtime profile to install into")
+  .option("--install-dir <path>", "Explicit install root. The registry is written under <path>/packs/registry.json")
+  .option("--workspace-local", "Install into this workspace's .open-lagrange directory instead of the active profile", false)
+  .action(async (packPath: string, options: { readonly allowManualReviewInstall: boolean; readonly profile?: string; readonly installDir?: string; readonly workspaceLocal: boolean }) => {
+    const homeDir = options.installDir
+      ? cliPath(options.installDir)
+      : options.workspaceLocal
+        ? cliPath(".open-lagrange")
+        : getProfilePackPaths(options.profile ?? (await getCurrentProfile()).name).profileDir;
+    console.log(JSON.stringify(installGeneratedPack({ pack_path: cliPath(packPath), home_dir: homeDir, allow_manual_review_install: options.allowManualReviewInstall }), null, 2));
+  });
+
+pack.command("health")
+  .argument("[packId]", "Pack ID")
+  .option("--profile <name>", "Runtime profile to read installed packs from")
+  .option("--workspace-local", "Read installed packs from this workspace's .open-lagrange directory", false)
+  .action(async (packId: string | undefined, options: { readonly profile?: string; readonly workspaceLocal: boolean }) => {
+    const profileName = options.profile ?? (await getCurrentProfile().catch(() => ({ name: "local" }))).name;
+    const packsDir = options.workspaceLocal ? cliPath(".open-lagrange/packs") : getProfilePackPaths(profileName).packsDir;
+    console.log(JSON.stringify(getPackHealth({ ...(packId ? { pack_id: packId } : {}), packs_dir: packsDir, configured_secret_refs: await currentSecretRefNames() }), null, 2));
+  });
+
+pack.command("smoke")
+  .argument("<packId>", "Pack ID")
+  .option("--profile <name>", "Runtime profile to read installed packs from")
+  .option("--workspace-local", "Read installed packs from this workspace's .open-lagrange directory", false)
+  .action(async (packId: string, options: { readonly profile?: string; readonly workspaceLocal: boolean }) => {
+    const profileName = options.profile ?? (await getCurrentProfile().catch(() => ({ name: "local" }))).name;
+    const packsDir = options.workspaceLocal ? cliPath(".open-lagrange/packs") : getProfilePackPaths(profileName).packsDir;
+    console.log(JSON.stringify(await runPackSmoke({ pack_id: packId, packs_dir: packsDir }), null, 2));
+  });
 
 const profile = program.command("profile").description("Manage runtime profiles.");
 
@@ -548,6 +605,12 @@ function isPatchArtifact(value: unknown): value is { readonly plan_id: string; r
     && Array.isArray((value as { readonly changed_files?: unknown }).changed_files));
 }
 
+async function currentSecretRefNames(): Promise<string[]> {
+  const profile = await getCurrentProfile().catch(() => undefined);
+  if (!profile?.secretRefs) return [];
+  return Object.entries(profile.secretRefs).flatMap(([key, ref]) => [key, ref.ref_id, ref.name].filter(Boolean));
+}
+
 async function readStdin(): Promise<string> {
   const chunks: Buffer[] = [];
   for await (const chunk of process.stdin) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
@@ -616,4 +679,13 @@ function packageHasScript(dir: string, scriptName: string): boolean {
   } catch {
     return false;
   }
+}
+
+function cliPath(path: string): string {
+  return resolve(process.env.INIT_CWD ?? process.cwd(), path);
+}
+
+function packTarget(value: string): string {
+  const resolved = cliPath(value);
+  return existsSync(resolved) ? resolved : value;
 }

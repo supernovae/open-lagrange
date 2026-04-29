@@ -13,7 +13,7 @@ export function HelpPane(): React.ReactElement {
       <Text>ctrl+s start runtime   ctrl+d doctor   ctrl+l logs</Text>
       <Text>/run &lt;goal&gt;       /attach &lt;project_id&gt;</Text>
       <Text>/approve &lt;reason&gt;  /reject &lt;reason&gt;</Text>
-      <Text>/diff /verify /review /json /status</Text>
+      <Text>/diff /verify /review /pack /json /status</Text>
     </Box>
   );
 }

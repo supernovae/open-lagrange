@@ -112,6 +112,15 @@ describe("TUI view model", () => {
       ...projectStatus(),
       output: {
         artifacts: [{
+          artifact_id: "pack-validation-1",
+          kind: "pack_validation_report",
+          title: "Pack validation",
+          summary: "pass",
+          path_or_uri: ".open-lagrange/generated-packs/local.example/artifacts/validation-report.json",
+          created_at: updatedAt,
+          redacted: true,
+          exportable: true,
+        }, {
           artifact_id: "research-brief-1",
           kind: "research_brief",
           title: "Research brief",
@@ -132,5 +141,6 @@ describe("TUI view model", () => {
     });
 
     expect(view.artifacts.find((artifact) => artifact.artifact_id === "research-brief-1")?.artifact_type).toBe("research_brief");
+    expect(view.artifacts.find((artifact) => artifact.artifact_id === "pack-validation-1")?.artifact_type).toBe("pack_validation_report");
   });
 });

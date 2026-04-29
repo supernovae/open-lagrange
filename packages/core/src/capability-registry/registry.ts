@@ -4,10 +4,13 @@ import { repositoryPack } from "../capability-packs/repository/pack.js";
 import { mockCapabilityPack } from "../capability-packs/mock/pack.js";
 import { sdkDescriptorsToCapabilitySnapshot } from "./open-cot.js";
 import type { CapabilitySnapshot } from "../schemas/capabilities.js";
+import { loadInstalledPacksForRuntime } from "../packs/runtime-pack-loader.js";
 
 export const packRegistry = createPackRegistry()
   .registerPack(mockCapabilityPack)
   .registerPack(repositoryPack);
+
+loadInstalledPacksForRuntime(packRegistry);
 
 export function createCapabilitySnapshotForTask(input: CapabilityFilter & { readonly now: string }): CapabilitySnapshot {
   return sdkDescriptorsToCapabilitySnapshot(packRegistry.listCapabilities(input), input.now);

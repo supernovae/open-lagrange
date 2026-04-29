@@ -55,6 +55,7 @@ export const RuntimeStatus = z.object({
   worker: ServiceStatus.optional(),
   web: ServiceStatus.optional(),
   registeredPacks: z.array(z.string()).optional(),
+  packHealth: z.array(z.unknown()).optional(),
   modelProvider: ServiceStatus.optional(),
   credentials: CredentialStatus.optional(),
   configPath: z.string().min(1),
@@ -74,6 +75,13 @@ export interface RuntimePaths {
   readonly composePath: string;
   readonly statePath: string;
   readonly logsDir: string;
+}
+
+export interface ProfilePackPaths {
+  readonly profileDir: string;
+  readonly packsDir: string;
+  readonly trustedLocalDir: string;
+  readonly registryPath: string;
 }
 
 export type RuntimeMode = z.infer<typeof RuntimeMode>;

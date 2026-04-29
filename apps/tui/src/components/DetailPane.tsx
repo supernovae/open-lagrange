@@ -13,6 +13,7 @@ import { VerificationPane } from "./VerificationPane.js";
 import { ReviewPane } from "./ReviewPane.js";
 import { ArtifactJsonPane } from "./ArtifactJsonPane.js";
 import { HelpPane } from "./HelpPane.js";
+import { PackBuilderPane } from "./PackBuilderPane.js";
 
 export function DetailPane({ model, height }: { readonly model: TuiViewModel; readonly height: number }): React.ReactElement {
   return (
@@ -32,6 +33,7 @@ function content(model: TuiViewModel): React.ReactElement {
   if (model.selectedPane === "diff") return <DiffViewer model={model} />;
   if (model.selectedPane === "verification") return <VerificationPane results={model.verificationResults} />;
   if (model.selectedPane === "review") return <ReviewPane model={model} />;
+  if (model.selectedPane === "pack_builder") return <PackBuilderPane model={model} />;
   if (model.selectedPane === "artifact_json") return <ArtifactJsonPane model={model} />;
   return <HelpPane />;
 }

@@ -108,4 +108,13 @@ describe("TUI input parsing", () => {
     expect(parsed.attachProjectId).toBe("project-2");
     expect(parsed.event).toBeUndefined();
   });
+
+  it("maps pack to the pack builder pane", () => {
+    const parsed = parseUserInput("/pack", {});
+
+    expect(parsed.kind).toBe("command");
+    if (parsed.kind !== "command") return;
+    expect(parsed.pane).toBe("pack_builder");
+    expect(parsed.event).toBeUndefined();
+  });
 });

@@ -192,7 +192,7 @@ function artifactType(value: string): ArtifactSummary["artifact_type"] {
   if (value === "planfile") return "plan";
   if (value === "verification_report") return "verification";
   if (value === "review_report") return "review";
-  if (value === "skill_frame" || value === "workflow_skill" || value === "patch_plan" || value === "patch_artifact" || value === "research_brief" || value === "approval_request" || value === "execution_timeline" || value === "raw_log") return value;
+  if (value === "skill_frame" || value === "workflow_skill" || value === "pack_build_plan" || value === "generated_pack" || value === "pack_manifest" || value === "pack_validation_report" || value === "pack_test_report" || value === "pack_install_report" || value === "patch_plan" || value === "patch_artifact" || value === "research_brief" || value === "approval_request" || value === "execution_timeline" || value === "raw_log") return value;
   return "artifact_json";
 }
 

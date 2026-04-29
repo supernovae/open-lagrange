@@ -60,7 +60,7 @@ export function reindexArtifacts(input: {
   readonly now?: string;
 } = {}): ArtifactIndex {
   const now = input.now ?? new Date().toISOString();
-  const roots = input.roots ?? [".open-lagrange/demos", ".open-lagrange/plans", ".open-lagrange/skills"];
+  const roots = input.roots ?? [".open-lagrange/demos", ".open-lagrange/plans", ".open-lagrange/skills", ".open-lagrange/generated-packs"];
   const artifacts: ArtifactSummaryType[] = [];
   for (const root of roots) {
     const absolute = resolveLocalPath(root);
@@ -85,6 +85,7 @@ export function createArtifactSummary(input: Omit<ArtifactSummaryType, "created_
     ...input,
     created_at: input.created_at ?? new Date().toISOString(),
     redacted: input.redacted ?? true,
+    redaction_status: input.redaction_status ?? (input.redacted === false ? "not_redacted" : "redacted"),
     exportable: input.exportable ?? true,
     ...(size === undefined ? {} : { size_bytes: size }),
   });
@@ -124,6 +125,13 @@ function kindFromPath(path: string): ArtifactKindType | undefined {
   if (name.includes("planfile") || name.endsWith(".plan.md")) return "planfile";
   if (name.includes("skill-frame")) return "skill_frame";
   if (name.includes("workflow-skill") || name.endsWith(".skill.md")) return "workflow_skill";
+  if (name.includes("build-plan")) return "pack_build_plan";
+  if (name === "open-lagrange.pack.yaml") return "pack_manifest";
+  if (name.includes("validation-report")) return "pack_validation_report";
+  if (name.includes("test-report")) return "pack_test_report";
+  if (name.includes("install-report")) return "pack_install_report";
+  if (name.includes("smoke-report")) return "pack_smoke_report";
+  if (name.includes("policy-decision")) return "policy_decision_report";
   if (name.includes("patch-plan")) return "patch_plan";
   if (name.includes("patch-artifact")) return "patch_artifact";
   if (name.includes("verification")) return "verification_report";

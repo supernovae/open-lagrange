@@ -125,11 +125,11 @@ function firstLine(value: string | undefined): string {
 }
 
 function sideEffectsFrom(text: string, permissions: readonly string[]): string[] {
-  const joined = `${text}\n${permissions.join("\n")}`;
+  const joined = `${text}\n${permissions.join("\n")}`.replace(/\bdo not\s+(write|modify|patch|create|update|delete|remove|destroy|send|email|post|publish|webhook)\b/g, "");
   return [
     joined.match(/\b(write|modify|patch|create|update)\b/) ? "write" : undefined,
     joined.match(/\b(delete|remove|destroy)\b/) ? "delete" : undefined,
-    joined.match(/\b(send|email|post|publish|webhook|api|network|external)\b/) ? "external_side_effect" : undefined,
+    joined.match(/\b(send|email|post|publish|webhook|external)\b/) ? "external_side_effect" : undefined,
   ].filter((item): item is string => Boolean(item));
 }
 

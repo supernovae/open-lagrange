@@ -122,6 +122,8 @@ services:
       HATCHET_CLIENT_TLS_STRATEGY: none
       HATCHET_CLIENT_TOKEN: \${HATCHET_CLIENT_TOKEN:-}
       OPEN_LAGRANGE_WORKER_HEALTH_URL: http://open-lagrange-worker:4318/healthz
+      OPEN_LAGRANGE_PROFILE: \${OPEN_LAGRANGE_PROFILE:-local}
+      OPEN_LAGRANGE_PROFILE_PACKS_DIR: /runtime-packs
       OPEN_LAGRANGE_MODEL_PROVIDER: \${OPEN_LAGRANGE_MODEL_PROVIDER:-openai}
       OPEN_LAGRANGE_MODEL_BASE_URL: \${OPEN_LAGRANGE_MODEL_BASE_URL:-https://api.openai.com/v1}
       OPEN_LAGRANGE_MODEL_API_KEY: \${OPEN_LAGRANGE_MODEL_API_KEY:-}
@@ -134,6 +136,7 @@ services:
     volumes:
       - open_lagrange_data:/data
       - hatchet_config:/hatchet/config:ro
+      - \${OPEN_LAGRANGE_PROFILE_PACKS_DIR:-/tmp/open-lagrange-empty-packs}:/runtime-packs:ro
     depends_on:
       hatchet-engine:
         condition: service_started
@@ -154,6 +157,8 @@ services:
       HATCHET_CLIENT_TOKEN: \${HATCHET_CLIENT_TOKEN:-}
       OPEN_LAGRANGE_WORKER_HEALTH_HOST: 0.0.0.0
       OPEN_LAGRANGE_WORKER_HEALTH_PORT: "4318"
+      OPEN_LAGRANGE_PROFILE: \${OPEN_LAGRANGE_PROFILE:-local}
+      OPEN_LAGRANGE_PROFILE_PACKS_DIR: /runtime-packs
       OPEN_LAGRANGE_MODEL_PROVIDER: \${OPEN_LAGRANGE_MODEL_PROVIDER:-openai}
       OPEN_LAGRANGE_MODEL_BASE_URL: \${OPEN_LAGRANGE_MODEL_BASE_URL:-https://api.openai.com/v1}
       OPEN_LAGRANGE_MODEL_API_KEY: \${OPEN_LAGRANGE_MODEL_API_KEY:-}
@@ -166,6 +171,7 @@ services:
     volumes:
       - open_lagrange_data:/data
       - hatchet_config:/hatchet/config:ro
+      - \${OPEN_LAGRANGE_PROFILE_PACKS_DIR:-/tmp/open-lagrange-empty-packs}:/runtime-packs:ro
     depends_on:
       hatchet-engine:
         condition: service_started

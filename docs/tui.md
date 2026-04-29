@@ -41,23 +41,19 @@ bar.
 - Sidebar: goal, project status, phase, active task, approval count, changed
   files, and safety boundaries.
 - Main detail area: conversation, timeline, task list, approvals, diff,
-  verification, review report, artifact JSON, or help.
+  verification, review report, generated pack builder, artifact JSON, or help.
 - Input bar: controlled command and intent lane.
 
 ## Keyboard Shortcuts
 
 - `tab`: cycle pane
-- `?`: help
-- `r`: refresh
-- `a`: prepare approval command
-- `x`: prepare rejection command
-- `d`: diff pane
-- `v`: verification pane
-- `p`: artifact JSON pane
-- `o`: timeline pane
-- `e`: timeline pane focused on errors
-- `j`: artifact JSON pane
-- `q`: quit
+- `esc`: help
+- `ctrl+r`: refresh
+- `ctrl+s`: start local runtime
+- `ctrl+d`: run doctor
+- `ctrl+l`: show logs
+- `ctrl+p`: prepare profile command
+- `ctrl+q`: quit
 
 ## Slash Commands
 
@@ -66,6 +62,7 @@ bar.
 - `/diff`
 - `/verify`
 - `/review`
+- `/pack`
 - `/json`
 - `/approve <reason>`
 - `/reject <reason>`

@@ -28,6 +28,13 @@ export function handleRuntimePacks(): unknown {
   };
 }
 
+export async function handleRuntimePackHealth(): Promise<unknown> {
+  const health = await getRuntimeHealth();
+  return {
+    packs: health.pack_health ?? [],
+  };
+}
+
 export function handleRuntimeVersion(): unknown {
   return {
     name: "open-lagrange",

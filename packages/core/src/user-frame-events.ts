@@ -8,6 +8,7 @@ import { approveTask, getProjectRunStatus, getTaskStatus, rejectTask, requestRep
 import { observation, structuredError } from "./reconciliation/records.js";
 import { getStateStore } from "./storage/state-store.js";
 import type { TaskStatusSnapshot } from "./status/status-store.js";
+import { getPackHealth, type PackHealthStatus } from "./packs/pack-health.js";
 
 export const ArtifactType = z.enum(["diff", "review", "verification", "plan", "artifact_json"]);
 
@@ -291,6 +292,7 @@ export interface RuntimeHealth {
   readonly model: "configured" | "not_configured";
   readonly remote_auth?: "configured" | "missing";
   readonly secret_provider?: string;
+  readonly pack_health?: readonly PackHealthStatus[];
 }
 
 export async function getRuntimeHealth(input: { readonly api_url?: string; readonly project_id?: string; readonly worker_url?: string } = {}): Promise<RuntimeHealth> {
@@ -310,6 +312,7 @@ export async function getRuntimeHealth(input: { readonly api_url?: string; reado
     worker,
     hatchet,
     packs: packRegistry.listPacks().length,
+    pack_health: getPackHealth(),
     model: process.env.OPENAI_API_KEY || process.env.AI_GATEWAY_API_KEY ? "configured" : "not_configured",
     remote_auth: "missing",
     secret_provider: "env",

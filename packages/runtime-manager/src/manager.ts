@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { defaultLocalProfile, loadConfig, saveConfig } from "./config.js";
 import { composeDown, composeFileExists, composeLogs, composeUp, detectRuntime, writeComposeTemplate } from "./compose.js";
 import { modelProviderRuntimeEnv } from "./model-providers.js";
-import { getRuntimePaths } from "./paths.js";
+import { getProfilePackPaths, getRuntimePaths } from "./paths.js";
 import { getCurrentProfile } from "./profiles.js";
 import { credentialStatuses, resolveProfileAuthToken } from "./secrets.js";
 import { RuntimeStatus, type RuntimeConfig, type RuntimeProfile, type RuntimeStatus as RuntimeStatusType, type ServiceStatus } from "./types.js";
@@ -102,6 +102,7 @@ export async function getRuntimeStatus(): Promise<RuntimeStatusType> {
   const packs = api.state === "running" ? await listPacks(profile.apiUrl, profile.auth) : undefined;
   const warnings: string[] = [];
   const credentials = await credentialStatuses(profile);
+  const packHealth = api.state === "running" ? await runtimePackHealth(profile.apiUrl, profile.auth) : undefined;
   if (profile.auth?.type === "oidc") warnings.push("OIDC profiles are typed but interactive login is not implemented yet.");
   return RuntimeStatus.parse({
     profileName: profile.name,
@@ -110,6 +111,7 @@ export async function getRuntimeStatus(): Promise<RuntimeStatusType> {
     api,
     ...(profile.mode === "local" ? { hatchet: await probe("hatchet", profile.hatchetUrl), worker: await probeWorker(localWorkerUrl(profile), api), web: await probe("web", profile.webUrl) } : {}),
     ...(packs ? { registeredPacks: packs } : {}),
+    ...(packHealth ? { packHealth } : {}),
     modelProvider: await modelStatus(profile.apiUrl, profile.auth, credentials.modelProvider),
     credentials,
     configPath: paths.configPath,
@@ -130,9 +132,13 @@ async function localProfile(runtime?: "docker" | "podman"): Promise<RuntimeProfi
 }
 
 async function runtimeEnv(profile: RuntimeProfile): Promise<NodeJS.ProcessEnv> {
+  const packPaths = getProfilePackPaths(profile.name);
+  await mkdir(packPaths.trustedLocalDir, { recursive: true });
   return {
     ...process.env,
     ...await modelProviderRuntimeEnv(profile),
+    OPEN_LAGRANGE_PROFILE: profile.name,
+    OPEN_LAGRANGE_PROFILE_PACKS_DIR: packPaths.packsDir,
   };
 }
 
@@ -185,6 +191,17 @@ async function listPacks(apiUrl: string, auth: RuntimeProfile["auth"]): Promise<
     const response = await fetch(new URL("/v1/runtime/packs", apiUrl), { headers: await authHeaders(auth), signal: AbortSignal.timeout(2500) });
     if (!response.ok) return undefined;
     const data = await response.json() as { packs?: string[] };
+    return data.packs;
+  } catch {
+    return undefined;
+  }
+}
+
+async function runtimePackHealth(apiUrl: string, auth: RuntimeProfile["auth"]): Promise<unknown[] | undefined> {
+  try {
+    const response = await fetch(new URL("/v1/runtime/pack-health", apiUrl), { headers: await authHeaders(auth), signal: AbortSignal.timeout(2500) });
+    if (!response.ok) return undefined;
+    const data = await response.json() as { packs?: unknown[] };
     return data.packs;
   } catch {
     return undefined;

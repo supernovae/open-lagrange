@@ -51,6 +51,7 @@ function parseCommand(input: string, context: ParseContext): ParsedInput {
   if (command === "review") return commandWithArtifact(command, "review", context, "review");
   if (command === "json") return commandWithArtifact(command, "artifact_json", context, "artifact_json");
   if (command === "demo") return { kind: "command", command, pane: "demo" };
+  if (command === "pack") return { kind: "command", command, pane: "pack_builder" };
   if (command === "approve") return withProject(context, { kind: "command", command, event: { type: "approve", approval_request_id: context.approval_request_id ?? context.task_id ?? "", task_id: context.task_id ?? "", reason: text || "Approved from TUI." } });
   if (command === "reject") return withProject(context, { kind: "command", command, event: { type: "reject", approval_request_id: context.approval_request_id ?? context.task_id ?? "", task_id: context.task_id ?? "", reason: text || "Rejected from TUI." } });
   if (command === "run") return { kind: "command", command, event: submitGoal(text, context) };
