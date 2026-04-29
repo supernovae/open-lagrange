@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
 import { Command } from "commander";
 import { generateGoalFrame, generatePlanfile, parsePlanfileMarkdown, parsePlanfileYaml, renderPlanfileMarkdown, renderPlanMermaid, validatePlanfile, withCanonicalPlanDigest } from "@open-lagrange/core/planning";
+import { createRepositoryPlanfile } from "@open-lagrange/core/repository";
 import { createPlatformClientFromCurrentProfile } from "@open-lagrange/platform-client";
 import { addLocalProfile, addRemoteProfile, deleteCurrentProfileSecret, describeCurrentProfileSecret, getCurrentProfile, initRuntime, listCurrentProfileSecrets, loadConfig, removeProfile, restartLocalRuntime, runDoctor, setCurrentProfile, setCurrentProfileSecret, startLocalRuntime, stopLocalRuntime, tailLogs, getRuntimeStatus } from "@open-lagrange/runtime-manager";
 import type { SecretRef } from "@open-lagrange/core/secrets";
@@ -187,7 +188,23 @@ repo.command("run")
   .option("--dry-run", "Plan and require approval before writes", true)
   .option("--apply", "Apply the approved patch immediately", false)
   .option("--require-approval", "Require approval before applying", false)
-  .action(async (options: { readonly repo: string; readonly goal: string; readonly workspaceId?: string; readonly dryRun: boolean; readonly apply: boolean; readonly requireApproval: boolean }) => {
+  .option("--legacy", "Use the original repository task endpoint", false)
+  .action(async (options: { readonly repo: string; readonly goal: string; readonly workspaceId?: string; readonly dryRun: boolean; readonly apply: boolean; readonly requireApproval: boolean; readonly legacy: boolean }) => {
+    if (!options.legacy) {
+      const created = await createRepositoryPlanfile({
+        repo_root: options.repo,
+        goal: options.goal,
+        dry_run: options.dryRun && !options.apply,
+        ...(options.workspaceId ? { workspace_id: options.workspaceId } : {}),
+      });
+      await writeFile(created.path, created.markdown, "utf8");
+      if (!options.apply) {
+        console.log(JSON.stringify({ plan_id: created.planfile.plan_id, path: created.path, canonical_plan_digest: created.planfile.canonical_plan_digest }, null, 2));
+        return;
+      }
+      console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).applyRepositoryPlanfile({ planfile: created.planfile }), null, 2));
+      return;
+    }
     console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).submitRepositoryGoal({
       goal: options.goal,
       repo_root: options.repo,
@@ -198,16 +215,68 @@ repo.command("run")
     }), null, 2));
   });
 
-repo.command("status").argument("<taskId>", "Task ID or task run ID").action(async (taskId: string) => {
-  console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).getTaskStatus(taskId), null, 2));
+repo.command("plan")
+  .requiredOption("--repo <path>", "Repository root")
+  .requiredOption("--goal <goal>", "Repository task goal")
+  .option("--workspace-id <workspaceId>", "Repository workspace ID")
+  .option("--dry-run", "Create a dry-run Planfile", true)
+  .action(async (options: { readonly repo: string; readonly goal: string; readonly workspaceId?: string; readonly dryRun: boolean }) => {
+    const created = await createRepositoryPlanfile({
+      repo_root: options.repo,
+      goal: options.goal,
+      dry_run: options.dryRun,
+      ...(options.workspaceId ? { workspace_id: options.workspaceId } : {}),
+    });
+    await writeFile(created.path, created.markdown, "utf8");
+    console.log(JSON.stringify({ plan_id: created.planfile.plan_id, path: created.path, canonical_plan_digest: created.planfile.canonical_plan_digest }, null, 2));
+  });
+
+repo.command("apply")
+  .argument("<planfile>", "Repository Planfile Markdown or YAML path")
+  .option("--allow-dirty-base", "Allow execution when the source worktree has uncommitted changes", false)
+  .option("--cleanup-on-success", "Allow cleanup policy to remove retained worktrees later", false)
+  .action(async (path: string, options: { readonly allowDirtyBase: boolean; readonly cleanupOnSuccess: boolean }) => {
+    const planfile = withCanonicalPlanDigest(await loadLocalPlanfile(path));
+    console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).applyRepositoryPlanfile({
+      planfile,
+      allow_dirty_base: options.allowDirtyBase,
+      retain_on_failure: !options.cleanupOnSuccess,
+    }), null, 2));
+  });
+
+repo.command("status").argument("<planId>", "Plan ID, task ID, or task run ID").action(async (planId: string) => {
+  const client = await createPlatformClientFromCurrentProfile();
+  const status = await client.getRepositoryPlanStatus(planId);
+  if (isMissingStatus(status)) console.log(JSON.stringify(await client.getTaskStatus(planId), null, 2));
+  else console.log(JSON.stringify(status, null, 2));
 });
 
 repo.command("diff").argument("<taskId>", "Task ID or task run ID").action(async (taskId: string) => {
   console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).getArtifact("diff", { task_id: taskId, type: "diff" }), null, 2));
 });
 
-repo.command("review").argument("<taskId>", "Task ID or task run ID").action(async (taskId: string) => {
-  console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).getArtifact("review", { task_id: taskId, type: "review" }), null, 2));
+repo.command("patch")
+  .argument("<planId>", "Repository plan ID")
+  .option("--output <path>", "Write final patch to a file")
+  .action(async (planId: string, options: { readonly output?: string }) => {
+    const patch = await (await createPlatformClientFromCurrentProfile()).getRepositoryPlanPatch(planId);
+    if (options.output && isPatchArtifact(patch)) {
+      await writeFile(options.output, patch.unified_diff, "utf8");
+      console.log(JSON.stringify({ plan_id: patch.plan_id, output: options.output, changed_files: patch.changed_files }, null, 2));
+      return;
+    }
+    console.log(isPatchArtifact(patch) ? patch.unified_diff : JSON.stringify(patch, null, 2));
+  });
+
+repo.command("review").argument("<planId>", "Plan ID, task ID, or task run ID").action(async (planId: string) => {
+  const client = await createPlatformClientFromCurrentProfile();
+  const review = await client.getRepositoryPlanReview(planId);
+  if (isMissingStatus(review)) console.log(JSON.stringify(await client.getArtifact("review", { task_id: planId, type: "review" }), null, 2));
+  else console.log(JSON.stringify(review, null, 2));
+});
+
+repo.command("cleanup").argument("<planId>", "Repository plan ID").action(async (planId: string) => {
+  console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).cleanupRepositoryPlan(planId), null, 2));
 });
 
 repo.command("approve").argument("<taskId>", "Task ID or task run ID").requiredOption("--reason <reason>", "Approval reason").option("--approved-by <approvedBy>", "Approver identifier", "human-local").action(async (taskId: string, options: { readonly reason: string; readonly approvedBy: string }) => {
@@ -306,6 +375,17 @@ async function loadLocalPlanfile(path: string) {
 function secretProvider(value: string): SecretRef["provider"] {
   if (value === "os-keychain" || value === "env" || value === "vault" || value === "external") return value;
   throw new Error("--provider must be os-keychain, env, vault, or external");
+}
+
+function isMissingStatus(value: unknown): boolean {
+  return Boolean(value && typeof value === "object" && "status" in value && (value as { readonly status?: unknown }).status === "missing");
+}
+
+function isPatchArtifact(value: unknown): value is { readonly plan_id: string; readonly unified_diff: string; readonly changed_files: readonly string[] } {
+  return Boolean(value && typeof value === "object"
+    && typeof (value as { readonly plan_id?: unknown }).plan_id === "string"
+    && typeof (value as { readonly unified_diff?: unknown }).unified_diff === "string"
+    && Array.isArray((value as { readonly changed_files?: unknown }).changed_files));
 }
 
 async function readStdin(): Promise<string> {

@@ -21,6 +21,10 @@
     "./secrets": {
       "types": "./dist/secrets/index.d.ts",
       "import": "./dist/secrets/index.js"
+    },
+    "./repository": {
+      "types": "./dist/repository/index.d.ts",
+      "import": "./dist/repository/index.js"
     }
   },
   "scripts": {

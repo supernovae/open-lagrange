@@ -48,12 +48,18 @@ function planSummary(project: ProjectRunStatus | undefined): PlanViewSummary | u
   const plan = project?.output?.plan;
   if (!plan) return undefined;
   const active = plan.tasks.find((task) => project?.task_statuses.some((status) => status.task_id === task.task_id && status.status === "running")) ?? plan.tasks[0];
+  const worktree_path = worktreePath(project);
   return {
     plan_id: plan.plan_id,
     status: project?.status?.status ?? "unknown",
     ...(active ? { current_node: active.task_id } : {}),
+    ...(worktree_path ? { worktree_path } : {}),
     dag_lines: plan.tasks.map((task, index) => `${index + 1}. ${task.task_id}: ${task.title}`),
     approval_requirements: approvalSummaries(project?.task_statuses ?? []).map((approval) => `${approval.task_id}: ${approval.requested_risk_level}`),
+    changed_files: changedFiles(project?.task_statuses[0]).map((file) => file.path),
+    patch_artifacts: artifactSummaries(project, project?.task_statuses[0]).filter((artifact) => artifact.artifact_type === "diff").map((artifact) => artifact.artifact_id),
+    verification_reports: artifactSummaries(project, project?.task_statuses[0]).filter((artifact) => artifact.artifact_type === "verification").map((artifact) => artifact.artifact_id),
+    repair_attempts: repairAttempts(project),
     artifact_refs: artifactSummaries(project, project?.task_statuses[0]).map((artifact) => artifact.artifact_id),
     validation_errors: project?.status?.errors.map((error) => error.message) ?? [],
   };
@@ -146,6 +152,21 @@ function artifactSummaries(project: ProjectRunStatus | undefined, task: TaskStat
   if (task?.repository_status?.review_report) items.push({ artifact_id: "review", artifact_type: "review", title: "Review report", value: task.repository_status.review_report });
   if (task?.result) items.push({ artifact_id: "artifact_json", artifact_type: "artifact_json", title: "Task result JSON", value: task.result });
   return items;
+}
+
+function worktreePath(project: ProjectRunStatus | undefined): string | undefined {
+  const value = project?.status?.observations
+    .map((observation) => observation.output)
+    .find((output) => output && typeof output === "object" && "worktree_path" in output);
+  return typeof (value as { readonly worktree_path?: unknown } | undefined)?.worktree_path === "string"
+    ? (value as { readonly worktree_path: string }).worktree_path
+    : undefined;
+}
+
+function repairAttempts(project: ProjectRunStatus | undefined): readonly string[] {
+  return project?.status?.observations
+    .filter((observation) => observation.summary.toLowerCase().includes("repair"))
+    .map((observation) => observation.summary) ?? [];
 }
 
 function changedFiles(task: TaskStatusSnapshot | undefined): readonly ChangedFileSummary[] {

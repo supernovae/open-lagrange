@@ -27,3 +27,9 @@ export interface ApprovalInput {
 export interface ApplyPlanfileInput {
   readonly planfile: unknown;
 }
+
+export interface ApplyRepositoryPlanfileInput {
+  readonly planfile: unknown;
+  readonly allow_dirty_base?: boolean;
+  readonly retain_on_failure?: boolean;
+}

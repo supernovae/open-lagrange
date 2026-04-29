@@ -36,6 +36,7 @@ export * from "./secrets/index.js";
 export * from "./status/status-store.js";
 export * from "./storage/state-store.js";
 export * from "./user-frame-events.js";
+export * from "./repository/index.js";
 export * from "./repository/workspace.js";
 export * from "./repository/path-policy.js";
 export * from "./repository/command-policy.js";

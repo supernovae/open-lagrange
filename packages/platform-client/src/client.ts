@@ -1,7 +1,7 @@
 import { getCurrentProfile } from "@open-lagrange/runtime-manager";
 import type { RuntimeProfile } from "@open-lagrange/runtime-manager";
 import { resolveProfileAuthToken } from "@open-lagrange/runtime-manager";
-import type { ApprovalInput, ApplyPlanfileInput, PlatformClientOptions, SubmitProjectInput, SubmitRepositoryGoalInput } from "./types.js";
+import type { ApprovalInput, ApplyPlanfileInput, ApplyRepositoryPlanfileInput, PlatformClientOptions, SubmitProjectInput, SubmitRepositoryGoalInput } from "./types.js";
 
 export class PlatformClient {
   constructor(private readonly options: PlatformClientOptions) {}
@@ -24,6 +24,26 @@ export class PlatformClient {
 
   async submitRepositoryGoal(input: SubmitRepositoryGoalInput): Promise<unknown> {
     return this.post("/v1/projects", { ...input, kind: "repository" });
+  }
+
+  async applyRepositoryPlanfile(input: ApplyRepositoryPlanfileInput): Promise<unknown> {
+    return this.post("/v1/repository/plans/apply", input);
+  }
+
+  async getRepositoryPlanStatus(planId: string): Promise<unknown> {
+    return this.get(`/v1/repository/plans/${encodeURIComponent(planId)}`);
+  }
+
+  async getRepositoryPlanPatch(planId: string): Promise<unknown> {
+    return this.get(`/v1/repository/plans/${encodeURIComponent(planId)}/patch`);
+  }
+
+  async getRepositoryPlanReview(planId: string): Promise<unknown> {
+    return this.get(`/v1/repository/plans/${encodeURIComponent(planId)}/review`);
+  }
+
+  async cleanupRepositoryPlan(planId: string): Promise<unknown> {
+    return this.post(`/v1/repository/plans/${encodeURIComponent(planId)}/cleanup`, {});
   }
 
   async getProjectStatus(projectId: string): Promise<unknown> {

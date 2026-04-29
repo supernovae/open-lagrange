@@ -9,6 +9,8 @@ export const PlanArtifactKind = z.enum([
   "verification_report",
   "review_report",
   "final_report",
+  "final_patch_artifact",
+  "worktree_session",
   "markdown_projection",
   "raw_log",
 ]);

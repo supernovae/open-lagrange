@@ -61,8 +61,13 @@ export interface PlanViewSummary {
   readonly plan_id: string;
   readonly status: string;
   readonly current_node?: string;
+  readonly worktree_path?: string;
   readonly dag_lines: readonly string[];
   readonly approval_requirements: readonly string[];
+  readonly changed_files: readonly string[];
+  readonly patch_artifacts: readonly string[];
+  readonly verification_reports: readonly string[];
+  readonly repair_attempts: readonly string[];
   readonly artifact_refs: readonly string[];
   readonly validation_errors: readonly string[];
 }

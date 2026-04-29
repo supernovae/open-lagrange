@@ -1,4 +1,4 @@
-import { applyPlanfile, approvePlan, approveTask, createMockDelegationContext, DEFAULT_EXECUTION_BOUNDS, deterministicProjectId, deterministicRepositoryTaskRunId, getPlanExecutionStatus, getProjectStatus, getRuntimeHealth, getTaskStatus, listRegisteredPacks, rejectPlan, rejectTask, requestArtifact, submitProject, submitRepositoryTask, submitUserFrameEvent, UserFrameEvent } from "@open-lagrange/core/interface";
+import { applyPlanfile, applyRepositoryPlanfile, approvePlan, approveTask, cleanupRepositoryPlan, createMockDelegationContext, DEFAULT_EXECUTION_BOUNDS, deterministicProjectId, deterministicRepositoryTaskRunId, exportRepositoryPlanPatch, getPlanExecutionStatus, getProjectStatus, getRepositoryPlanStatus, getRuntimeHealth, getTaskStatus, listRegisteredPacks, rejectPlan, rejectTask, requestArtifact, submitProject, submitRepositoryTask, submitUserFrameEvent, UserFrameEvent } from "@open-lagrange/core/interface";
 import { z } from "zod";
 import { SubmitJobPayload } from "../jobs/schema";
 import { SubmitRepositoryJobPayload } from "../repository/jobs/schema";
@@ -98,8 +98,39 @@ export function handleApplyPlan(raw: unknown): Promise<unknown> {
   return applyPlanfile({ planfile: payload.planfile });
 }
 
+export function handleApplyRepositoryPlan(raw: unknown): Promise<unknown> {
+  const payload = z.object({
+    planfile: z.unknown(),
+    allow_dirty_base: z.boolean().optional(),
+    retain_on_failure: z.boolean().optional(),
+  }).strict().parse(raw);
+  return applyRepositoryPlanfile({
+    planfile: payload.planfile,
+    ...(payload.allow_dirty_base === undefined ? {} : { allow_dirty_base: payload.allow_dirty_base }),
+    ...(payload.retain_on_failure === undefined ? {} : { retain_on_failure: payload.retain_on_failure }),
+  });
+}
+
 export function handlePlanStatus(planId: string): Promise<unknown> {
   return getPlanExecutionStatus(planId);
+}
+
+export async function handleRepositoryPlanStatus(planId: string): Promise<unknown> {
+  return await getRepositoryPlanStatus(planId) ?? { plan_id: planId, status: "missing" };
+}
+
+export async function handleRepositoryPlanPatch(planId: string): Promise<unknown> {
+  return await exportRepositoryPlanPatch(planId) ?? { plan_id: planId, status: "missing" };
+}
+
+export async function handleRepositoryPlanReview(planId: string): Promise<unknown> {
+  const state = await getRepositoryPlanStatus(planId);
+  const review = state?.artifact_refs.filter((artifact) => artifact.kind === "review_report").at(-1);
+  return review ?? { plan_id: planId, status: "missing" };
+}
+
+export function handleCleanupRepositoryPlan(planId: string): Promise<unknown> {
+  return cleanupRepositoryPlan(planId);
 }
 
 export async function handleResumePlan(planId: string): Promise<unknown> {

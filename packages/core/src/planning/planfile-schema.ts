@@ -66,6 +66,7 @@ export const Planfile = z.object({
   edges: z.array(PlanEdge),
   approval_policy: ApprovalPolicy,
   verification_policy: VerificationPolicy,
+  execution_context: z.record(z.string(), z.unknown()).optional(),
   artifact_refs: z.array(PlanArtifactRef),
   created_at: z.string().datetime(),
   updated_at: z.string().datetime(),
