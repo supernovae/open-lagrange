@@ -121,6 +121,7 @@ services:
       HATCHET_CLIENT_HOST_PORT: hatchet-engine:7070
       HATCHET_CLIENT_TLS_STRATEGY: none
       HATCHET_CLIENT_TOKEN: \${HATCHET_CLIENT_TOKEN:-}
+      OPEN_LAGRANGE_WORKER_HEALTH_URL: http://open-lagrange-worker:4318/healthz
       OPENAI_API_KEY: \${OPENAI_API_KEY:-}
       OPENAI_MODEL: \${OPENAI_MODEL:-gpt-4o-mini}
     volumes:
@@ -136,12 +137,16 @@ services:
       context: ${yamlString(input.sourceRoot)}
       dockerfile: containers/worker.Containerfile
     command: sh -c 'export HATCHET_CLIENT_TOKEN="$$(cat /hatchet/config/client.token)"; node packages/core/dist/hatchet/worker.js'
+    ports:
+      - "4318:4318"
     environment:
       OPEN_LAGRANGE_DB_DIALECT: sqlite
       OPEN_LAGRANGE_SQLITE_PATH: /data/open-lagrange.sqlite
       HATCHET_CLIENT_HOST_PORT: hatchet-engine:7070
       HATCHET_CLIENT_TLS_STRATEGY: none
       HATCHET_CLIENT_TOKEN: \${HATCHET_CLIENT_TOKEN:-}
+      OPEN_LAGRANGE_WORKER_HEALTH_HOST: 0.0.0.0
+      OPEN_LAGRANGE_WORKER_HEALTH_PORT: "4318"
       OPENAI_API_KEY: \${OPENAI_API_KEY:-}
       OPENAI_MODEL: \${OPENAI_MODEL:-gpt-4o-mini}
     volumes:

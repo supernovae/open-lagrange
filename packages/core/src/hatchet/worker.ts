@@ -23,6 +23,7 @@ import { repositoryTaskReconciler } from "../workflows/repository-task-reconcile
 import { repositoryVerificationRequest } from "../workflows/repository-verification-request.js";
 import { taskContinuation } from "../workflows/task-continuation.js";
 import { taskReconciler } from "../workflows/task-reconciler.js";
+import { startWorkerHealthServer } from "./worker-health.js";
 
 export const OPEN_LAGRANGE_WORKER_NAME = "open-lagrange-worker";
 
@@ -56,6 +57,7 @@ export const OPEN_LAGRANGE_WORKFLOWS = [
 ] as const;
 
 export async function startOpenLagrangeWorker(): Promise<void> {
+  const health = startWorkerHealthServer({ name: OPEN_LAGRANGE_WORKER_NAME });
   const worker = await getHatchetClient().worker(OPEN_LAGRANGE_WORKER_NAME, {
     handleKill: true,
     labels: {
@@ -63,6 +65,7 @@ export async function startOpenLagrangeWorker(): Promise<void> {
     },
   });
   await worker.registerWorkflows([...OPEN_LAGRANGE_WORKFLOWS]);
+  health.setRunning(OPEN_LAGRANGE_WORKFLOWS.length);
   await worker.start();
 }
 

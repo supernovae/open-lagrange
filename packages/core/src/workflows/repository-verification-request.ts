@@ -1,4 +1,4 @@
-import type { Context } from "@hatchet-dev/typescript-sdk";
+import type { Context } from "@hatchet-dev/typescript-sdk/v1/index.js";
 import { z } from "zod";
 import { getHatchetClient } from "../hatchet/client.js";
 import { toHatchetJsonObject, type HatchetJsonObject } from "../hatchet/json.js";

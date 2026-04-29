@@ -107,6 +107,7 @@ const FILES = [
   "packages/core/src/hatchet/client.ts",
   "packages/core/src/hatchet/json.ts",
   "packages/core/src/hatchet/worker.ts",
+  "packages/core/src/hatchet/worker-health.ts",
   "packages/core/src/hatchet/workflow-client.ts",
   "packages/core/src/capability-registry/context.ts",
   "packages/core/src/capability-registry/open-cot.ts",

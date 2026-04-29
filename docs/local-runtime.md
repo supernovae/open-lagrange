@@ -13,6 +13,9 @@ open-lagrange down
 
 `open-lagrange up` starts the compose stack for Hatchet, dependencies, the
 Control Plane API, worker, and web UI. Use `--runtime docker` to choose Docker.
+The managed worker exposes a local health endpoint at
+`http://localhost:4318/healthz`, which `open-lagrange status` uses to report
+whether the worker process is actually running.
 
 `open-lagrange up --dev` starts Hatchet dependencies with compose and starts the
 API and worker as local Node child processes. Process IDs and logs are stored

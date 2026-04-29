@@ -20,6 +20,9 @@ describe("runtime compose template", () => {
     expect(text).toContain("dockerfile: containers/api.Containerfile");
     expect(text).toContain("dockerfile: containers/worker.Containerfile");
     expect(text).toContain("dockerfile: containers/web.Containerfile");
+    expect(text).toContain('"4318:4318"');
+    expect(text).toContain("OPEN_LAGRANGE_WORKER_HEALTH_PORT");
+    expect(text).toContain("OPEN_LAGRANGE_WORKER_HEALTH_URL: http://open-lagrange-worker:4318/healthz");
   });
 
   it("keeps RabbitMQ ephemeral while preserving durable runtime volumes", () => {

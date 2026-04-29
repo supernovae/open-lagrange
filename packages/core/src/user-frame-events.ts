@@ -293,14 +293,16 @@ export interface RuntimeHealth {
   readonly secret_provider?: string;
 }
 
-export async function getRuntimeHealth(input: { readonly api_url?: string; readonly project_id?: string } = {}): Promise<RuntimeHealth> {
+export async function getRuntimeHealth(input: { readonly api_url?: string; readonly project_id?: string; readonly worker_url?: string } = {}): Promise<RuntimeHealth> {
   const api = input.api_url ? await probeHttp(input.api_url) : "local";
   let hatchet: RuntimeHealth["hatchet"] = "unknown";
   let worker: RuntimeHealth["worker"] = "unknown";
+  const workerUrl = input.worker_url ?? process.env.OPEN_LAGRANGE_WORKER_HEALTH_URL;
+  if (workerUrl) worker = await probeHttp(workerUrl) === "up" ? "up" : "unknown";
   if (input.project_id) {
     const status = await getProjectRunStatus(input.project_id);
     hatchet = status.hatchet_status ? "up" : "unknown";
-    worker = status.task_statuses.length > 0 ? "up" : "unknown";
+    if (!workerUrl) worker = status.task_statuses.length > 0 ? "up" : "unknown";
   }
   return {
     profile: process.env.OPEN_LAGRANGE_PROFILE ?? "local",

@@ -1,4 +1,4 @@
-import type { JsonObject } from "@hatchet-dev/typescript-sdk";
+import type { JsonObject } from "@hatchet-dev/typescript-sdk/v1/index.js";
 import type { z } from "zod";
 
 export type HatchetJsonObject = JsonObject;

@@ -16,6 +16,7 @@ export const RuntimeProfile = z.object({
   ownership: RuntimeOwnership,
   apiUrl: z.string().url(),
   hatchetUrl: z.string().url().optional(),
+  workerUrl: z.string().url().optional(),
   webUrl: z.string().url().optional(),
   runtimeManager: RuntimeManagerKind.optional(),
   composeFile: z.string().min(1).optional(),

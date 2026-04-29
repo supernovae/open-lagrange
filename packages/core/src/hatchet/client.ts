@@ -1,4 +1,4 @@
-import { Hatchet } from "@hatchet-dev/typescript-sdk";
+import { HatchetClient as Hatchet } from "@hatchet-dev/typescript-sdk/v1/index.js";
 
 export type HatchetRuntimeClient = ReturnType<typeof Hatchet.init>;
 

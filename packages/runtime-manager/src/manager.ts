@@ -59,8 +59,12 @@ export async function tailLogs(service?: string): Promise<string> {
 }
 
 export async function ensureRuntimeReady(): Promise<RuntimeStatusType> {
-  const status = await getRuntimeStatus();
-  if (status.errors.length > 0) return status;
+  const started = Date.now();
+  let status = await getRuntimeStatus();
+  while (hasStartupPendingStatus(status) && Date.now() - started < 20_000) {
+    await delay(1_000);
+    status = await getRuntimeStatus();
+  }
   return status;
 }
 
@@ -103,7 +107,7 @@ export async function getRuntimeStatus(): Promise<RuntimeStatusType> {
     mode: profile.mode,
     ownership: profile.ownership,
     api,
-    ...(profile.mode === "local" ? { hatchet: await probe("hatchet", profile.hatchetUrl), worker: workerStatus(api), web: await probe("web", profile.webUrl) } : {}),
+    ...(profile.mode === "local" ? { hatchet: await probe("hatchet", profile.hatchetUrl), worker: await probeWorker(localWorkerUrl(profile), api), web: await probe("web", profile.webUrl) } : {}),
     ...(packs ? { registeredPacks: packs } : {}),
     modelProvider: await modelStatus(profile.apiUrl, profile.auth, credentials.modelProvider),
     credentials,
@@ -198,8 +202,22 @@ async function modelStatus(apiUrl: string, auth: RuntimeProfile["auth"], localSt
   }
 }
 
-function workerStatus(api: ServiceStatus): ServiceStatus {
+async function probeWorker(workerUrl: string | undefined, api: ServiceStatus): Promise<ServiceStatus> {
+  if (workerUrl) return probe("worker", workerUrl);
   return { name: "worker", state: api.state === "running" ? "unknown" : api.state };
+}
+
+function localWorkerUrl(profile: RuntimeProfile): string | undefined {
+  return profile.workerUrl ?? (profile.mode === "local" ? "http://localhost:4318/healthz" : undefined);
+}
+
+function hasStartupPendingStatus(status: RuntimeStatusType): boolean {
+  if (status.mode !== "local") return false;
+  return [status.api, status.hatchet, status.worker, status.web].some((service) => service?.state === "unreachable" || service?.state === "starting");
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function authHeaders(auth: RuntimeProfile["auth"]): Promise<HeadersInit> {

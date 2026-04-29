@@ -37,6 +37,7 @@ export function defaultLocalProfile(input: {
     ownership: "managed-by-cli",
     apiUrl: "http://localhost:4317",
     hatchetUrl: "http://localhost:8080",
+    workerUrl: "http://localhost:4318/healthz",
     webUrl: "http://localhost:3000",
     runtimeManager: input.runtime,
     composeFile: input.composeFile ?? getRuntimePaths().composePath,
