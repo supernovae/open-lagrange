@@ -1,10 +1,10 @@
 import { generateObject } from "ai";
-import { openai } from "@ai-sdk/openai";
 import {
   deterministicIdempotencyKey,
   deterministicIntentId,
   deterministicObservationId,
 } from "../ids/deterministic-ids.js";
+import { createConfiguredLanguageModel } from "../model-providers/index.js";
 import type { CapabilityDescriptor, CapabilitySnapshot } from "../schemas/capabilities.js";
 import type { DelegationContext } from "../schemas/delegation.js";
 import { CognitiveArtifact, type CognitiveArtifact as CognitiveArtifactType } from "../schemas/open-cot.js";
@@ -25,9 +25,10 @@ export interface GenerateTaskArtifactInput {
 }
 
 export async function generateExecutionPlan(input: GenerateExecutionPlanInput): Promise<ExecutionPlanType> {
-  if (!hasProviderKey()) return deterministicExecutionPlan(input);
+  const model = createConfiguredLanguageModel("high");
+  if (!model) return deterministicExecutionPlan(input);
   const { object } = await generateObject({
-    model: openai(process.env.OPENAI_MODEL ?? "gpt-4o-mini"),
+    model,
     schema: ExecutionPlan,
     system: [
       "Emit a structured execution plan only.",
@@ -41,9 +42,10 @@ export async function generateExecutionPlan(input: GenerateExecutionPlanInput): 
 }
 
 export async function generateTaskArtifact(input: GenerateTaskArtifactInput): Promise<CognitiveArtifactType> {
-  if (!hasProviderKey()) return deterministicTaskArtifact(input);
+  const model = createConfiguredLanguageModel("default");
+  if (!model) return deterministicTaskArtifact(input);
   const { object } = await generateObject({
-    model: openai(process.env.OPENAI_MODEL ?? "gpt-4o-mini"),
+    model,
     schema: CognitiveArtifact,
     system: [
       "Emit a structured cognitive artifact only.",
@@ -165,8 +167,4 @@ function argumentsFor(task: ScopedTask, capability: CapabilityDescriptor): Recor
   if (capability.capability_name === "read_file") return { path: "README.md" };
   if (capability.capability_name === "search_docs") return { query: task.objective };
   return { path: "notes/summary.md", content: task.objective };
-}
-
-function hasProviderKey(): boolean {
-  return Boolean(process.env.OPENAI_API_KEY || process.env.AI_GATEWAY_API_KEY);
 }

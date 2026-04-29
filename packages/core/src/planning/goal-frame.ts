@@ -1,6 +1,6 @@
 import { generateObject } from "ai";
-import { openai } from "@ai-sdk/openai";
 import { z } from "zod";
+import { createConfiguredLanguageModel } from "../model-providers/index.js";
 import { stableHash } from "../util/hash.js";
 
 export const GoalFrame = z.object({
@@ -29,9 +29,10 @@ export interface GenerateGoalFrameInput {
 
 export async function generateGoalFrame(input: GenerateGoalFrameInput): Promise<GoalFrame> {
   const now = input.now ?? new Date().toISOString();
-  if (!hasProviderKey()) return deterministicGoalFrame(input.original_prompt, now);
+  const model = createConfiguredLanguageModel("high");
+  if (!model) return deterministicGoalFrame(input.original_prompt, now);
   const { object } = await generateObject({
-    model: openai(process.env.OPENAI_MODEL ?? "gpt-4o-mini"),
+    model,
     schema: GoalFrame,
     system: [
       "Emit a GoalFrame only.",
@@ -58,8 +59,4 @@ export function deterministicGoalFrame(originalPrompt: string, now: string): Goa
     risk_notes: ["Write or external side-effect nodes require approval before execution."],
     created_at: now,
   });
-}
-
-function hasProviderKey(): boolean {
-  return Boolean(process.env.OPENAI_API_KEY || process.env.AI_GATEWAY_API_KEY);
 }

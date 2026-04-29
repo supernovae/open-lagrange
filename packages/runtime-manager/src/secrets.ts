@@ -1,5 +1,6 @@
 import { getSecretManager, secretRef, type SecretAccessContext, type SecretRef, type SecretRefMetadata } from "@open-lagrange/core/secrets";
 import { loadConfig, saveConfig } from "./config.js";
+import { activeModelProviderKey, activeModelProviderProfile } from "./model-providers.js";
 import { getCurrentProfile } from "./profiles.js";
 import type { RuntimeProfile, ServiceStatus } from "./types.js";
 
@@ -102,17 +103,20 @@ export async function credentialStatuses(profile: RuntimeProfile): Promise<{
   readonly remoteAuth: ServiceStatus;
   readonly secretProvider: string;
 }> {
-  const openaiRef = profile.secretRefs?.openai;
-  const modelConfigured = Boolean(process.env.OPENAI_API_KEY || process.env.AI_GATEWAY_API_KEY)
-    || Boolean(openaiRef && await getSecretManager().hasSecret(openaiRef, secretContext(profile, "status")));
+  const activeProvider = activeModelProviderKey(profile);
+  const providerConfig = activeModelProviderProfile(profile);
+  const providerRefKey = providerConfig.api_key_secret_ref;
+  const providerRef = providerRefKey ? profile.secretRefs?.[providerRefKey] : undefined;
+  const modelConfigured = Boolean(process.env.OPEN_LAGRANGE_MODEL_API_KEY || process.env.OPENAI_API_KEY || process.env.AI_GATEWAY_API_KEY)
+    || Boolean(providerRef && await getSecretManager().hasSecret(providerRef, secretContext(profile, "status")));
   const tokenRef = profile.auth?.tokenRef ?? profile.secretRefs?.open_lagrange_token;
   const authConfigured = profile.auth?.type === "none"
     || Boolean(profile.auth?.tokenEnv && process.env[profile.auth.tokenEnv])
     || Boolean(tokenRef && await getSecretManager().hasSecret(tokenRef, secretContext(profile, "status")));
   return {
-    modelProvider: { name: "model", state: modelConfigured ? "running" : "not_configured", detail: openaiRef?.provider ?? "env" },
+    modelProvider: { name: "model", state: modelConfigured ? "running" : "not_configured", detail: providerRef?.provider ?? activeProvider },
     remoteAuth: { name: "remote-auth", state: authConfigured ? "running" : "not_configured", detail: tokenRef?.provider ?? profile.auth?.tokenEnv ?? "none" },
-    secretProvider: openaiRef?.provider ?? tokenRef?.provider ?? "env",
+    secretProvider: providerRef?.provider ?? tokenRef?.provider ?? "env",
   };
 }
 

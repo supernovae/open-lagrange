@@ -73,7 +73,11 @@ function workerCheck(mode: DoctorReport["mode"]): DoctorCheck {
 
 function modelCredentialConfigured(profile: Record<string, unknown> | undefined): boolean {
   const secretRefs = objectField(profile?.secretRefs);
-  return Boolean(process.env.OPENAI_API_KEY || process.env.AI_GATEWAY_API_KEY || secretRefs?.openai);
+  const activeProvider = stringField(profile?.activeModelProvider) ?? "openai";
+  const modelProviders = objectField(profile?.modelProviders);
+  const providerConfig = objectField(modelProviders?.[activeProvider]);
+  const refKey = stringField(providerConfig?.api_key_secret_ref) ?? activeProvider;
+  return Boolean(process.env.OPEN_LAGRANGE_MODEL_API_KEY || process.env.OPENAI_API_KEY || process.env.AI_GATEWAY_API_KEY || secretRefs?.[refKey]);
 }
 
 function secretProviderStatus(profile: Record<string, unknown> | undefined): DoctorCheck["status"] {

@@ -24,8 +24,11 @@ describe("runtime secret config", () => {
     const text = await readFile(getRuntimePaths().configPath, "utf8");
     expect(text).toContain("secretRefs:");
     expect(text).toContain("workerUrl: http://localhost:4318/healthz");
+    expect(text).toContain("activeModelProvider: openai");
+    expect(text).toContain("modelProviders:");
     expect(text).toContain("openai-api-key");
     expect(text).not.toContain("sk-raw-value");
     expect((await loadConfig()).profiles.local?.secretRefs?.openai?.provider).toBe("os-keychain");
+    expect((await loadConfig()).profiles.local?.modelProviders?.openai?.api_key_secret_ref).toBe("openai");
   });
 });

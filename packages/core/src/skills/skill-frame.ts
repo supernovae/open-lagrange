@@ -1,6 +1,6 @@
 import { generateObject } from "ai";
-import { openai } from "@ai-sdk/openai";
 import { z } from "zod";
+import { createConfiguredLanguageModel } from "../model-providers/index.js";
 import { stableHash } from "../util/hash.js";
 import { RiskLevel } from "../schemas/capabilities.js";
 import { SecretRef } from "../secrets/secret-types.js";
@@ -45,9 +45,10 @@ export async function generateSkillFrame(input: {
   readonly now?: string;
 }): Promise<SkillFrame> {
   const now = input.now ?? new Date().toISOString();
-  if (!hasProviderKey()) return deterministicSkillFrame(input.skillfile, now);
+  const model = createConfiguredLanguageModel("high");
+  if (!model) return deterministicSkillFrame(input.skillfile, now);
   const { object } = await generateObject({
-    model: openai(process.env.OPENAI_MODEL ?? "gpt-4o-mini"),
+    model,
     schema: SkillFrame,
     system: [
       "Emit a SkillFrame only.",
@@ -178,8 +179,4 @@ function unsafeConcerns(text: string): string[] {
     text.includes("raw secret") ? "Requests raw secret exposure." : undefined,
     text.includes("shell script") || text.includes("bash script") ? "Requests executable script generation." : undefined,
   ].filter((item): item is string => Boolean(item));
-}
-
-function hasProviderKey(): boolean {
-  return Boolean(process.env.OPENAI_API_KEY || process.env.AI_GATEWAY_API_KEY);
 }

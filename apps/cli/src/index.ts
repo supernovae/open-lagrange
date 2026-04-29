@@ -11,7 +11,7 @@ import { generateGoalFrame, generatePlanfile, parsePlanfileMarkdown, parsePlanfi
 import { createRepositoryPlanfile } from "@open-lagrange/core/repository";
 import { generateSkillFrame, generateWorkflowSkill, parseSkillfileMarkdown, parseWorkflowSkillMarkdown, previewWorkflowSkillRun, validateWorkflowSkill } from "@open-lagrange/core/skills";
 import { createPlatformClientFromCurrentProfile } from "@open-lagrange/platform-client";
-import { addLocalProfile, addRemoteProfile, deleteCurrentProfileSecret, describeCurrentProfileSecret, getCurrentProfile, initRuntime, listCurrentProfileSecrets, loadConfig, removeProfile, restartLocalRuntime, setCurrentProfile, setCurrentProfileSecret, startLocalRuntime, stopLocalRuntime, tailLogs, getRuntimeStatus } from "@open-lagrange/runtime-manager";
+import { addLocalProfile, addRemoteProfile, configureCurrentProfileModelProvider, deleteCurrentProfileSecret, describeCurrentProfileModelProvider, describeCurrentProfileSecret, getCurrentProfile, initRuntime, listCurrentProfileModelProviders, listCurrentProfileSecrets, listKnownModelProviders, loadConfig, removeProfile, restartLocalRuntime, setCurrentProfile, setCurrentProfileSecret, startLocalRuntime, stopLocalRuntime, tailLogs, getRuntimeStatus } from "@open-lagrange/runtime-manager";
 import type { SecretRef } from "@open-lagrange/core/secrets";
 
 const program = new Command();
@@ -257,6 +257,40 @@ auth.command("status").action(async () => {
   } catch {
     console.log(JSON.stringify({ status: "missing_profile", message: "Run open-lagrange init before configuring auth." }, null, 2));
   }
+});
+
+const model = program.command("model").description("Manage model provider profiles.");
+
+model.command("providers").description("List known named model providers.").action(() => {
+  console.log(JSON.stringify(listKnownModelProviders(), null, 2));
+});
+
+model.command("configure")
+  .argument("<provider>", "Provider name or alias, such as openai, gpt, openrouter, groq, grok, kimi, minimax, local")
+  .option("--endpoint <url>", "Provider endpoint override")
+  .option("--model <model>", "Default model name")
+  .option("--high-model <model>", "Higher-capability model for planning and complex review")
+  .option("--coder-model <model>", "Coder-focused model for bounded implementation work")
+  .option("--secret-ref <name>", "Profile secret reference key to use for this provider")
+  .option("--inactive", "Configure without making this provider active", false)
+  .action(async (provider: string, options: { readonly endpoint?: string; readonly model?: string; readonly highModel?: string; readonly coderModel?: string; readonly secretRef?: string; readonly inactive: boolean }) => {
+    console.log(JSON.stringify(await configureCurrentProfileModelProvider({
+      provider,
+      ...(options.endpoint ? { endpoint: options.endpoint } : {}),
+      ...(options.model ? { model: options.model } : {}),
+      ...(options.highModel ? { high_model: options.highModel } : {}),
+      ...(options.coderModel ? { coder_model: options.coderModel } : {}),
+      ...(options.secretRef ? { secret_ref: options.secretRef } : {}),
+      set_active: !options.inactive,
+    }), null, 2));
+  });
+
+model.command("list").description("List configured model providers for the current profile.").action(async () => {
+  console.log(JSON.stringify(await listCurrentProfileModelProviders(), null, 2));
+});
+
+model.command("status").description("Show the active model provider status.").action(async () => {
+  console.log(JSON.stringify(await describeCurrentProfileModelProvider(), null, 2));
 });
 
 const repo = program.command("repo").description("Run repository-scoped workflows.");

@@ -11,6 +11,14 @@ open-lagrange logs
 open-lagrange down
 ```
 
+Configure a model provider before running live cognitive steps:
+
+```bash
+open-lagrange model providers
+open-lagrange model configure openai --model gpt-4o --high-model gpt-4o --coder-model gpt-4o
+open-lagrange secrets set openai
+```
+
 `open-lagrange up` starts the compose stack for Hatchet, dependencies, the
 Control Plane API, worker, and web UI. Use `--runtime docker` to choose Docker.
 The managed worker exposes a local health endpoint at

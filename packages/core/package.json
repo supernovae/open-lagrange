@@ -45,6 +45,10 @@
     "./packs": {
       "types": "./dist/packs/index.d.ts",
       "import": "./dist/packs/index.js"
+    },
+    "./model-providers": {
+      "types": "./dist/model-providers/index.d.ts",
+      "import": "./dist/model-providers/index.js"
     }
   },
   "scripts": {

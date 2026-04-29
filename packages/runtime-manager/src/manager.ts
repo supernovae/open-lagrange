@@ -3,9 +3,10 @@ import { spawn } from "node:child_process";
 import { join } from "node:path";
 import { defaultLocalProfile, loadConfig, saveConfig } from "./config.js";
 import { composeDown, composeFileExists, composeLogs, composeUp, detectRuntime, writeComposeTemplate } from "./compose.js";
+import { modelProviderRuntimeEnv } from "./model-providers.js";
 import { getRuntimePaths } from "./paths.js";
 import { getCurrentProfile } from "./profiles.js";
-import { credentialStatuses, resolveProfileAuthToken, resolveProfileSecretValue } from "./secrets.js";
+import { credentialStatuses, resolveProfileAuthToken } from "./secrets.js";
 import { RuntimeStatus, type RuntimeConfig, type RuntimeProfile, type RuntimeStatus as RuntimeStatusType, type ServiceStatus } from "./types.js";
 
 interface DevState {
@@ -129,10 +130,9 @@ async function localProfile(runtime?: "docker" | "podman"): Promise<RuntimeProfi
 }
 
 async function runtimeEnv(profile: RuntimeProfile): Promise<NodeJS.ProcessEnv> {
-  const openai = await resolveProfileSecretValue(profile, "openai", "runtime_model_provider");
   return {
     ...process.env,
-    ...(openai && !process.env.OPENAI_API_KEY ? { OPENAI_API_KEY: openai } : {}),
+    ...await modelProviderRuntimeEnv(profile),
   };
 }
 

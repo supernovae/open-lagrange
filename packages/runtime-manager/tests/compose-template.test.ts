@@ -23,6 +23,9 @@ describe("runtime compose template", () => {
     expect(text).toContain('"4318:4318"');
     expect(text).toContain("OPEN_LAGRANGE_WORKER_HEALTH_PORT");
     expect(text).toContain("OPEN_LAGRANGE_WORKER_HEALTH_URL: http://open-lagrange-worker:4318/healthz");
+    expect(text).toContain("OPEN_LAGRANGE_MODEL_PROVIDER");
+    expect(text).toContain("OPEN_LAGRANGE_MODEL_HIGH");
+    expect(text).toContain("OPENAI_BASE_URL");
   });
 
   it("keeps RabbitMQ ephemeral while preserving durable runtime volumes", () => {

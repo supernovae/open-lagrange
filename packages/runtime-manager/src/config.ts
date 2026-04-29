@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import YAML from "yaml";
+import { getModelProviderDescriptor } from "@open-lagrange/core/model-providers";
 import { secretRef } from "@open-lagrange/core/secrets";
 import { RuntimeConfig, RuntimeProfile, type RuntimeConfig as RuntimeConfigType, type RuntimeProfile as RuntimeProfileType } from "./types.js";
 import { getRuntimePaths } from "./paths.js";
@@ -43,6 +44,10 @@ export function defaultLocalProfile(input: {
     composeFile: input.composeFile ?? getRuntimePaths().composePath,
     auth: { type: "none" },
     secretRefs: defaultProfileSecretRefs("local"),
+    activeModelProvider: "openai",
+    modelProviders: {
+      openai: defaultModelProviderProfile(),
+    },
   });
 }
 
@@ -74,5 +79,15 @@ export function defaultProfileSecretRefs(profileName: string) {
       profile_name: profileName,
       description: "Open Lagrange API auth token for the profile.",
     }),
+  };
+}
+
+function defaultModelProviderProfile() {
+  const descriptor = getModelProviderDescriptor("openai");
+  return {
+    provider: descriptor.id,
+    endpoint: descriptor.default_endpoint,
+    api_key_secret_ref: descriptor.api_key_secret_ref,
+    models: descriptor.suggested_models,
   };
 }

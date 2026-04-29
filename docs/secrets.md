@@ -61,6 +61,16 @@ Env fallback remains supported:
 OPENAI_API_KEY=... open-lagrange up --dev
 ```
 
+Model provider secrets follow the provider ID convention:
+
+```sh
+npm run cli -- model providers
+npm run cli -- model configure openrouter --model openai/gpt-4o --high-model openai/gpt-4o --coder-model anthropic/claude-3.5-sonnet
+npm run cli -- secrets set openrouter
+```
+
+See [model-providers.md](model-providers.md) for named providers, endpoint overrides, and model slot conventions.
+
 ## Remote Mode
 
 Remote profiles should store only local Open Lagrange auth token references. Project or workspace secrets managed by a remote control plane are future work and should not be synced into local config.

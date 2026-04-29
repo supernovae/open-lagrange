@@ -1,6 +1,6 @@
 import { generateObject } from "ai";
-import { openai } from "@ai-sdk/openai";
 import { deterministicIdempotencyKey, deterministicPatchPlanId } from "../ids/deterministic-ids.js";
+import { createConfiguredLanguageModel } from "../model-providers/index.js";
 import { PatchPlan, type PatchPlan as PatchPlanType } from "../schemas/patch-plan.js";
 import { ReviewReport, type RepositoryFileRead, type ReviewReport as ReviewReportType, type VerificationReport } from "../schemas/repository.js";
 
@@ -11,9 +11,10 @@ export interface GeneratePatchPlanInput {
 }
 
 export async function generatePatchPlan(input: GeneratePatchPlanInput): Promise<PatchPlanType> {
-  if (!hasProviderKey()) return deterministicPatchPlan(input);
+  const model = createConfiguredLanguageModel("coder");
+  if (!model) return deterministicPatchPlan(input);
   const { object } = await generateObject({
-    model: openai(process.env.OPENAI_MODEL ?? "gpt-4o-mini"),
+    model,
     schema: PatchPlan,
     system: [
       "Emit a structured Patch Plan only.",
@@ -33,7 +34,8 @@ export async function generateReviewArtifact(input: {
   readonly diff_summary: string;
   readonly verification_report: VerificationReport;
 }): Promise<ReviewReportType> {
-  if (!hasProviderKey()) {
+  const model = createConfiguredLanguageModel("high");
+  if (!model) {
     return ReviewReport.parse({
       pr_title: input.goal.slice(0, 72),
       pr_summary: input.diff_summary || `${input.changed_files.length} file(s) changed`,
@@ -43,7 +45,7 @@ export async function generateReviewArtifact(input: {
     });
   }
   const { object } = await generateObject({
-    model: openai(process.env.OPENAI_MODEL ?? "gpt-4o-mini"),
+    model,
     schema: ReviewReport,
     system: "Emit a concise repository Review Report only. Do not execute tools.",
     prompt: JSON.stringify(input),
@@ -72,8 +74,4 @@ function deterministicPatchPlan(input: GeneratePatchPlanInput): PatchPlanType {
     requires_approval: input.dry_run,
     idempotency_key: deterministicIdempotencyKey({ goal: input.goal, target }),
   });
-}
-
-function hasProviderKey(): boolean {
-  return Boolean(process.env.OPENAI_API_KEY || process.env.AI_GATEWAY_API_KEY);
 }

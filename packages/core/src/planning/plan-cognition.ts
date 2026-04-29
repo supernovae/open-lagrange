@@ -1,5 +1,5 @@
 import { generateObject } from "ai";
-import { openai } from "@ai-sdk/openai";
+import { createConfiguredLanguageModel } from "../model-providers/index.js";
 import { stableHash } from "../util/hash.js";
 import type { GoalFrame } from "./goal-frame.js";
 import { Planfile, type Planfile as PlanfileType } from "./planfile-schema.js";
@@ -18,9 +18,10 @@ export interface RefinePlanfileInput {
 
 export async function generatePlanfile(input: GeneratePlanfileInput): Promise<PlanfileType> {
   const now = input.now ?? new Date().toISOString();
-  if (!hasProviderKey()) return deterministicPlanfile(input.goal_frame, input.mode ?? "dry_run", now);
+  const model = createConfiguredLanguageModel("high");
+  if (!model) return deterministicPlanfile(input.goal_frame, input.mode ?? "dry_run", now);
   const { object } = await generateObject({
-    model: openai(process.env.OPENAI_MODEL ?? "gpt-4o-mini"),
+    model,
     schema: Planfile,
     system: [
       "Emit a Planfile only.",
@@ -35,7 +36,8 @@ export async function generatePlanfile(input: GeneratePlanfileInput): Promise<Pl
 
 export async function refinePlanfile(input: RefinePlanfileInput): Promise<PlanfileType> {
   const now = input.now ?? new Date().toISOString();
-  if (!hasProviderKey()) {
+  const model = createConfiguredLanguageModel("high");
+  if (!model) {
     return Planfile.parse({
       ...input.planfile,
       goal_frame: {
@@ -46,7 +48,7 @@ export async function refinePlanfile(input: RefinePlanfileInput): Promise<Planfi
     });
   }
   const { object } = await generateObject({
-    model: openai(process.env.OPENAI_MODEL ?? "gpt-4o-mini"),
+    model,
     schema: Planfile,
     system: [
       "Emit a refined Planfile only.",
@@ -117,8 +119,4 @@ function node(
     artifacts: [],
     errors: [],
   };
-}
-
-function hasProviderKey(): boolean {
-  return Boolean(process.env.OPENAI_API_KEY || process.env.AI_GATEWAY_API_KEY);
 }
