@@ -33,6 +33,7 @@ export * from "./schemas/reconciliation.js";
 export * from "./schemas/patch-plan.js";
 export * from "./schemas/repository.js";
 export * from "./secrets/index.js";
+export * from "./skills/index.js";
 export * from "./status/status-store.js";
 export * from "./storage/state-store.js";
 export * from "./user-frame-events.js";

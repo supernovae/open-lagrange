@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import { Command } from "commander";
 import { generateGoalFrame, generatePlanfile, parsePlanfileMarkdown, parsePlanfileYaml, renderPlanfileMarkdown, renderPlanMermaid, validatePlanfile, withCanonicalPlanDigest } from "@open-lagrange/core/planning";
 import { createRepositoryPlanfile } from "@open-lagrange/core/repository";
+import { generateSkillFrame, generateWorkflowSkill, parseSkillfileMarkdown, parseWorkflowSkillMarkdown, previewWorkflowSkillRun, validateWorkflowSkill } from "@open-lagrange/core/skills";
 import { createPlatformClientFromCurrentProfile } from "@open-lagrange/platform-client";
 import { addLocalProfile, addRemoteProfile, deleteCurrentProfileSecret, describeCurrentProfileSecret, getCurrentProfile, initRuntime, listCurrentProfileSecrets, loadConfig, removeProfile, restartLocalRuntime, runDoctor, setCurrentProfile, setCurrentProfileSecret, startLocalRuntime, stopLocalRuntime, tailLogs, getRuntimeStatus } from "@open-lagrange/runtime-manager";
 import type { SecretRef } from "@open-lagrange/core/secrets";
@@ -358,6 +360,51 @@ plan.command("approve").argument("<planId>", "Plan ID").requiredOption("--reason
 plan.command("reject").argument("<planId>", "Plan ID").requiredOption("--reason <reason>", "Rejection reason").option("--rejected-by <rejectedBy>", "Reviewer identifier", "human-local").action(async (planId: string, options: { readonly reason: string; readonly rejectedBy: string }) => {
   console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).rejectPlan(planId, { decided_by: options.rejectedBy, reason: options.reason }), null, 2));
 });
+
+const skill = program.command("skill").description("Build and preview Workflow Skill artifacts.");
+
+skill.command("frame")
+  .argument("<skillfile>", "skills.md path")
+  .action(async (path: string) => {
+    const parsed = parseSkillfileMarkdown(await readFile(path, "utf8"));
+    console.log(JSON.stringify(await generateSkillFrame({ skillfile: parsed }), null, 2));
+  });
+
+skill.command("plan")
+  .argument("<skillfile>", "skills.md path")
+  .option("--output <path>", "Write markdown artifact to a path")
+  .option("--write", "Write to .open-lagrange/skills/<skill_id>.skill.md", false)
+  .action(async (path: string, options: { readonly output?: string; readonly write: boolean }) => {
+    const parsed = parseSkillfileMarkdown(await readFile(path, "utf8"));
+    const frame = await generateSkillFrame({ skillfile: parsed });
+    const result = generateWorkflowSkill({ frame });
+    const outputPath = options.output ?? (options.write ? `.open-lagrange/skills/${frame.skill_id}.skill.md` : undefined);
+    if (outputPath) {
+      await mkdir(dirname(outputPath), { recursive: true });
+      await writeFile(outputPath, result.markdown, "utf8");
+      console.log(JSON.stringify({ skill_id: frame.skill_id, path: outputPath, decision: result.decision.decision }, null, 2));
+      return;
+    }
+    console.log(result.markdown);
+  });
+
+skill.command("validate")
+  .argument("<workflowSkill>", "Workflow Skill markdown or YAML path")
+  .action(async (path: string) => {
+    const workflowSkill = parseWorkflowSkillMarkdown(await readFile(path, "utf8"));
+    const result = validateWorkflowSkill(workflowSkill);
+    console.log(JSON.stringify({ skill_id: workflowSkill.skill_id, ...result }, null, 2));
+    if (!result.ok) process.exitCode = 1;
+  });
+
+skill.command("run")
+  .argument("<workflowSkill>", "Workflow Skill markdown or YAML path")
+  .option("--dry-run", "Validate and preview without dispatching capabilities", true)
+  .action(async (path: string, options: { readonly dryRun: boolean }) => {
+    if (!options.dryRun) throw new Error("Phase 1 supports --dry-run only.");
+    const workflowSkill = parseWorkflowSkillMarkdown(await readFile(path, "utf8"));
+    console.log(JSON.stringify(previewWorkflowSkillRun({ workflow_skill: workflowSkill }), null, 2));
+  });
 
 await program.parseAsync(process.argv);
 

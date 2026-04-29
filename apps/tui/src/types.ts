@@ -72,6 +72,17 @@ export interface PlanViewSummary {
   readonly validation_errors: readonly string[];
 }
 
+export interface SkillViewSummary {
+  readonly skill_id: string;
+  readonly interpreted_goal: string;
+  readonly existing_pack_matches: readonly string[];
+  readonly missing_capabilities: readonly string[];
+  readonly required_scopes: readonly string[];
+  readonly required_secret_refs: readonly string[];
+  readonly approval_requirements: readonly string[];
+  readonly planfile_template?: string;
+}
+
 export interface TuiViewModel {
   readonly project?: ProjectRunStatus;
   readonly activeTask?: TaskStatusSnapshot;
@@ -82,6 +93,7 @@ export interface TuiViewModel {
   readonly changedFiles: readonly ChangedFileSummary[];
   readonly verificationResults: readonly VerificationResultSummary[];
   readonly plan?: PlanViewSummary;
+  readonly skill?: SkillViewSummary;
   readonly selectedPane: PaneId;
   readonly inputMode: InputMode;
   readonly isLoading: boolean;

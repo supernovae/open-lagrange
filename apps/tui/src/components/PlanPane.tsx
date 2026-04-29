@@ -5,7 +5,8 @@ import { theme } from "../theme.js";
 
 export function PlanPane({ model }: { readonly model: TuiViewModel }): React.ReactElement {
   const plan = model.plan;
-  if (!plan) {
+  const skill = model.skill;
+  if (!plan && !skill) {
     return (
       <Box flexDirection="column">
         <Text color={theme.title}>Planfile</Text>
@@ -15,6 +16,20 @@ export function PlanPane({ model }: { readonly model: TuiViewModel }): React.Rea
   }
   return (
     <Box flexDirection="column">
+      {skill ? (
+        <Box flexDirection="column" marginBottom={1}>
+          <Text color={theme.title}>Workflow Skill</Text>
+          <Text>ID: {skill.skill_id}</Text>
+          <Text>Goal: {skill.interpreted_goal}</Text>
+          <Text>Pack matches: {(skill.existing_pack_matches.length > 0 ? skill.existing_pack_matches.join(", ") : "none")}</Text>
+          <Text>Missing capabilities: {(skill.missing_capabilities.length > 0 ? skill.missing_capabilities.join(", ") : "none")}</Text>
+          <Text>Scopes: {(skill.required_scopes.length > 0 ? skill.required_scopes.join(", ") : "none")}</Text>
+          <Text>Secret refs: {(skill.required_secret_refs.length > 0 ? skill.required_secret_refs.join(", ") : "none")}</Text>
+          <Text>Approvals: {(skill.approval_requirements.length > 0 ? skill.approval_requirements.join(", ") : "none")}</Text>
+        </Box>
+      ) : null}
+      {plan ? (
+      <>
       <Text color={theme.title}>Planfile</Text>
       <Text>ID: {plan.plan_id}</Text>
       <Text>Status: {plan.status}</Text>
@@ -43,6 +58,8 @@ export function PlanPane({ model }: { readonly model: TuiViewModel }): React.Rea
         <Text color={theme.title}>Validation Errors</Text>
         {(plan.validation_errors.length > 0 ? plan.validation_errors : ["none"]).map((line) => <Text key={line}>{line}</Text>)}
       </Box>
+      </>
+      ) : null}
     </Box>
   );
 }

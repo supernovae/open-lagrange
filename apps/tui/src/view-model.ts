@@ -1,6 +1,6 @@
 import type { ProjectRunStatus, RuntimeHealth } from "@open-lagrange/core/interface";
 import type { TaskStatusSnapshot } from "@open-lagrange/core/interface";
-import type { ApprovalRequestSummary, ArtifactSummary, ChangedFileSummary, ConversationTurn, InputMode, PaneId, PlanViewSummary, ReconciliationTimelineItem, TuiViewModel, VerificationResultSummary } from "./types.js";
+import type { ApprovalRequestSummary, ArtifactSummary, ChangedFileSummary, ConversationTurn, InputMode, PaneId, PlanViewSummary, ReconciliationTimelineItem, SkillViewSummary, TuiViewModel, VerificationResultSummary } from "./types.js";
 
 const fallbackHealth: RuntimeHealth = {
   profile: "local",
@@ -26,6 +26,7 @@ export function buildViewModel(input: {
   const approvals = approvalSummaries(input.project?.task_statuses ?? []);
   const artifacts = artifactSummaries(input.project, activeTask);
   const plan = planSummary(input.project);
+  const skill = skillSummary(input.project);
   return {
     ...(input.project ? { project: input.project } : {}),
     ...(activeTask ? { activeTask } : {}),
@@ -36,11 +37,31 @@ export function buildViewModel(input: {
     changedFiles: changedFiles(activeTask),
     verificationResults: verificationResults(activeTask),
     ...(plan ? { plan } : {}),
+    ...(skill ? { skill } : {}),
     selectedPane: input.selectedPane,
     inputMode: input.inputMode,
     isLoading: input.isLoading,
     health: input.health ?? fallbackHealth,
     ...(input.lastError ? { lastError: input.lastError } : {}),
+  };
+}
+
+function skillSummary(project: ProjectRunStatus | undefined): SkillViewSummary | undefined {
+  const skill = (project?.output as unknown as { readonly skill?: unknown } | undefined)?.skill;
+  if (!skill || typeof skill !== "object") return undefined;
+  const value = skill as Record<string, unknown>;
+  const frame = typeof value.frame === "object" && value.frame ? value.frame as Record<string, unknown> : value;
+  const decision = typeof value.decision === "object" && value.decision ? value.decision as Record<string, unknown> : {};
+  const workflow = typeof value.workflow_skill === "object" && value.workflow_skill ? value.workflow_skill as Record<string, unknown> : {};
+  return {
+    skill_id: stringField(frame.skill_id) ?? stringField(workflow.skill_id) ?? "unknown",
+    interpreted_goal: stringField(frame.interpreted_goal) ?? stringField(workflow.description) ?? "unknown",
+    existing_pack_matches: arrayStrings(decision.capability_matches).length > 0 ? arrayStrings(decision.capability_matches) : arrayStrings(frame.existing_pack_matches),
+    missing_capabilities: arrayStrings(decision.missing_capabilities).length > 0 ? arrayStrings(decision.missing_capabilities) : arrayStrings(frame.missing_capabilities),
+    required_scopes: arrayStrings(frame.required_scopes).length > 0 ? arrayStrings(frame.required_scopes) : arrayStrings(workflow.required_scopes),
+    required_secret_refs: arrayStrings(frame.required_secrets_as_refs).length > 0 ? arrayStrings(frame.required_secrets_as_refs) : arrayStrings(workflow.required_secret_refs),
+    approval_requirements: arrayStrings(frame.approval_requirements),
+    ...(typeof workflow.planfile_template === "object" && workflow.planfile_template ? { planfile_template: JSON.stringify(workflow.planfile_template, null, 2) } : {}),
   };
 }
 
@@ -194,4 +215,17 @@ function severity(status: string): ReconciliationTimelineItem["severity"] {
 
 function indexKey(message: string, observedAt: string): string {
   return `${observedAt}:${message}`.replace(/\W+/g, "-").slice(0, 80);
+}
+
+function stringField(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function arrayStrings(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => typeof item === "string"
+    ? item
+    : item && typeof item === "object" && "ref_id" in item
+      ? String((item as { readonly ref_id: unknown }).ref_id)
+      : JSON.stringify(item)).filter(Boolean);
 }
