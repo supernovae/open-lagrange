@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import { Command } from "commander";
 import { exportArtifact, listArtifacts, reindexArtifacts, showArtifact } from "@open-lagrange/core/artifacts";
 import { listDemos, openDemo, runDemo } from "@open-lagrange/core/demos";
@@ -64,9 +65,9 @@ program.command("logs").description("Show local runtime logs.").argument("[servi
   console.log(await tailLogs(service));
 });
 
-program.command("tui").description("Start the terminal reconciliation cockpit.").allowUnknownOption(true).action(async () => {
+program.command("tui").description("Start the terminal reconciliation cockpit.").allowUnknownOption(true).allowExcessArguments(true).action(async () => {
   const args = process.argv.slice(process.argv.indexOf("tui") + 1);
-  const child = spawn("npm", ["run", "dev:tui", "--", ...args], { cwd: process.cwd(), stdio: "inherit" });
+  const child = spawn("npm", ["run", "dev:tui", "--", ...args], { cwd: findScriptRoot("dev:tui"), stdio: "inherit" });
   child.on("exit", (code) => process.exit(code ?? 0));
 });
 
@@ -586,4 +587,33 @@ async function promptSecretValue(prompt: string): Promise<string> {
     };
     process.stdin.on("data", onData);
   });
+}
+
+function findScriptRoot(scriptName: string): string {
+  for (const start of [process.env.INIT_CWD, process.cwd()].filter((item): item is string => Boolean(item))) {
+    const found = findUp(start, (dir) => packageHasScript(dir, scriptName));
+    if (found) return found;
+  }
+  return process.cwd();
+}
+
+function findUp(start: string, predicate: (dir: string) => boolean): string | undefined {
+  let dir = start;
+  while (true) {
+    if (predicate(dir)) return dir;
+    const parent = dirname(dir);
+    if (parent === dir) return undefined;
+    dir = parent;
+  }
+}
+
+function packageHasScript(dir: string, scriptName: string): boolean {
+  const packagePath = join(dir, "package.json");
+  if (!existsSync(packagePath)) return false;
+  try {
+    const parsed = JSON.parse(readFileSync(packagePath, "utf8")) as { readonly scripts?: Record<string, unknown> };
+    return typeof parsed.scripts?.[scriptName] === "string";
+  } catch {
+    return false;
+  }
 }

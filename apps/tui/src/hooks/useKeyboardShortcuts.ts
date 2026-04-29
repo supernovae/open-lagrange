@@ -9,6 +9,22 @@ export function nextPane(current: PaneId, direction: 1 | -1): PaneId {
   return panes[next] ?? "chat";
 }
 
+export type ShortcutAction = "next_pane" | "previous_pane" | "help" | "quit" | "refresh" | "start_runtime" | "doctor" | "logs" | "profile" | undefined;
+
+export function shortcutActionForInput(value: string, key: { readonly tab?: boolean; readonly shift?: boolean; readonly ctrl?: boolean; readonly escape?: boolean }): ShortcutAction {
+  if (key.tab) return key.shift ? "previous_pane" : "next_pane";
+  if (key.escape) return "help";
+  if (!key.ctrl) return undefined;
+  if (value === "c" || value === "q") return "quit";
+  if (value === "r") return "refresh";
+  if (value === "s") return "start_runtime";
+  if (value === "d") return "doctor";
+  if (value === "l") return "logs";
+  if (value === "p") return "profile";
+  if (value === "?") return "help";
+  return undefined;
+}
+
 export function useKeyboardShortcuts(input: {
   readonly selectedPane: PaneId;
   readonly setSelectedPane: (pane: PaneId) => void;
@@ -22,20 +38,15 @@ export function useKeyboardShortcuts(input: {
   readonly onQuit: () => void;
 }): void {
   useInput((value, key) => {
-    if (key.tab) input.setSelectedPane(nextPane(input.selectedPane, key.shift ? -1 : 1));
-    if (value === "?") input.setSelectedPane("help");
-    if (value === "q") input.onQuit();
-    if (value === "r") input.onRefresh();
-    if (value === "s") input.onStartRuntime();
-    if (value === "d") input.onDoctor();
-    if (value === "l") input.onLogs();
-    if (value === "P") input.onProfile();
-    if (value === "p") input.setSelectedPane("plan");
-    if (value === "a") input.onApprove();
-    if (value === "x" || value === "R") input.onReject();
-    if (value === "v") input.setSelectedPane("verification");
-    if (value === "o") input.setSelectedPane("timeline");
-    if (value === "e") input.setSelectedPane("timeline");
-    if (value === "j") input.setSelectedPane("artifact_json");
+    const action = shortcutActionForInput(value, key);
+    if (action === "next_pane") input.setSelectedPane(nextPane(input.selectedPane, 1));
+    if (action === "previous_pane") input.setSelectedPane(nextPane(input.selectedPane, -1));
+    if (action === "help") input.setSelectedPane("help");
+    if (action === "quit") input.onQuit();
+    if (action === "refresh") input.onRefresh();
+    if (action === "start_runtime") input.onStartRuntime();
+    if (action === "doctor") input.onDoctor();
+    if (action === "logs") input.onLogs();
+    if (action === "profile") input.onProfile();
   }, { isActive: true });
 }

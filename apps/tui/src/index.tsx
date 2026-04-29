@@ -41,4 +41,5 @@ render(
     pollIntervalMs={Number.parseInt(options.pollInterval, 10) || 1500}
     {...(options.apiUrl ? { apiUrl: options.apiUrl } : {})}
   />,
+  { alternateScreen: true },
 );

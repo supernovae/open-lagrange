@@ -14,9 +14,9 @@ import { ReviewPane } from "./ReviewPane.js";
 import { ArtifactJsonPane } from "./ArtifactJsonPane.js";
 import { HelpPane } from "./HelpPane.js";
 
-export function DetailPane({ model }: { readonly model: TuiViewModel }): React.ReactElement {
+export function DetailPane({ model, height }: { readonly model: TuiViewModel; readonly height: number }): React.ReactElement {
   return (
-    <Box flexDirection="column" borderStyle="single" borderColor={theme.border} paddingX={1} flexGrow={1}>
+    <Box flexDirection="column" height={height} borderStyle="single" borderColor={theme.border} paddingX={1} flexGrow={1} flexShrink={1}>
       <Text color={theme.title}>{paneTitle(model.selectedPane)}</Text>
       {content(model)}
     </Box>
