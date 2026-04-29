@@ -97,6 +97,36 @@ export function flowForDemoRun(demoId: string): SuggestedFlow {
   });
 }
 
+export function flowForResearchBrief(topic: string): SuggestedFlow {
+  return SuggestedFlow.parse({
+    flow_id: "research_brief",
+    title: "Cited Research Brief",
+    summary: "Search fixture sources, extract content, create a source set, and write a cited research brief.",
+    command: `/research brief ${quote(topic)} --fixture`,
+    event: { type: "research.brief", topic, mode: "fixture" },
+    side_effects: ["Writes research artifacts after confirmation."],
+    required_packs: ["open-lagrange.research"],
+    approval: "Live network fetch is separate and explicit.",
+    confidence: "high",
+    requires_confirmation: true,
+  });
+}
+
+export function flowForResearchFetch(url: string): SuggestedFlow {
+  return SuggestedFlow.parse({
+    flow_id: "research_fetch",
+    title: "Fetch Source URL",
+    summary: "Fetch one explicit URL through network policy and store source artifacts.",
+    command: `/research fetch ${url} --live`,
+    event: { type: "research.fetch", url, mode: "live" },
+    side_effects: ["Live network read through Research Pack policy."],
+    required_packs: ["open-lagrange.research"],
+    approval: "No approval by default; network policy still applies.",
+    confidence: "high",
+    requires_confirmation: true,
+  });
+}
+
 export function informationalFlow(input: {
   readonly flow_id: string;
   readonly title: string;

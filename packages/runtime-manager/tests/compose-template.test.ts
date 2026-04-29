@@ -7,6 +7,7 @@ import { podmanComposeCandidatesForConnections, writeComposeTemplate } from "../
 import { localComposeTemplate } from "../src/compose-template.js";
 import { initRuntime } from "../src/manager.js";
 import { getRuntimePaths } from "../src/paths.js";
+import { BootstrapReport } from "../src/types.js";
 
 describe("runtime compose template", () => {
   afterEach(() => {
@@ -34,6 +35,8 @@ describe("runtime compose template", () => {
     expect(text).toContain("user: rabbitmq");
     expect(text).toContain("hatchet-token:");
     expect(text).toContain("client.token");
+    expect(text).toContain("failed to create local Hatchet client token");
+    expect(text).toContain("for i in 1 2 3 4 5 6 7 8 9 10");
     expect(text).not.toContain("hatchet_rabbitmq_data");
     expect(text).not.toContain("/var/lib/rabbitmq");
     expect(text).toContain("hatchet_postgres_data:/var/lib/postgresql/data");
@@ -85,5 +88,34 @@ describe("runtime compose template", () => {
       CONTAINER_SSHKEY: "/tmp/machine-key",
     });
     expect(candidates[1]?.command).toEqual(["podman-compose"]);
+  });
+
+  it("describes local bootstrap status as structured steps", () => {
+    const report = BootstrapReport.parse({
+      profileName: "local",
+      runtime: "podman",
+      dev: false,
+      configPath: "/tmp/open-lagrange/config.yaml",
+      composePath: "/tmp/open-lagrange/docker-compose.yaml",
+      status: {
+        profileName: "local",
+        mode: "local",
+        ownership: "managed-by-cli",
+        api: { name: "api", state: "running", url: "http://localhost:4317" },
+        hatchet: { name: "hatchet", state: "running", url: "http://localhost:8080" },
+        worker: { name: "worker", state: "running", url: "http://localhost:4318/healthz" },
+        web: { name: "web", state: "running", url: "http://localhost:3000" },
+        configPath: "/tmp/open-lagrange/config.yaml",
+        warnings: [],
+        errors: [],
+      },
+      steps: [
+        { id: "profile", title: "Local profile", status: "completed" },
+        { id: "hatchet-token", title: "Hatchet client token", status: "completed" },
+      ],
+      nextCommands: ["open-lagrange status", "open-lagrange doctor", "open-lagrange tui"],
+    });
+
+    expect(report.steps.map((step) => step.id)).toContain("hatchet-token");
   });
 });

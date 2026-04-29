@@ -12,6 +12,7 @@ export const PlanArtifactKind = z.enum([
   "final_patch_artifact",
   "worktree_session",
   "markdown_projection",
+  "capability_step_result",
   "raw_log",
 ]);
 

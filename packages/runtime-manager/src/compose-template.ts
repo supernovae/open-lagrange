@@ -68,7 +68,7 @@ services:
 
   hatchet-token:
     image: ghcr.io/hatchet-dev/hatchet/hatchet-admin:latest
-    command: sh -c 'set -eu; if [ ! -s /hatchet/config/client.token ]; then tmp=/tmp/open-lagrange-client-token; /hatchet/hatchet-admin --config /hatchet/config token create --tenant-id 707d0855-80ab-4e1f-a156-f1c4546cbf52 --name open-lagrange-local > "$$tmp"; tail -n 1 "$$tmp" > /hatchet/config/client.token; test -s /hatchet/config/client.token; fi'
+    command: sh -c 'set -eu; if [ -s /hatchet/config/client.token ]; then exit 0; fi; for i in 1 2 3 4 5 6 7 8 9 10; do tmp=/tmp/open-lagrange-client-token; if /hatchet/hatchet-admin --config /hatchet/config token create --tenant-id 707d0855-80ab-4e1f-a156-f1c4546cbf52 --name open-lagrange-local > "$$tmp"; then tail -n 1 "$$tmp" > /hatchet/config/client.token; test -s /hatchet/config/client.token && exit 0; fi; sleep 2; done; echo "failed to create local Hatchet client token" >&2; exit 1'
     environment:
       DATABASE_URL: postgres://hatchet:hatchet@postgres:5432/hatchet
     volumes:

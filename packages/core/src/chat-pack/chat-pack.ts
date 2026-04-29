@@ -35,6 +35,7 @@ export const chatPack: CapabilityPack = {
     capability("chat.generate_starter_plan", "Suggest starter flows.", TextInput, () => ({
       suggestions: [
         "/plan repo \"add json output to my cli\"",
+        "/research brief \"MCP security risks\" --fixture",
         "/pack build ./skills.md",
         "/demo run repo-json-output",
       ],

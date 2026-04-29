@@ -63,6 +63,25 @@ export const RuntimeStatus = z.object({
   errors: z.array(z.string()),
 }).strict();
 
+export const BootstrapStepStatus = z.enum(["completed", "pending", "warning", "failed"]);
+export const BootstrapStep = z.object({
+  id: z.string().min(1),
+  title: z.string().min(1),
+  status: BootstrapStepStatus,
+  detail: z.string().min(1).optional(),
+}).strict();
+
+export const BootstrapReport = z.object({
+  profileName: z.string().min(1),
+  runtime: z.enum(["docker", "podman"]),
+  dev: z.boolean(),
+  configPath: z.string().min(1),
+  composePath: z.string().min(1),
+  status: RuntimeStatus,
+  steps: z.array(BootstrapStep),
+  nextCommands: z.array(z.string().min(1)),
+}).strict();
+
 export interface ComposeRuntime {
   readonly kind: "docker" | "podman";
   readonly command: readonly string[];
@@ -94,3 +113,6 @@ export type ServiceState = z.infer<typeof ServiceState>;
 export type ServiceStatus = z.infer<typeof ServiceStatus>;
 export type CredentialStatus = z.infer<typeof CredentialStatus>;
 export type RuntimeStatus = z.infer<typeof RuntimeStatus>;
+export type BootstrapStepStatus = z.infer<typeof BootstrapStepStatus>;
+export type BootstrapStep = z.infer<typeof BootstrapStep>;
+export type BootstrapReport = z.infer<typeof BootstrapReport>;

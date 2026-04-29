@@ -1,7 +1,7 @@
 # Research Brief
 
 ## Goal
-Create a concise cited briefing about Open Lagrange planning primitives.
+Research a topic and produce a cited markdown briefing using existing Research Pack capabilities.
 
 ## Inputs
 - topic
@@ -11,10 +11,15 @@ Create a concise cited briefing about Open Lagrange planning primitives.
 - cited research brief
 
 ## Tools
-- search docs
-- review report
-- mock write note
+- research.search
+- research.fetch_source
+- research.extract_content
+- research.create_source_set
+- research.create_brief
+- research.export_markdown
 
 ## Rules
 - Use deterministic demo fixtures.
 - Use checked-in sources only.
+- Include citations.
+- Do not publish or send anywhere.

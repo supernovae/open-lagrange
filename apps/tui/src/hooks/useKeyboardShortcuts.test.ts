@@ -4,7 +4,7 @@ import { nextPane, shortcutActionForInput } from "./useKeyboardShortcuts.js";
 describe("pane selection", () => {
   it("cycles forward and backward through panes", () => {
     expect(nextPane("chat", 1)).toBe("timeline");
-    expect(nextPane("chat", -1)).toBe("help");
+    expect(nextPane("chat", -1)).toBe("home");
   });
 
   it("does not treat normal typing as a shortcut", () => {

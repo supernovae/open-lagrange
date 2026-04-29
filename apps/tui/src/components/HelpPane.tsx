@@ -8,11 +8,15 @@ export function HelpPane(): React.ReactElement {
       <Text color={theme.title}>Help</Text>
       <Text>Plain text suggests a typed flow. Use /confirm before work starts.</Text>
       <Text>Commands start with /. Normal letters are never shortcuts.</Text>
+      <Text>up/down: command history   page up/down: transcript scroll</Text>
+      <Text>shift+up/down: transcript scroll   /copy: render current view text</Text>
       <Text>tab / shift+tab: cycle pane</Text>
       <Text>ctrl+r refresh   ctrl+q quit   esc help</Text>
       <Text>ctrl+s start runtime   ctrl+d doctor   ctrl+l logs</Text>
       <Text>/plan repo &lt;goal&gt;  /repo run &lt;goal&gt;</Text>
       <Text>/skill plan &lt;file&gt; /pack build &lt;file&gt;</Text>
+      <Text>/demo run repo-json-output --live</Text>
+      <Text>/run list  /run outputs latest  /artifact recent</Text>
       <Text>/artifact show &lt;id&gt; /approve &lt;id&gt; /reject &lt;id&gt;</Text>
       <Text>/status /doctor /capabilities /packs /demos</Text>
     </Box>

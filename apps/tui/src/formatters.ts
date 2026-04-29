@@ -17,6 +17,8 @@ export function formatDuration(ms: number): string {
 export function paneTitle(pane: PaneId): string {
   if (pane === "pack_builder") return "pack builder";
   if (pane === "home") return "home";
+  if (pane === "research") return "research";
+  if (pane === "demo") return "demos";
   return pane.replace("_", " ");
 }
 

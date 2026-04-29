@@ -4,15 +4,16 @@ import { existsSync, readFileSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { Command } from "commander";
-import { exportArtifact, listArtifacts, reindexArtifacts, showArtifact } from "@open-lagrange/core/artifacts";
+import { exportArtifact, listArtifacts, listRunArtifacts, listRuns, recentArtifacts, reindexArtifacts, showArtifact, showRun } from "@open-lagrange/core/artifacts";
 import { listDemos, openDemo, runDemo } from "@open-lagrange/core/demos";
 import { runCoreDoctor } from "@open-lagrange/core/doctor";
 import { getPackHealth, inspectPack, listInspectablePacks, runPackSmoke, validateRegisteredPack } from "@open-lagrange/core/packs";
 import { generateGoalFrame, generatePlanfile, parsePlanfileMarkdown, parsePlanfileYaml, renderPlanfileMarkdown, renderPlanMermaid, validatePlanfile, withCanonicalPlanDigest } from "@open-lagrange/core/planning";
 import { createRepositoryPlanfile } from "@open-lagrange/core/repository";
+import { runResearchBriefCommand, runResearchExportCommand, runResearchFetchCommand, runResearchSearchCommand } from "@open-lagrange/core/research";
 import { buildGeneratedPackFromMarkdown, generateSkillFrame, generateWorkflowSkill, installGeneratedPack, parseSkillfileMarkdown, parseWorkflowSkillMarkdown, previewWorkflowSkillRun, scaffoldGeneratedPack, validateGeneratedPack, validateWorkflowSkill } from "@open-lagrange/core/skills";
 import { createPlatformClientFromCurrentProfile } from "@open-lagrange/platform-client";
-import { addLocalProfile, addRemoteProfile, configureCurrentProfileModelProvider, deleteCurrentProfileSecret, describeCurrentProfileModelProvider, describeCurrentProfileSecret, getCurrentProfile, getProfilePackPaths, initRuntime, listCurrentProfileModelProviders, listCurrentProfileSecrets, listKnownModelProviders, loadConfig, removeProfile, restartLocalRuntime, setCurrentProfile, setCurrentProfileSecret, startLocalRuntime, stopLocalRuntime, tailLogs, getRuntimeStatus } from "@open-lagrange/runtime-manager";
+import { addLocalProfile, addRemoteProfile, bootstrapLocalRuntime, configureCurrentProfileModelProvider, deleteCurrentProfileSecret, describeCurrentProfileModelProvider, describeCurrentProfileSecret, getCurrentProfile, getProfilePackPaths, initRuntime, listCurrentProfileModelProviders, listCurrentProfileSecrets, listKnownModelProviders, loadConfig, removeProfile, restartLocalRuntime, setCurrentProfile, setCurrentProfileSecret, startLocalRuntime, stopLocalRuntime, tailLogs, getRuntimeStatus } from "@open-lagrange/runtime-manager";
 import type { SecretRef } from "@open-lagrange/core/secrets";
 
 const program = new Command();
@@ -28,6 +29,17 @@ program
   .action(async (options: { readonly runtime?: string }) => {
     const runtime = runtimeOption(options.runtime);
     console.log(JSON.stringify(await initRuntime({ ...(runtime ? { runtime } : {}) }), null, 2));
+  });
+
+program
+  .command("bootstrap")
+  .description("Initialize and start the local runtime in one step.")
+  .option("--runtime <runtime>", "docker or podman")
+  .option("--dev", "Run API and worker as local Node processes", false)
+  .option("--force-init", "Regenerate the managed local profile and compose file", false)
+  .action(async (options: { readonly runtime?: string; readonly dev: boolean; readonly forceInit: boolean }) => {
+    const runtime = runtimeOption(options.runtime);
+    console.log(JSON.stringify(await bootstrapLocalRuntime({ ...(runtime ? { runtime } : {}), dev: options.dev, forceInit: options.forceInit }), null, 2));
   });
 
 program
@@ -133,9 +145,24 @@ demo.command("open").argument("<demoId>", "Demo ID").action((demoId: string) => 
 
 const artifact = program.command("artifact").description("Inspect local artifact index entries.");
 
-artifact.command("list").action(() => {
-  console.log(JSON.stringify(listArtifacts(), null, 2));
-});
+artifact.command("list")
+  .option("--run <runId>", "Show artifacts for a run ID, or latest")
+  .option("--role <role>", "Filter run artifacts by role: primary_output, supporting_evidence, debug_log")
+  .option("--limit <count>", "Limit flat artifact results", parsePositiveInt, 50)
+  .action((options: { readonly run?: string; readonly role?: string; readonly limit: number }) => {
+    if (options.run) {
+      console.log(JSON.stringify(listRunArtifacts({ run_id: options.run, ...(options.role ? { role: artifactRole(options.role) } : {}) }), null, 2));
+      return;
+    }
+    console.log(JSON.stringify(listArtifacts().slice(-options.limit), null, 2));
+  });
+
+artifact.command("recent")
+  .option("--limit <count>", "Number of recent high-signal artifacts", parsePositiveInt, 12)
+  .option("--include-debug", "Include debug artifacts", false)
+  .action((options: { readonly limit: number; readonly includeDebug: boolean }) => {
+    console.log(JSON.stringify(recentArtifacts({ limit: options.limit, include_debug: options.includeDebug }), null, 2));
+  });
 
 artifact.command("show").argument("<artifactId>", "Artifact ID").action((artifactId: string) => {
   const result = showArtifact(artifactId);
@@ -154,6 +181,33 @@ artifact.command("export").argument("<artifactId>", "Artifact ID").requiredOptio
 artifact.command("reindex").action(() => {
   console.log(JSON.stringify(reindexArtifacts(), null, 2));
 });
+
+const run = program.command("run").description("Inspect run-centered outputs.");
+
+run.command("list").option("--limit <count>", "Number of recent runs", parsePositiveInt, 20).action((options: { readonly limit: number }) => {
+  console.log(JSON.stringify([...listRuns()].slice(-options.limit), null, 2));
+});
+
+run.command("show").argument("<runId>", "Run ID, or latest").action((runId: string) => {
+  const result = showRun(runId);
+  if (!result) {
+    console.log(JSON.stringify({ run_id: runId, status: "missing" }, null, 2));
+    process.exitCode = 1;
+    return;
+  }
+  console.log(JSON.stringify(result, null, 2));
+});
+
+run.command("outputs")
+  .argument("<runId>", "Run ID, or latest")
+  .option("--include-supporting", "Include supporting artifacts", false)
+  .option("--include-debug", "Include debug artifacts", false)
+  .action((runId: string, options: { readonly includeSupporting: boolean; readonly includeDebug: boolean }) => {
+    const primary = listRunArtifacts({ run_id: runId, role: "primary_output" });
+    const supporting = options.includeSupporting ? listRunArtifacts({ run_id: runId, role: "supporting_evidence" }) : [];
+    const debug = options.includeDebug ? listRunArtifacts({ run_id: runId, role: "debug_log" }) : [];
+    console.log(JSON.stringify({ run_id: runId, primary, supporting, debug }, null, 2));
+  });
 
 const pack = program.command("pack").description("Build, inspect, and validate capability packs.");
 
@@ -459,6 +513,62 @@ repo.command("reject").argument("<taskId>", "Task ID or task run ID").requiredOp
   console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).rejectTask(taskId, { decided_by: options.rejectedBy, reason: options.reason }), null, 2));
 });
 
+const research = program.command("research").description("Run fixture-backed and bounded live research workflows.");
+
+research.command("search")
+  .argument("<query>", "Research query")
+  .option("--fixture", "Use deterministic checked-in fixture sources", true)
+  .option("--live", "Request live search provider if configured", false)
+  .option("--output-dir <path>", "Artifact output directory")
+  .action(async (query: string, options: { readonly fixture: boolean; readonly live: boolean; readonly outputDir?: string }) => {
+    console.log(JSON.stringify(await runResearchSearchCommand({
+      query,
+      mode: options.live ? "live" : "fixture",
+      ...(options.outputDir ? { output_dir: cliPath(options.outputDir) } : {}),
+    }), null, 2));
+  });
+
+research.command("fetch")
+  .argument("<url>", "Source URL")
+  .option("--live", "Allow explicit live URL fetch through network policy", false)
+  .option("--fixture", "Resolve URL against deterministic fixture sources", true)
+  .option("--output-dir <path>", "Artifact output directory")
+  .action(async (url: string, options: { readonly live: boolean; readonly fixture: boolean; readonly outputDir?: string }) => {
+    if (!options.live) {
+      console.log(JSON.stringify({ status: "requires_live", message: "Live URL fetch requires --live. Fixture mode can resolve checked-in fixture URLs only." }, null, 2));
+      process.exitCode = 1;
+      return;
+    }
+    console.log(JSON.stringify(await runResearchFetchCommand({
+      url,
+      mode: "live",
+      ...(options.outputDir ? { output_dir: cliPath(options.outputDir) } : {}),
+    }), null, 2));
+  });
+
+research.command("brief")
+  .argument("<topic>", "Brief topic")
+  .option("--fixture", "Use deterministic checked-in fixture sources", true)
+  .option("--live", "Reserved for future live search provider use", false)
+  .option("--output-dir <path>", "Artifact output directory")
+  .action(async (topic: string, options: { readonly fixture: boolean; readonly live: boolean; readonly outputDir?: string }) => {
+    console.log(JSON.stringify(await runResearchBriefCommand({
+      topic,
+      mode: options.live ? "live" : "fixture",
+      ...(options.outputDir ? { output_dir: cliPath(options.outputDir) } : {}),
+    }), null, 2));
+  });
+
+research.command("export")
+  .argument("<briefId>", "Research brief artifact ID")
+  .option("--output-dir <path>", "Artifact output directory")
+  .action(async (briefId: string, options: { readonly outputDir?: string }) => {
+    console.log(JSON.stringify(await runResearchExportCommand({
+      brief_id: briefId,
+      ...(options.outputDir ? { output_dir: cliPath(options.outputDir) } : {}),
+    }), null, 2));
+  });
+
 const plan = program.command("plan").description("Author and execute Planfiles.");
 
 plan.command("create")
@@ -592,6 +702,17 @@ async function loadLocalPlanfile(path: string) {
 function secretProvider(value: string): SecretRef["provider"] {
   if (value === "os-keychain" || value === "env" || value === "vault" || value === "external") return value;
   throw new Error("--provider must be os-keychain, env, vault, or external");
+}
+
+function artifactRole(value: string): "primary_output" | "supporting_evidence" | "debug_log" | "intermediate" | "superseded" {
+  if (value === "primary_output" || value === "supporting_evidence" || value === "debug_log" || value === "intermediate" || value === "superseded") return value;
+  throw new Error("--role must be primary_output, supporting_evidence, debug_log, intermediate, or superseded");
+}
+
+function parsePositiveInt(value: string): number {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isInteger(parsed) || parsed < 1) throw new Error("Expected a positive integer.");
+  return parsed;
 }
 
 function isMissingStatus(value: unknown): boolean {

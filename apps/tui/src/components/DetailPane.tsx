@@ -17,13 +17,30 @@ import { RunMode } from "../modes/RunMode.js";
 import { ReviewMode } from "../modes/ReviewMode.js";
 import { PackMode } from "../modes/PackMode.js";
 import { DoctorMode } from "../modes/DoctorMode.js";
+import { DemoMode } from "../modes/DemoMode.js";
+import { ResearchMode } from "../modes/ResearchMode.js";
 import { CapabilitySummary } from "./CapabilitySummary.js";
+import { ConversationPane } from "./ConversationPane.js";
 
 export function DetailPane({ model, height }: { readonly model: TuiViewModel; readonly height: number }): React.ReactElement {
+  if (model.selectedPane === "chat") {
+    return (
+      <Box flexDirection="column" height={height} borderStyle="single" borderColor={theme.border} paddingX={1} flexGrow={1} flexShrink={1}>
+        <Text color={theme.title}>{paneTitle(model.selectedPane)}</Text>
+        <ConversationPane turns={model.conversation} scrollOffset={model.scrollOffset} height={Math.max(4, height - 2)} />
+      </Box>
+    );
+  }
+  const inspectorHeight = inspectorHeightFor(model.selectedPane, height);
+  const journalHeight = Math.max(5, height - inspectorHeight - 4);
   return (
     <Box flexDirection="column" height={height} borderStyle="single" borderColor={theme.border} paddingX={1} flexGrow={1} flexShrink={1}>
       <Text color={theme.title}>{paneTitle(model.selectedPane)}</Text>
-      {content(model)}
+      <Box flexDirection="column" height={inspectorHeight} flexShrink={1}>
+        {content(model)}
+      </Box>
+      <Text color={theme.muted}>Journal</Text>
+      <ConversationPane turns={model.conversation} scrollOffset={model.scrollOffset} height={journalHeight} />
     </Box>
   );
 }
@@ -39,9 +56,19 @@ function content(model: TuiViewModel): React.ReactElement {
   if (model.selectedPane === "diff") return <DiffViewer model={model} />;
   if (model.selectedPane === "verification") return <VerificationPane results={model.verificationResults} />;
   if (model.selectedPane === "review") return <ReviewMode model={model} />;
+  if (model.selectedPane === "demo") return <DemoMode model={model} />;
+  if (model.selectedPane === "research") return <ResearchMode model={model} />;
   if (model.selectedPane === "pack_builder") return <PackMode model={model} />;
   if (model.selectedPane === "doctor") return <DoctorMode model={model} />;
   if (model.selectedPane === "capabilities") return <CapabilitySummary model={model} />;
   if (model.selectedPane === "artifact_json") return <ArtifactJsonPane model={model} />;
   return <HelpPane />;
+}
+
+function inspectorHeightFor(pane: TuiViewModel["selectedPane"], height: number): number {
+  const available = Math.max(4, height - 4);
+  if (pane === "home") return Math.max(8, Math.floor(available * 0.42));
+  if (pane === "artifact_json" || pane === "demo" || pane === "doctor") return Math.max(6, Math.floor(available * 0.42));
+  if (pane === "help" || pane === "capabilities" || pane === "pack_builder") return Math.max(6, Math.floor(available * 0.5));
+  return Math.max(5, Math.floor(available * 0.45));
 }

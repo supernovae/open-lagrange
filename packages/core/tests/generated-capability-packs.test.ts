@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -40,6 +40,7 @@ describe("generated capability packs", () => {
     expect(scaffold.files).toContain("open-lagrange.pack.yaml");
     expect(scaffold.files).toContain("src/index.ts");
     expect(scaffold.files).toContain("tests/pack.test.ts");
+    expect(scaffold.files.some((file) => file.startsWith("src/capabilities/"))).toBe(true);
   });
 
   it("validates generated pack source and exposes inspection metadata", () => {
@@ -62,6 +63,26 @@ describe("generated capability packs", () => {
     expect(report.passed).toBe(false);
     expect(report.findings.map((finding) => finding.message).join("\n")).toContain("child_process");
     expect(report.findings.map((finding) => finding.message).join("\n")).toContain("process.env");
+  });
+
+  it("rejects raw fetch in generated pack code and scaffolds SDK primitives", () => {
+    const scaffold = scaffoldGeneratedPack({ pack_id: "local.primitive-markdown-transformer", output_dir: generatedRoot(), now });
+    const generatedCapability = scaffold.files.find((file) => file.startsWith("src/capabilities/"));
+    expect(generatedCapability).toBeTruthy();
+    const capabilityPath = join(scaffold.pack_path, generatedCapability ?? "");
+    expect(existsSync(capabilityPath)).toBe(true);
+    const capabilitySource = readFileSync(capabilityPath, "utf8");
+    expect(capabilitySource).toContain("@open-lagrange/capability-sdk/primitives");
+
+    const root = mkdtempSync(join(tmpdir(), "ol-generated-pack-raw-fetch-"));
+    generatedRoots.push(root);
+    mkdirSync(join(root, "src", "capabilities"), { recursive: true });
+    writeFileSync(join(root, "src", "capabilities", "unsafe.ts"), "export async function run() { return fetch('https://example.com'); }\n", "utf8");
+
+    const report = validateStaticSafety({ pack_path: root, files: ["src/capabilities/unsafe.ts"] });
+
+    expect(report.passed).toBe(false);
+    expect(report.findings.map((finding) => finding.pattern)).toContain("fetch(");
   });
 
   it("installs only after validation into the local trusted registry", () => {

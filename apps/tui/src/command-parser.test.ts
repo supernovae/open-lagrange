@@ -106,8 +106,34 @@ describe("TUI input parsing", () => {
 
     expect(parsed.kind).toBe("command");
     if (parsed.kind !== "command") return;
-    expect(parsed.pane).toBe("pack_builder");
-    expect(parsed.event).toBeUndefined();
+    expect(parsed.pane).toBe("chat");
+    expect(parsed.event).toMatchObject({ type: "pack.list" });
+  });
+
+  it("maps help to a journaled chat help event", () => {
+    const parsed = parseUserInput("/help", {});
+
+    expect(parsed.kind).toBe("command");
+    if (parsed.kind !== "command") return;
+    expect(parsed.pane).toBe("chat");
+    expect(parsed.event).toMatchObject({ type: "chat.help" });
+  });
+
+  it("maps packs, demos, and capabilities to journaled discovery events", () => {
+    const packs = parseUserInput("/packs", {});
+    const demos = parseUserInput("/demos", {});
+    const capabilities = parseUserInput("/capabilities", {});
+
+    expect(packs.kind).toBe("command");
+    expect(demos.kind).toBe("command");
+    expect(capabilities.kind).toBe("command");
+    if (packs.kind !== "command" || demos.kind !== "command" || capabilities.kind !== "command") return;
+    expect(packs.pane).toBe("chat");
+    expect(demos.pane).toBe("chat");
+    expect(capabilities.pane).toBe("chat");
+    expect(packs.event).toMatchObject({ type: "pack.list" });
+    expect(demos.event).toMatchObject({ type: "demo.list" });
+    expect(capabilities.event).toMatchObject({ type: "capability.list" });
   });
 
   it("maps natural language skills file requests to pack build suggestions", () => {
@@ -126,5 +152,80 @@ describe("TUI input parsing", () => {
     expect(parsed.kind).toBe("command");
     if (parsed.kind !== "command") return;
     expect(parsed.event).toMatchObject({ type: "plan.create" });
+  });
+
+  it("maps demo run to the demo pane with dry-run by default", () => {
+    const parsed = parseUserInput("/demo run repo-json-output", {});
+
+    expect(parsed.kind).toBe("command");
+    if (parsed.kind !== "command") return;
+    expect(parsed.pane).toBe("chat");
+    expect(parsed.event).toMatchObject({
+      type: "demo.run",
+      demo_id: "repo-json-output",
+      dry_run: true,
+    });
+  });
+
+  it("maps live demo run when requested explicitly", () => {
+    const parsed = parseUserInput("/demo run repo-json-output --live", {});
+
+    expect(parsed.kind).toBe("command");
+    if (parsed.kind !== "command") return;
+    expect(parsed.pane).toBe("chat");
+    expect(parsed.event).toMatchObject({
+      type: "demo.run",
+      demo_id: "repo-json-output",
+      dry_run: false,
+    });
+  });
+
+  it("maps artifact list to the local artifact index event", () => {
+    const parsed = parseUserInput("/artifact list", {});
+
+    expect(parsed.kind).toBe("command");
+    if (parsed.kind !== "command") return;
+    expect(parsed.pane).toBe("chat");
+    expect(parsed.event).toMatchObject({
+      type: "artifact.show",
+      artifact_id: "list",
+    });
+  });
+
+  it("maps artifact recent to high-signal artifact lookup", () => {
+    const parsed = parseUserInput("/artifact recent", {});
+
+    expect(parsed.kind).toBe("command");
+    if (parsed.kind !== "command") return;
+    expect(parsed.pane).toBe("chat");
+    expect(parsed.event).toMatchObject({
+      type: "artifact.show",
+      artifact_id: "recent",
+    });
+  });
+
+  it("maps artifact show to the requested artifact", () => {
+    const parsed = parseUserInput("/artifact show planfile_123", {});
+
+    expect(parsed.kind).toBe("command");
+    if (parsed.kind !== "command") return;
+    expect(parsed.pane).toBe("chat");
+    expect(parsed.event).toMatchObject({
+      type: "artifact.show",
+      artifact_id: "planfile_123",
+    });
+  });
+
+  it("maps run outputs to the latest run outputs", () => {
+    const parsed = parseUserInput("/run outputs latest", {});
+
+    expect(parsed.kind).toBe("command");
+    if (parsed.kind !== "command") return;
+    expect(parsed.pane).toBe("chat");
+    expect(parsed.event).toMatchObject({
+      type: "run.show",
+      run_id: "latest",
+      outputs_only: true,
+    });
   });
 });

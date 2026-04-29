@@ -29,6 +29,24 @@ export function listArtifacts(indexPath = DEFAULT_ARTIFACT_INDEX_PATH): readonly
   return readArtifactIndex(resolveLocalPath(indexPath)).artifacts;
 }
 
+export function removeArtifactsByDemo(input: {
+  readonly demo_id: string;
+  readonly index_path?: string;
+  readonly now?: string;
+}): ArtifactIndex {
+  const now = input.now ?? new Date().toISOString();
+  const indexPath = resolveLocalPath(input.index_path ?? DEFAULT_ARTIFACT_INDEX_PATH);
+  const current = readArtifactIndex(indexPath);
+  const next = ArtifactIndex.parse({
+    schema_version: "open-lagrange.artifacts.v1",
+    artifacts: current.artifacts.filter((artifact) => artifact.related_demo_id !== input.demo_id),
+    updated_at: now,
+  });
+  mkdirSync(dirname(indexPath), { recursive: true });
+  writeFileSync(indexPath, JSON.stringify(next, null, 2), "utf8");
+  return next;
+}
+
 export function showArtifact(artifactId: string, indexPath = DEFAULT_ARTIFACT_INDEX_PATH): { readonly summary: ArtifactSummaryType; readonly content: unknown } | undefined {
   const summary = listArtifacts(indexPath).find((artifact) => artifact.artifact_id === artifactId);
   if (!summary) return undefined;
@@ -60,7 +78,7 @@ export function reindexArtifacts(input: {
   readonly now?: string;
 } = {}): ArtifactIndex {
   const now = input.now ?? new Date().toISOString();
-  const roots = input.roots ?? [".open-lagrange/demos", ".open-lagrange/plans", ".open-lagrange/skills", ".open-lagrange/generated-packs"];
+  const roots = input.roots ?? [".open-lagrange/demos", ".open-lagrange/plans", ".open-lagrange/skills", ".open-lagrange/generated-packs", ".open-lagrange/research"];
   const artifacts: ArtifactSummaryType[] = [];
   for (const root of roots) {
     const absolute = resolveLocalPath(root);
@@ -136,7 +154,13 @@ function kindFromPath(path: string): ArtifactKindType | undefined {
   if (name.includes("patch-artifact")) return "patch_artifact";
   if (name.includes("verification")) return "verification_report";
   if (name.includes("review")) return "review_report";
+  if (name.includes("source-search-results") || name.includes("source_search_results")) return "source_search_results";
+  if (name.includes("source-snapshot") || name.includes("source_snapshot")) return "source_snapshot";
+  if (name.includes("source-text") || name.includes("source_text")) return "source_text";
+  if (name.includes("source-set") || name.includes("source_set")) return "source_set";
   if (name.includes("research-brief")) return "research_brief";
+  if (name.includes("citation-index") || name.includes("citation_index")) return "citation_index";
+  if (name.includes("capability-step") || name.includes("capability_step")) return "capability_step_result";
   if (name.includes("timeline")) return "execution_timeline";
   if (name.endsWith(".log")) return "raw_log";
   return undefined;

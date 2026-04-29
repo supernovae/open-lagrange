@@ -4,6 +4,7 @@ import { theme } from "../theme.js";
 
 const flows = [
   '/plan repo "add json output to my cli"',
+  '/research brief "MCP security risks" --fixture',
   "/pack build ./skills.md",
   "/demo run repo-json-output",
   "/doctor",

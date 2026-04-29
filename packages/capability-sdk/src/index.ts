@@ -5,3 +5,4 @@ export * from "./executor.js";
 export * from "./registry.js";
 export * from "./open-cot-adapters.js";
 export * from "./testing.js";
+export * from "./primitives/index.js";

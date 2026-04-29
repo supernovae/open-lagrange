@@ -45,6 +45,11 @@ export function capabilityRequirements(frame: SkillFrame): readonly { readonly k
     ...frame.side_effects,
   ].join("\n").toLowerCase();
   const requirements: Array<{ key: string; description: string; hints: readonly string[] } | undefined> = [
+    text.includes("research") || text.includes("source") || text.includes("citation") || text.includes("cited") || text.includes("brief") ? {
+      key: "research",
+      description: "Search, fetch, cite, or summarize sources through existing research capabilities.",
+      hints: ["research", "source", "citation", "brief", "search"],
+    } : undefined,
     text.includes("repository") || text.includes("repo") || text.includes("file") || text.includes("read") ? {
       key: "inspect",
       description: "Read or inspect workflow context through an existing capability.",

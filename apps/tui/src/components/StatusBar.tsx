@@ -5,19 +5,30 @@ import { theme } from "../theme.js";
 
 export function StatusBar({ health, width }: { readonly health: RuntimeHealth; readonly width: number }): React.ReactElement {
   const compact = width < 96;
+  const singleLine = width >= 150;
   const auth = health.remote_auth ?? "missing";
   const secrets = health.secret_provider ?? "env";
   const packIssues = (health.pack_health ?? []).filter((pack) => pack.status !== "healthy").length;
-  return (
-    <Box borderStyle="single" borderColor={theme.border} paddingX={1} width={width}>
+  const packs = packIssues > 0 ? `${health.packs}/${packIssues} issues` : String(health.packs);
+  const first = (
+    <>
       <Segment label="Profile" value={health.profile} valueColor={theme.accent} />
       <Segment label="API" value={health.api} valueColor={serviceColor(health.api)} />
       <Segment label="Worker" value={health.worker} valueColor={serviceColor(health.worker)} />
       <Segment label="Hatchet" value={health.hatchet} valueColor={serviceColor(health.hatchet)} />
-      <Segment label="Packs" value={packIssues > 0 ? `${health.packs}/${packIssues} issues` : String(health.packs)} valueColor={packIssues > 0 ? theme.warn : theme.accent} />
+    </>
+  );
+  const second = (
+    <>
+      <Segment label="Packs" value={packs} valueColor={packIssues > 0 ? theme.warn : theme.accent} />
       <Segment label="Model" value={compact ? short(health.model) : health.model} valueColor={configuredColor(health.model)} />
       <Segment label="Auth" value={compact ? short(auth) : auth} valueColor={configuredColor(auth)} />
       <Segment label="Secrets" value={compact ? short(secrets) : secrets} valueColor={theme.accent} />
+    </>
+  );
+  return (
+    <Box borderStyle="single" borderColor={theme.border} paddingX={1} width={width} flexDirection="column">
+      {singleLine ? <Box>{first}{second}</Box> : <><Box>{first}</Box><Box>{second}</Box></>}
     </Box>
   );
 }

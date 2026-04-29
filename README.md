@@ -42,7 +42,8 @@ npm run cli -- demo run repo-json-output --dry-run
 
 That command writes a Planfile, patch plan, patch artifact preview, verification
 report, review report, and timeline under `.open-lagrange/demos/`, then indexes
-them for `artifact list/show/export`.
+them by run. Start with `run outputs latest`; use `artifact show` only when you
+want a specific durable artifact.
 
 ## Quickstart
 
@@ -53,17 +54,17 @@ npm install
 npm run build
 ```
 
-Create a local runtime profile and start the stack:
+Bootstrap the local runtime profile, compose stack, Hatchet token, API, worker,
+and web UI in one command:
 
 ```bash
-npm run cli -- init
-npm run cli -- up --runtime podman
+npm run cli -- bootstrap --runtime podman
 ```
 
 Docker works too:
 
 ```bash
-npm run cli -- up --runtime docker
+npm run cli -- bootstrap --runtime docker
 ```
 
 Check health:
@@ -73,27 +74,46 @@ npm run cli -- status
 npm run cli -- doctor
 ```
 
+`init` and `up` still exist for scripting, but `bootstrap` is the smooth local
+path. It creates or reuses the managed `local` profile, writes
+`~/.open-lagrange/docker-compose.yaml`, lets the compose stack create the
+Hatchet client token in its config volume, and reports readiness steps.
+
 ## Demos And Experiments
 
 Run the repository Plan-to-Patch demo:
 
 ```bash
 npm run cli -- demo run repo-json-output --dry-run
-npm run cli -- artifact list
+npm run cli -- run outputs latest
+npm run cli -- artifact recent
 ```
 
 Run the same demo through a live isolated fixture repo and git worktree:
 
 ```bash
 npm run cli -- demo run repo-json-output --live
-npm run cli -- artifact list
+npm run cli -- run outputs latest
 ```
 
 Run the Research Brief Workflow Skill demo:
 
 ```bash
 npm run cli -- demo run skills-research-brief --dry-run
-npm run cli -- artifact list
+npm run cli -- run outputs latest
+```
+
+Try the Research Pack offline with fixture sources:
+
+```bash
+npm run cli -- research search "planning primitive" --fixture
+npm run cli -- research brief "MCP security risks" --fixture
+```
+
+Fetch one explicit live URL through SDK HTTP policy:
+
+```bash
+npm run cli -- research fetch https://example.com --live
 ```
 
 Inspect runtime and packs:
@@ -197,7 +217,9 @@ Open Lagrange currently includes:
 
 - Planning Primitive and Planfiles
 - Capability Pack SDK and PackRegistry
+- SDK runtime primitives for bounded HTTP, artifacts, retry, rate limits, redaction, secrets, approval, and policy checks
 - Repository Task Pack with isolated worktree execution
+- Research Pack with fixture search, bounded live URL fetch, extraction, source sets, citations, and research brief artifacts
 - patch plans, patch artifacts, verification reports, and review reports
 - bounded repair attempt tracking
 - SecretProvider abstraction with OS keychain and env fallback
@@ -238,6 +260,7 @@ runtime, authority, or owner of the work.
 
 - [Golden Path demos](docs/golden-path-demos.md)
 - [Artifacts](docs/artifacts.md)
+- [Runs](docs/runs.md)
 - [Doctor](docs/doctor.md)
 - [Pack inspection](docs/pack-inspection.md)
 - [Planfiles](docs/planfiles.md)
@@ -249,6 +272,13 @@ runtime, authority, or owner of the work.
 - [Pack runtime activation](docs/pack-runtime-activation.md)
 - [Pack health](docs/pack-health.md)
 - [Pack smoke tests](docs/pack-smoke-tests.md)
+- [SDK primitives](docs/sdk-primitives.md)
+- [HTTP primitive](docs/http-primitive.md)
+- [Primitive security model](docs/primitive-security-model.md)
+- [Research Pack](docs/research-pack.md)
+- [Source artifacts](docs/source-artifacts.md)
+- [Citations](docs/citations.md)
+- [Research workflows](docs/research-workflows.md)
 - [Artifact lineage](docs/artifact-lineage.md)
 - [Policy decision reports](docs/policy-decision-reports.md)
 - [TUI Home](docs/tui-home.md)

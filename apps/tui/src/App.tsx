@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { useApp } from "ink";
+import { useApp, useInput } from "ink";
 import type { SuggestedFlow, TuiUserFrameEvent, UserFrameEvent } from "@open-lagrange/core/interface";
 import { buildViewModel } from "./view-model.js";
 import { parseUserInput } from "./command-parser.js";
@@ -27,9 +27,12 @@ export function App(props: AppProps): React.ReactElement {
   const [projectId, setProjectId] = useState<string | undefined>(props.projectId);
   const [selectedPane, setSelectedPane] = useState<PaneId>("home");
   const [input, setInput] = useState("");
-  const [conversation, setConversation] = useState<ConversationTurn[]>([]);
+  const [conversation, setConversation] = useState<ConversationTurn[]>([welcomeTurn()]);
+  const [commandHistory, setCommandHistory] = useState<string[]>([]);
+  const [historyIndex, setHistoryIndex] = useState<number | undefined>();
+  const [scrollOffset, setScrollOffset] = useState(0);
   const [started, setStarted] = useState(false);
-  const [lastError, setLastError] = useState<string | undefined>();
+  const [seenStatusError, setSeenStatusError] = useState<string | undefined>();
   const [pendingFlow, setPendingFlow] = useState<SuggestedFlow | undefined>();
   const { submitEvent } = useUserFrameEvents();
   const status = useProjectStatus({ ...(projectId ? { projectId } : {}), pollIntervalMs: props.pollIntervalMs, ...(props.apiUrl ? { apiUrl: props.apiUrl } : {}) });
@@ -40,13 +43,24 @@ export function App(props: AppProps): React.ReactElement {
   const model = useMemo(() => buildViewModel({
     ...(status.project ? { project: status.project } : {}),
     selectedPane,
+    scrollOffset,
     inputMode: "chat",
     isLoading: status.isLoading,
     ...(status.health ? { health: status.health } : {}),
-    ...(lastError ?? status.lastError ? { lastError: lastError ?? status.lastError } : {}),
+    ...(status.lastError ? { lastError: status.lastError } : {}),
     conversation,
     ...(pendingFlow ? { pendingFlow } : {}),
-  }), [status.project, selectedPane, status.isLoading, status.health, status.lastError, lastError, conversation, pendingFlow]);
+  }), [status.project, selectedPane, scrollOffset, status.isLoading, status.health, status.lastError, conversation, pendingFlow]);
+
+  useEffect(() => {
+    if (!status.lastError) {
+      setSeenStatusError(undefined);
+      return;
+    }
+    if (status.lastError === seenStatusError) return;
+    setSeenStatusError(status.lastError);
+    appendTurn(errorTurn(status.lastError, projectId, activeTask?.task_run_id, "Runtime status error"));
+  }, [status.lastError, seenStatusError, projectId, activeTask?.task_run_id]);
 
   useEffect(() => {
     if (started || !props.goal) return;
@@ -74,38 +88,79 @@ export function App(props: AppProps): React.ReactElement {
     onQuit: () => app.exit(),
   });
 
+  useInput((_value, key) => {
+    if (key.pageUp || (key.shift && key.upArrow)) {
+      setScrollOffset((value) => Math.min(conversation.length, value + 3));
+      return;
+    }
+    if (key.pageDown || (key.shift && key.downArrow)) {
+      setScrollOffset((value) => Math.max(0, value - 3));
+      return;
+    }
+    if (key.upArrow && !key.shift) {
+      const index = historyIndex ?? commandHistory.length;
+      const next = Math.max(0, index - 1);
+      const value = commandHistory[next];
+      if (value !== undefined) {
+        setHistoryIndex(next);
+        setInput(value);
+      }
+      return;
+    }
+    if (key.downArrow && !key.shift) {
+      if (historyIndex === undefined) return;
+      const next = historyIndex + 1;
+      if (next >= commandHistory.length) {
+        setHistoryIndex(undefined);
+        setInput("");
+      } else {
+        setHistoryIndex(next);
+        setInput(commandHistory[next] ?? "");
+      }
+    }
+  });
+
   async function runtimeAction(label: string, action: () => Promise<string>): Promise<void> {
-    setConversation((turns) => [...turns, systemTurn(label, projectId, activeTask?.task_run_id)]);
+    appendTurn(systemTurn(label, projectId, activeTask?.task_run_id, "command"));
     try {
       const output = await action();
-      setConversation((turns) => [...turns, systemTurn(output.slice(0, 4000), projectId, activeTask?.task_run_id)]);
+      appendTurn(systemTurn(output.slice(0, 4000), projectId, activeTask?.task_run_id, "output", "Runtime action"));
       await status.refresh();
     } catch (error) {
       const message = error instanceof Error ? error.message : "Runtime action failed.";
-      setLastError(message);
-      setConversation((turns) => [...turns, systemTurn(message, projectId, activeTask?.task_run_id)]);
+      appendTurn(errorTurn(message, projectId, activeTask?.task_run_id));
     }
   }
 
-  async function dispatch(event: UserFrameEvent | TuiUserFrameEvent): Promise<void> {
-    setConversation((turns) => [...turns, userTurn(eventText(event), projectId, activeTask?.task_run_id)]);
+  async function dispatch(event: UserFrameEvent | TuiUserFrameEvent, inputText?: string): Promise<void> {
+    appendTurn(userTurn(inputText ?? eventText(event), projectId, activeTask?.task_run_id));
+    appendTurn(pendingTurn(event, projectId, activeTask?.task_run_id));
     try {
       const result = await submitEvent(event);
       const submittedProjectId = result.status === "submitted" ? result.project_id : undefined;
       const submittedTaskId = result.status === "submitted" ? result.task_run_id : undefined;
-      setConversation((turns) => [...turns, systemTurn(result.message, submittedProjectId ?? projectId, submittedTaskId ?? activeTask?.task_run_id)]);
+      appendTurn(resultTurn(result.message, "output" in result ? result.output : undefined, result.status, submittedProjectId ?? projectId, submittedTaskId ?? activeTask?.task_run_id, resultTitle(event, result.status)));
       if (submittedProjectId) setProjectId(submittedProjectId);
       setPendingFlow(undefined);
-      setLastError(undefined);
       await status.refresh();
     } catch (error) {
       const message = error instanceof Error ? error.message : "User frame event failed.";
-      setLastError(message);
-      setConversation((turns) => [...turns, systemTurn(message, projectId, activeTask?.task_run_id)]);
+      appendTurn(errorTurn(message, projectId, activeTask?.task_run_id, errorTitle(event)));
     }
   }
 
   async function onSubmit(value: string): Promise<void> {
+    const trimmed = value.trim();
+    if (trimmed) {
+      setCommandHistory((items) => items[items.length - 1] === trimmed ? items : [...items, trimmed].slice(-80));
+      setHistoryIndex(undefined);
+    }
+    if (trimmed.startsWith("/copy")) {
+      setInput("");
+      appendTurn(copyTurn(currentViewText(model), projectId, activeTask?.task_run_id));
+      setSelectedPane("chat");
+      return;
+    }
     const parsed = parseUserInput(value, {
       ...(projectId ? { project_id: projectId } : {}),
       ...(activeTask ? { task_id: activeTask.task_run_id } : {}),
@@ -121,53 +176,162 @@ export function App(props: AppProps): React.ReactElement {
       app.exit();
       return;
     }
-    if (parsed.kind === "command" && parsed.pane) setSelectedPane(parsed.pane);
+    if (parsed.kind === "command" && parsed.pane) {
+      if (!parsed.event || parsed.pane === "chat") setSelectedPane(parsed.pane);
+      if (!parsed.event) {
+        appendTurn(userTurn(trimmed, projectId, activeTask?.task_run_id));
+        appendTurn(systemTurn(viewJournalText(parsed.pane, model), projectId, activeTask?.task_run_id, "output", viewTitle(parsed.pane)));
+      }
+    }
     if (parsed.kind === "command" && parsed.attachProjectId) {
       setProjectId(parsed.attachProjectId);
-      setConversation((turns) => [...turns, systemTurn(`Attached to ${parsed.attachProjectId}.`, parsed.attachProjectId)]);
-      setLastError(undefined);
+      appendTurn(systemTurn(`Attached to ${parsed.attachProjectId}.`, parsed.attachProjectId, undefined, "output", "Attach"));
       return;
     }
     if (parsed.kind === "command" && parsed.error) {
-      setLastError(parsed.error);
+      appendTurn(errorTurn(parsed.error, projectId, activeTask?.task_run_id, "Command error"));
       return;
     }
     if (parsed.kind === "suggestion") {
       setPendingFlow(parsed.flow);
       setSelectedPane("home");
-      setConversation((turns) => [...turns, userTurn(value, projectId, activeTask?.task_run_id), systemTurn(suggestionText(parsed.flow), projectId, activeTask?.task_run_id)]);
-      setLastError(undefined);
+      appendTurn(userTurn(value, projectId, activeTask?.task_run_id));
+      appendTurn(systemTurn(suggestionText(parsed.flow), projectId, activeTask?.task_run_id, "suggestion", parsed.flow.title));
       return;
     }
     if (parsed.kind === "suggestions") {
       const [first] = parsed.flows;
       setPendingFlow(first);
       setSelectedPane("home");
-      setConversation((turns) => [...turns, userTurn(value, projectId, activeTask?.task_run_id), systemTurn(`${parsed.message}\n${parsed.flows.map((flow) => `- ${flow.command}`).join("\n")}`, projectId, activeTask?.task_run_id)]);
-      setLastError(undefined);
+      appendTurn(userTurn(value, projectId, activeTask?.task_run_id));
+      appendTurn(systemTurn(`${parsed.message}\n${parsed.flows.map((flow) => `- ${flow.command}`).join("\n")}`, projectId, activeTask?.task_run_id, "suggestion", "Suggested flows"));
       return;
     }
-    if (parsed.event) await dispatch(parsed.event);
+    if (parsed.event) await dispatch(parsed.event, trimmed || undefined);
   }
 
-  return <Layout model={model} input={input} setInput={setInput} onSubmit={(value) => void onSubmit(value)} />;
+  function handleInputChange(value: string): void {
+    setHistoryIndex(undefined);
+    setInput(value);
+  }
+
+  function appendTurn(turn: ConversationTurn): void {
+    setConversation((turns) => [...turns, turn]);
+    setScrollOffset(0);
+  }
+
+  return <Layout model={model} input={input} setInput={handleInputChange} onSubmit={(value) => void onSubmit(value)} />;
 }
 
 function userTurn(text: string, project_id?: string, task_id?: string): ConversationTurn {
-  return { turn_id: `turn-user-${Date.now()}`, role: "user", text, created_at: new Date().toISOString(), ...(project_id ? { project_id } : {}), ...(task_id ? { task_id } : {}) };
+  return { turn_id: turnId("user"), role: "user", kind: text.trim().startsWith("/") ? "command" : "message", text, created_at: new Date().toISOString(), ...(project_id ? { project_id } : {}), ...(task_id ? { task_id } : {}) };
 }
 
-function systemTurn(text: string, project_id?: string, task_id?: string): ConversationTurn {
-  return { turn_id: `turn-system-${Date.now()}`, role: "system", text, created_at: new Date().toISOString(), ...(project_id ? { project_id } : {}), ...(task_id ? { task_id } : {}) };
+function systemTurn(text: string, project_id?: string, task_id?: string, kind: ConversationTurn["kind"] = "message", title?: string): ConversationTurn {
+  return { turn_id: turnId("system"), role: "system", kind, ...(title ? { title } : {}), status: kind === "output" ? "completed" : "info", text, created_at: new Date().toISOString(), ...(project_id ? { project_id } : {}), ...(task_id ? { task_id } : {}) };
+}
+
+function resultTurn(message: string, output: unknown, status: string, project_id?: string, task_id?: string, title?: string): ConversationTurn {
+  const text = output === undefined ? message : `${message}\n\n${JSON.stringify(output, null, 2)}`;
+  return { turn_id: turnId("output"), role: "system", kind: "output", status: status === "failed" ? "failed" : "completed", title: title ?? status, text, created_at: new Date().toISOString(), ...(project_id ? { project_id } : {}), ...(task_id ? { task_id } : {}) };
+}
+
+function pendingTurn(event: UserFrameEvent | TuiUserFrameEvent, project_id?: string, task_id?: string): ConversationTurn {
+  return {
+    turn_id: turnId("pending"),
+    role: "system",
+    kind: "output",
+    status: "pending",
+    title: pendingTitle(event),
+    text: pendingText(event),
+    created_at: new Date().toISOString(),
+    ...(project_id ? { project_id } : {}),
+    ...(task_id ? { task_id } : {}),
+  };
+}
+
+function errorTurn(text: string, project_id?: string, task_id?: string, title = "Action failed"): ConversationTurn {
+  return { turn_id: turnId("error"), role: "system", kind: "error", status: "failed", title, text, created_at: new Date().toISOString(), ...(project_id ? { project_id } : {}), ...(task_id ? { task_id } : {}) };
+}
+
+function copyTurn(text: string, project_id?: string, task_id?: string): ConversationTurn {
+  return { turn_id: turnId("copy"), role: "system", kind: "copy", status: "info", title: "Current view text", text, created_at: new Date().toISOString(), ...(project_id ? { project_id } : {}), ...(task_id ? { task_id } : {}) };
+}
+
+function viewTitle(pane: PaneId): string {
+  if (pane === "demo") return "Demo launcher";
+  if (pane === "capabilities") return "Capabilities";
+  if (pane === "pack_builder") return "Packs";
+  if (pane === "artifact_json") return "Artifacts";
+  if (pane === "doctor") return "Doctor";
+  if (pane === "help") return "Help";
+  return "View";
+}
+
+function viewJournalText(pane: PaneId, model: ReturnType<typeof buildViewModel>): string {
+  if (pane === "help") return "Opened Help. Use slash commands for precise flows, or type natural language and confirm the suggested flow.";
+  if (pane === "demo") return "Opened Demo Launcher. Use /demo run repo-json-output for a dry-run preview, or /demo run repo-json-output --live for isolated local worktree execution.";
+  if (pane === "capabilities") return `Opened Capabilities. Runtime reports ${model.health.packs} registered pack(s). Use /packs or /pack inspect <pack_id> for details.`;
+  if (pane === "pack_builder") return "Opened Packs. Use /pack build <skills.md> for generated pack previews or /pack inspect <pack_id> for installed pack details.";
+  if (pane === "artifact_json") return "Opened Artifacts. Use /run outputs latest for the latest primary outputs, /artifact recent for high-signal artifacts, or /artifact show <artifact_id> for a specific item.";
+  if (pane === "doctor") return "Opened Doctor. Use /doctor to run checks and journal the result.";
+  if (pane === "timeline") return `Opened Timeline. ${model.timeline.length} timeline event(s) are currently visible in the selected project.`;
+  if (pane === "tasks") return `Opened Tasks. ${model.project?.task_statuses.length ?? 0} task(s) are currently attached.`;
+  if (pane === "approvals") return `Opened Approvals. ${model.approvals.length} approval request(s) are currently pending.`;
+  if (pane === "plan") return `Opened Plan. ${model.plan ? `Plan ${model.plan.plan_id} is loaded.` : "No plan is currently attached."}`;
+  if (pane === "run") return "Opened Run. Start or inspect repository work with /repo run <goal> or /run outputs latest.";
+  if (pane === "diff") return "Opened Diff. Attach a project or use a repository workflow to load diff output.";
+  if (pane === "verification") return `Opened Verification. ${model.verificationResults.length} verification result(s) are currently attached.`;
+  if (pane === "review") return "Opened Review. Attach a project or run a workflow to load review output.";
+  return `Opened ${pane}.`;
+}
+
+function welcomeTurn(): ConversationTurn {
+  return {
+    turn_id: "turn-welcome",
+    role: "system",
+    kind: "message",
+    status: "info",
+    title: "Welcome",
+    text: "Ask what Open Lagrange can do, type a goal, or use /help. Work starts only after a typed flow or confirmation.",
+    created_at: new Date().toISOString(),
+  };
+}
+
+function turnId(prefix: string): string {
+  return `turn-${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function currentViewText(model: ReturnType<typeof buildViewModel>): string {
+  const lines = [
+    `View: ${model.selectedPane}`,
+    `Profile: ${model.health.profile}`,
+    `API: ${model.health.api}`,
+    `Worker: ${model.health.worker}`,
+    `Model: ${model.health.model}`,
+    "",
+    "Transcript:",
+    ...model.conversation.map((turn) => `[${turn.kind ?? turn.role}] ${turn.title ? `${turn.title}: ` : ""}${turn.text}`),
+  ];
+  return lines.join("\n");
 }
 
 function eventText(event: UserFrameEvent | TuiUserFrameEvent): string {
+  if (event.type === "chat.help") return "/help";
+  if (event.type === "pack.list") return "/packs";
+  if (event.type === "demo.list") return "/demos";
+  if (event.type === "capability.list") return "/capabilities";
   if (event.type === "chat.message" || event.type === "intent.classify") return event.text;
   if (event.type === "plan.create") return event.goal;
   if (event.type === "repo.run") return event.goal;
   if (event.type === "skill.frame" || event.type === "skill.plan" || event.type === "pack.build") return `${event.type} ${event.file}`;
   if (event.type === "pack.inspect") return `inspect ${event.pack_id}`;
   if (event.type === "demo.run") return `run demo ${event.demo_id}`;
+  if (event.type === "research.search") return `research search ${event.query}`;
+  if (event.type === "research.fetch") return `research fetch ${event.url}`;
+  if (event.type === "research.brief") return `research brief ${event.topic}`;
+  if (event.type === "research.export") return `research export ${event.brief_id}`;
+  if (event.type === "run.show") return event.outputs_only ? `show run outputs ${event.run_id}` : `show run ${event.run_id}`;
   if (event.type === "artifact.show") return `show artifact ${event.artifact_id}`;
   if (event.type === "approval.approve") return `approve ${event.approval_id}`;
   if (event.type === "approval.reject") return `reject ${event.approval_id}`;
@@ -180,4 +344,81 @@ function eventText(event: UserFrameEvent | TuiUserFrameEvent): string {
   if (event.type === "request_artifact") return `show ${event.artifact_type}`;
   if (event.type === "request_verification") return `verify ${event.command_id}`;
   return "adjust scope";
+}
+
+function pendingTitle(event: UserFrameEvent | TuiUserFrameEvent): string {
+  if (event.type === "chat.help") return "Loading help";
+  if (event.type === "pack.list") return "Loading packs";
+  if (event.type === "demo.list") return "Loading demos";
+  if (event.type === "capability.list") return "Loading capabilities";
+  if (event.type === "demo.run") return event.dry_run ? "Running dry-run demo" : "Running live demo";
+  if (event.type === "research.search") return "Searching sources";
+  if (event.type === "research.fetch") return "Fetching source";
+  if (event.type === "research.brief") return "Creating research brief";
+  if (event.type === "research.export") return "Exporting research markdown";
+  if (event.type === "run.show") return event.outputs_only ? "Loading run outputs" : "Loading run";
+  if (event.type === "artifact.show") return event.artifact_id === "list" ? "Loading artifact index" : "Loading artifact";
+  if (event.type === "pack.build") return "Building pack preview";
+  if (event.type === "skill.plan" || event.type === "skill.frame") return "Processing skill";
+  if (event.type === "plan.create") return "Creating Planfile";
+  if (event.type === "repo.run") return "Starting repository workflow";
+  if (event.type === "status.show") return "Loading status";
+  if (event.type === "doctor.run") return "Running doctor";
+  return "Running command";
+}
+
+function pendingText(event: UserFrameEvent | TuiUserFrameEvent): string {
+  if (event.type === "chat.help") return "Rendering TUI commands and navigation in the journal.";
+  if (event.type === "pack.list") return "Reading installed pack and capability summaries.";
+  if (event.type === "demo.list") return "Reading available golden path demos.";
+  if (event.type === "capability.list") return "Reading the live capability summary.";
+  if (event.type === "demo.run") {
+    return [
+      `Demo: ${event.demo_id}`,
+      `Mode: ${event.dry_run ? "dry-run preview" : "live local execution"}`,
+      event.dry_run
+        ? "Creating preview artifacts: Planfile, PatchPlan, PatchArtifact, verification, review, and timeline."
+        : "Creating fixture copy, isolated git worktree, PlanRunner execution, verification, review, and final patch artifact.",
+    ].join("\n");
+  }
+  if (event.type === "artifact.show") {
+    return event.artifact_id === "list"
+      ? "Reading recent runs and high-signal artifacts. Primary outputs are shown before supporting details."
+      : `Reading artifact ${event.artifact_id} from the local artifact index.`;
+  }
+  if (event.type === "run.show") {
+    if (event.run_id === "list") return "Reading recent runs from the local run index.";
+    return event.outputs_only
+      ? `Reading primary and supporting outputs for run ${event.run_id}.`
+      : `Reading run ${event.run_id}.`;
+  }
+  if (event.type === "research.search") return `Searching for source candidates: ${event.query}`;
+  if (event.type === "research.fetch") return `Fetching ${event.url} in ${event.mode} mode.`;
+  if (event.type === "research.brief") return `Creating a cited brief for ${event.topic} in ${event.mode} mode.`;
+  if (event.type === "research.export") return `Exporting research brief artifact ${event.brief_id}.`;
+  return eventText(event);
+}
+
+function resultTitle(event: UserFrameEvent | TuiUserFrameEvent, status: string): string {
+  if (event.type === "chat.help") return status === "failed" ? "Help error" : "Help";
+  if (event.type === "pack.list") return status === "failed" ? "Packs error" : "Packs";
+  if (event.type === "demo.list") return status === "failed" ? "Demos error" : "Demos";
+  if (event.type === "capability.list") return status === "failed" ? "Capabilities error" : "Capabilities";
+  if (event.type === "artifact.show") return status === "failed" ? "Artifact error" : "Artifact result";
+  if (event.type === "run.show") return status === "failed" ? "Run error" : "Run result";
+  if (event.type === "demo.run") return status === "failed" ? "Demo failed" : "Demo completed";
+  if (event.type.startsWith("research.")) return status === "failed" ? "Research error" : "Research result";
+  return status;
+}
+
+function errorTitle(event: UserFrameEvent | TuiUserFrameEvent): string {
+  if (event.type === "chat.help") return "Help error";
+  if (event.type === "pack.list") return "Packs error";
+  if (event.type === "demo.list") return "Demos error";
+  if (event.type === "capability.list") return "Capabilities error";
+  if (event.type === "artifact.show") return "Artifact error";
+  if (event.type === "run.show") return "Run error";
+  if (event.type === "demo.run") return "Demo error";
+  if (event.type.startsWith("research.")) return "Research error";
+  return "Action failed";
 }

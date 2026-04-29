@@ -135,6 +135,12 @@ export async function submitUserFrameEvent(rawEvent: UserFrameEvent): Promise<Us
     const summary = getCapabilitiesSummary();
     return { status: "completed", message: explainSystem(summary), output: { summary } };
   }
+  if (event.type === "chat.help") {
+    return { status: "completed", message: "Help is available from the local TUI dispatcher.", output: event };
+  }
+  if (event.type === "capability.list" || event.type === "pack.list" || event.type === "demo.list") {
+    return { status: "completed", message: "Discovery is available from the local TUI dispatcher.", output: event };
+  }
   if (event.type === "intent.classify") {
     const result = routeIntent({ text: event.text });
     return { status: "completed", message: result.message ?? result.flow?.summary ?? "Intent classified.", output: result };
@@ -152,7 +158,7 @@ export async function submitUserFrameEvent(rawEvent: UserFrameEvent): Promise<Us
     return submitProjectGoal({ goal: event.goal });
   }
   if (event.type === "repo.run") return submitRepositoryGoal({ goal: event.goal, repo_path: event.repo_path, dry_run: event.dry_run, apply: event.apply });
-  if (event.type === "skill.frame" || event.type === "skill.plan" || event.type === "pack.build" || event.type === "pack.inspect" || event.type === "demo.run" || event.type === "plan.apply") {
+  if (event.type === "skill.frame" || event.type === "skill.plan" || event.type === "pack.build" || event.type === "pack.inspect" || event.type === "demo.run" || event.type === "run.show" || event.type === "plan.apply") {
     return { status: "completed", message: "This flow is available from the local TUI dispatcher or CLI.", output: event };
   }
   if (event.type === "artifact.show") {

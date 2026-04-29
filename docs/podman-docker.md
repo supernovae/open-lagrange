@@ -13,9 +13,18 @@ Runtime detection checks:
 Podman is preferred when no runtime is specified.
 
 ```bash
+open-lagrange bootstrap --runtime podman
+open-lagrange bootstrap --runtime docker
+```
+
+Use `bootstrap` for first-time local setup. It replaces the manual `init` then
+`up` sequence for most users and returns the readiness of the profile, compose
+file, Hatchet token setup, API, worker, and web UI. The lower-level commands are
+still available:
+
+```bash
 open-lagrange init --runtime podman
 open-lagrange up --runtime podman
-open-lagrange up --runtime docker
 ```
 
 Containerfiles are written for OCI-compatible builders and are intended to work
@@ -36,6 +45,12 @@ set it explicitly before init:
 OPEN_LAGRANGE_SOURCE_ROOT=/path/to/open-lagrange open-lagrange init --runtime podman
 ```
 
+For the one-command path, set the same variable before bootstrap:
+
+```bash
+OPEN_LAGRANGE_SOURCE_ROOT=/path/to/open-lagrange open-lagrange bootstrap --runtime podman
+```
+
 RabbitMQ queue data is intentionally ephemeral in the local compose stack. The
 generated compose runs the RabbitMQ container as the image's `rabbitmq` user so
 Podman-created data directories do not leave the Erlang cookie owned by `root`.
@@ -46,7 +61,7 @@ only the stale RabbitMQ container/old named volume before retrying:
 open-lagrange down
 podman rm -f open-lagrange-rabbitmq-1
 podman volume rm open-lagrange_hatchet_rabbitmq_data
-open-lagrange up --runtime podman
+open-lagrange bootstrap --runtime podman
 ```
 
 Do not remove the PostgreSQL or `open_lagrange_data` volumes unless you are

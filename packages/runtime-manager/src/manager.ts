@@ -7,7 +7,7 @@ import { modelProviderRuntimeEnv } from "./model-providers.js";
 import { getProfilePackPaths, getRuntimePaths } from "./paths.js";
 import { getCurrentProfile } from "./profiles.js";
 import { credentialStatuses, resolveProfileAuthToken } from "./secrets.js";
-import { RuntimeStatus, type RuntimeConfig, type RuntimeProfile, type RuntimeStatus as RuntimeStatusType, type ServiceStatus } from "./types.js";
+import { BootstrapReport, RuntimeStatus, type BootstrapReport as BootstrapReportType, type BootstrapStep, type RuntimeConfig, type RuntimeProfile, type RuntimeStatus as RuntimeStatusType, type ServiceStatus } from "./types.js";
 
 interface DevState {
   readonly pids: Record<string, number>;
@@ -28,6 +28,29 @@ export async function initRuntime(input: { readonly runtime?: "docker" | "podman
   };
   await saveConfig(config);
   return config;
+}
+
+export async function bootstrapLocalRuntime(input: { readonly runtime?: "docker" | "podman"; readonly dev?: boolean; readonly forceInit?: boolean } = {}): Promise<BootstrapReportType> {
+  const paths = getRuntimePaths();
+  const detected = await detectRuntime(input.runtime);
+  const runtime = input.runtime ?? detected?.kind ?? "podman";
+  const dev = input.dev ?? false;
+  const profile = await ensureBootstrapProfile(runtime, input.forceInit ?? false);
+  const status = await startLocalRuntime({ runtime, dev });
+  return BootstrapReport.parse({
+    profileName: profile.name,
+    runtime,
+    dev,
+    configPath: paths.configPath,
+    composePath: profile.composeFile ?? paths.composePath,
+    status,
+    steps: bootstrapSteps(status),
+    nextCommands: [
+      "open-lagrange status",
+      "open-lagrange doctor",
+      "open-lagrange tui",
+    ],
+  });
 }
 
 export async function startLocalRuntime(input: { readonly dev?: boolean; readonly runtime?: "docker" | "podman" } = {}): Promise<RuntimeStatusType> {
@@ -120,6 +143,34 @@ export async function getRuntimeStatus(): Promise<RuntimeStatusType> {
   });
 }
 
+async function ensureBootstrapProfile(runtime: "docker" | "podman", forceInit: boolean): Promise<RuntimeProfile> {
+  const paths = getRuntimePaths();
+  await mkdir(paths.homeDir, { recursive: true });
+  await mkdir(paths.logsDir, { recursive: true });
+  if (forceInit) {
+    await initRuntime({ runtime });
+    return getCurrentProfile();
+  }
+  try {
+    const config = await loadConfig();
+    const existing = config.profiles.local;
+    if (existing && existing.mode === "local" && existing.ownership !== "managed-by-cli") {
+      throw new Error("A local profile already exists but is externally managed. Use a managed local profile for bootstrap.");
+    }
+    const local = existing && existing.mode === "local"
+      ? { ...existing, runtimeManager: runtime, composeFile: existing.composeFile ?? paths.composePath }
+      : defaultLocalProfile({ runtime, composeFile: paths.composePath });
+    const next: RuntimeConfig = { ...config, currentProfile: "local", profiles: { ...config.profiles, local } };
+    await saveConfig(next);
+    if (!(await composeFileExists(local.composeFile ?? paths.composePath))) await writeComposeTemplate(local.composeFile ?? paths.composePath);
+    return local;
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("externally managed")) throw error;
+    await initRuntime({ runtime });
+    return getCurrentProfile();
+  }
+}
+
 async function localProfile(runtime?: "docker" | "podman"): Promise<RuntimeProfile> {
   try {
     const profile = await getCurrentProfile();
@@ -140,6 +191,41 @@ async function runtimeEnv(profile: RuntimeProfile): Promise<NodeJS.ProcessEnv> {
     OPEN_LAGRANGE_PROFILE: profile.name,
     OPEN_LAGRANGE_PROFILE_PACKS_DIR: packPaths.packsDir,
   };
+}
+
+function bootstrapSteps(status: RuntimeStatusType): BootstrapStep[] {
+  return [
+    {
+      id: "profile",
+      title: "Local profile",
+      status: "completed",
+      detail: `Using profile ${status.profileName}.`,
+    },
+    {
+      id: "compose",
+      title: "Compose file",
+      status: "completed",
+      detail: "Generated or reused the managed local compose file.",
+    },
+    {
+      id: "hatchet-token",
+      title: "Hatchet client token",
+      status: status.hatchet?.state === "running" ? "completed" : "warning",
+      detail: "Created by the hatchet-token compose service and mounted read-only into API and worker containers.",
+    },
+    serviceStep("hatchet", "Hatchet runtime", status.hatchet),
+    serviceStep("api", "Control Plane API", status.api),
+    serviceStep("worker", "Worker health", status.worker),
+    serviceStep("web", "Web workbench", status.web),
+  ];
+}
+
+function serviceStep(id: string, title: string, service: ServiceStatus | undefined): BootstrapStep {
+  if (!service) return { id, title, status: "warning", detail: "Service is not configured for this profile." };
+  if (service.state === "running") return { id, title, status: "completed", detail: service.url ? `Reachable at ${service.url}.` : "Running." };
+  if (service.state === "error") return { id, title, status: "failed", detail: service.detail ?? "Service reported an error." };
+  if (service.state === "unreachable" || service.state === "starting") return { id, title, status: "pending", detail: service.url ? `Waiting for ${service.url}.` : "Waiting for service readiness." };
+  return { id, title, status: "warning", detail: service.detail ?? `State: ${service.state}.` };
 }
 
 async function startDevProcesses(env: NodeJS.ProcessEnv = process.env): Promise<void> {

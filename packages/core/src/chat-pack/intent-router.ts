@@ -5,6 +5,8 @@ import {
   flowForPackBuild,
   flowForRepositoryPlan,
   flowForRepositoryRun,
+  flowForResearchBrief,
+  flowForResearchFetch,
   flowForSkillPlan,
   informationalFlow,
   type SuggestedFlow,
@@ -66,6 +68,13 @@ export function routeIntent(input: {
   if (lower.includes("demo")) {
     return { kind: "flow", flow: flowForDemoRun(lower.includes("repo") ? "repo-json-output" : "skills-research-brief"), used_model: false };
   }
+  if (looksLikeResearchFetch(lower)) {
+    const url = extractUrl(text);
+    return { kind: "flow", flow: url ? flowForResearchFetch(url) : flowForResearchBrief(cleanResearchTopic(text)), used_model: false };
+  }
+  if (looksLikeResearchGoal(lower)) {
+    return { kind: "flow", flow: flowForResearchBrief(cleanResearchTopic(text)), used_model: false };
+  }
   if (lower.includes("skill") || lower.includes("skills.md")) {
     const file = extractFile(text) ?? "./skills.md";
     if (lower.includes("pack") || lower.includes("plugin")) return { kind: "flow", flow: flowForPackBuild(file), used_model: false };
@@ -84,6 +93,7 @@ export function routeIntent(input: {
   const alternatives = [
     flowForRepositoryPlan(text, input.context),
     flowForPackBuild("./skills.md"),
+    flowForResearchBrief(text),
     flowForDemoRun("repo-json-output"),
   ].map((flow) => ({ ...flow, confidence: "low" as const }));
   return {
@@ -92,6 +102,26 @@ export function routeIntent(input: {
     message: "I found a few possible flows. Choose one by running its slash command.",
     used_model: false,
   };
+}
+
+function looksLikeResearchGoal(lower: string): boolean {
+  return lower.includes("research ") || lower.includes("cited brief") || lower.includes("briefing") || lower.includes("sources for") || lower.includes("source-backed");
+}
+
+function looksLikeResearchFetch(lower: string): boolean {
+  return lower.includes("fetch this") || lower.includes("summarize this url") || lower.includes("fetch http") || lower.includes("summarize http");
+}
+
+function extractUrl(value: string): string | undefined {
+  return value.match(/https?:\/\/\S+/)?.[0]?.replace(/[),.]+$/, "");
+}
+
+function cleanResearchTopic(value: string): string {
+  return value
+    .replace(/^research\s+/i, "")
+    .replace(/^make\s+a\s+cited\s+brief\s+(about|on)\s+/i, "")
+    .replace(/^create\s+a\s+cited\s+brief\s+(about|on)\s+/i, "")
+    .trim();
 }
 
 function isCapabilityQuestion(lower: string): boolean {

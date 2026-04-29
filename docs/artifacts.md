@@ -8,7 +8,26 @@ The local artifact index lives at:
 .open-lagrange/artifacts/index.json
 ```
 
-Demo runs and future workflows can register artifacts there so the CLI and TUI can show a consistent view.
+Demo runs and future workflows can register artifacts there so the CLI and TUI can show a consistent view. The artifact index is the archive layer. For day-to-day use, start from the run index.
+
+The local run index lives at:
+
+```text
+.open-lagrange/runs/index.json
+```
+
+Each run groups artifacts into:
+
+- `primary_output`: final reports, Planfiles, patch artifacts, review reports, and other outputs people usually want first.
+- `supporting_evidence`: patch plans, timelines, SkillFrames, and validation details.
+- `debug_log`: worktree sessions, raw logs, evidence bundles, and other troubleshooting material.
+
+Latest-run shortcuts are written under:
+
+```text
+.open-lagrange/latest/run.json
+.open-lagrange/latest/summary.md
+```
 
 ## Artifact Kinds
 
@@ -26,13 +45,37 @@ Current common kinds:
 - `execution_timeline`
 - `raw_log`
 
-Every artifact summary includes an ID, kind, title, summary, path or URI, creation time, redaction marker, and exportability flag. Related plan, task, pack, demo, or skill IDs can be attached when available.
+Every artifact summary includes an ID, kind, title, summary, path or URI, creation time, redaction marker, and exportability flag. Related run, plan, task, pack, demo, or skill IDs can be attached when available.
 
 The repository live demo stores both structured patch metadata and a plain `final.patch` file as `patch_artifact` entries so the same index can drive CLI export and TUI review.
 
 ## CLI
 
-List artifacts:
+Show the latest run's primary outputs:
+
+```bash
+npm run cli -- run outputs latest
+```
+
+List recent runs:
+
+```bash
+npm run cli -- run list
+```
+
+Show high-signal recent artifacts:
+
+```bash
+npm run cli -- artifact recent
+```
+
+List artifacts for a specific run:
+
+```bash
+npm run cli -- artifact list --run <run_id>
+```
+
+List raw recent artifacts:
 
 ```bash
 npm run cli -- artifact list

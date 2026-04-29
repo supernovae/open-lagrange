@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { listArtifacts } from "../artifacts/artifact-viewer.js";
+import { recentArtifacts } from "../artifacts/run-index.js";
 import { packRegistry } from "../capability-registry/registry.js";
 import { listDemos } from "../demos/demo-registry.js";
 import { getPackHealth } from "../packs/pack-health.js";
@@ -45,7 +45,7 @@ export function getCapabilitiesSummary(input: { readonly health?: RuntimeHealth;
   return CapabilitySummary.parse({
     packs,
     demos: listDemos().map((demo) => ({ demo_id: demo.demo_id, title: demo.title, summary: demo.summary })),
-    artifacts: listArtifacts().slice(-(input.artifact_limit ?? 8)).map((artifact) => ({
+    artifacts: recentArtifacts({ limit: input.artifact_limit ?? 8 }).map((artifact) => ({
       artifact_id: artifact.artifact_id,
       kind: artifact.kind,
       title: artifact.title,

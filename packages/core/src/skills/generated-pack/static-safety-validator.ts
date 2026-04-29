@@ -51,6 +51,40 @@ export function validateStaticSafety(input: {
     for (const pattern of unsafePatterns) {
       if (text.includes(pattern.pattern)) findings.push({ path: file, ...pattern });
     }
+    if (file.startsWith("src/capabilities/") && !text.includes("@open-lagrange/capability-sdk/primitives")) {
+      findings.push({
+        path: file,
+        pattern: "missing sdk primitives",
+        message: "Generated capability code should use SDK primitives for artifact, secret, policy, approval, or HTTP access.",
+        severity: "manual_review",
+      });
+    }
+    if (text.includes("http.fetch(") || text.includes("http.fetchJson(") || text.includes("http.downloadToArtifact(")) {
+      if (!text.includes("timeout_ms")) {
+        findings.push({
+          path: file,
+          pattern: "missing timeout_ms",
+          message: "SDK HTTP primitive calls in generated code must declare timeout_ms.",
+          severity: "error",
+        });
+      }
+      if (!text.includes("max_bytes")) {
+        findings.push({
+          path: file,
+          pattern: "missing max_bytes",
+          message: "SDK HTTP primitive calls in generated code must declare max_bytes.",
+          severity: "error",
+        });
+      }
+    }
+    if (/large|download|response body/i.test(text) && !text.includes("capture_body_as_artifact") && !text.includes("artifacts.write")) {
+      findings.push({
+        path: file,
+        pattern: "missing artifact capture",
+        message: "Generated code that handles large outputs should capture them as artifacts.",
+        severity: "manual_review",
+      });
+    }
     if (/console\.(log|info|warn|error)\([^)]*(secret|token|api[_-]?key)/i.test(text)) {
       findings.push({ path: file, pattern: "secret logging", message: "Generated code appears to log secret-like values.", severity: "error" });
     }

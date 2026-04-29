@@ -5,6 +5,7 @@ import { z } from "zod";
 import { afterEach, describe, expect, it } from "vitest";
 import type { CapabilityPack } from "@open-lagrange/capability-sdk";
 import { createArtifactSummary, registerArtifacts, showArtifact } from "../src/artifacts/artifact-viewer.js";
+import { listRunArtifacts, recentArtifacts, showRun } from "../src/artifacts/run-index.js";
 import { listDemos, runDemo } from "../src/demos/demo-runner.js";
 import { runCoreDoctor } from "../src/doctor/doctor.js";
 import { inspectPack } from "../src/packs/pack-inspector.js";
@@ -31,6 +32,9 @@ describe("golden path demos and runtime hardening", () => {
     expect(result.artifacts.map((artifact) => artifact.kind)).toContain("planfile");
     expect(result.artifacts.map((artifact) => artifact.kind)).toContain("patch_artifact");
     expect(result.artifacts.find((artifact) => artifact.kind === "verification_report")?.related_plan_id).toMatch(/^plan_/);
+    expect(showRun("latest", join(root, "runs-index.json"))?.primary_artifact_refs.length).toBeGreaterThan(0);
+    expect(listRunArtifacts({ run_id: "latest", role: "primary_output", artifact_index_path: join(root, "index.json"), run_index_path: join(root, "runs-index.json") }).map((artifact) => artifact.kind)).toContain("patch_artifact");
+    expect(recentArtifacts({ artifact_index_path: join(root, "index.json"), run_index_path: join(root, "runs-index.json") }).length).toBeGreaterThan(0);
   });
 
   it("executes the repository demo through a live local worktree", async () => {

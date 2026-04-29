@@ -17,6 +17,7 @@ const fallbackHealth: RuntimeHealth = {
 export function buildViewModel(input: {
   readonly project?: ProjectRunStatus;
   readonly selectedPane: PaneId;
+  readonly scrollOffset?: number;
   readonly inputMode: InputMode;
   readonly isLoading: boolean;
   readonly health?: RuntimeHealth;
@@ -42,6 +43,7 @@ export function buildViewModel(input: {
     ...(skill ? { skill } : {}),
     ...(input.pendingFlow ? { pendingFlow: input.pendingFlow } : {}),
     selectedPane: input.selectedPane,
+    scrollOffset: input.scrollOffset ?? 0,
     inputMode: input.inputMode,
     isLoading: input.isLoading,
     health: input.health ?? fallbackHealth,
@@ -195,7 +197,7 @@ function artifactType(value: string): ArtifactSummary["artifact_type"] {
   if (value === "planfile") return "plan";
   if (value === "verification_report") return "verification";
   if (value === "review_report") return "review";
-  if (value === "skill_frame" || value === "workflow_skill" || value === "pack_build_plan" || value === "generated_pack" || value === "pack_manifest" || value === "pack_validation_report" || value === "pack_test_report" || value === "pack_install_report" || value === "patch_plan" || value === "patch_artifact" || value === "research_brief" || value === "approval_request" || value === "execution_timeline" || value === "raw_log") return value;
+  if (value === "skill_frame" || value === "workflow_skill" || value === "pack_build_plan" || value === "generated_pack" || value === "pack_manifest" || value === "pack_validation_report" || value === "pack_test_report" || value === "pack_install_report" || value === "patch_plan" || value === "patch_artifact" || value === "source_search_results" || value === "source_snapshot" || value === "source_text" || value === "source_set" || value === "research_brief" || value === "citation_index" || value === "capability_step_result" || value === "approval_request" || value === "execution_timeline" || value === "raw_log") return value;
   return "artifact_json";
 }
 

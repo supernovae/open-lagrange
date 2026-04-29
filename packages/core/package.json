@@ -54,6 +54,14 @@
       "types": "./dist/chat-pack/index.d.ts",
       "import": "./dist/chat-pack/index.js"
     },
+    "./research": {
+      "types": "./dist/capability-packs/research/index.d.ts",
+      "import": "./dist/capability-packs/research/index.js"
+    },
+    "./runtime": {
+      "types": "./dist/runtime/index.d.ts",
+      "import": "./dist/runtime/index.js"
+    },
     "./events": {
       "types": "./dist/events/index.d.ts",
       "import": "./dist/events/index.js"

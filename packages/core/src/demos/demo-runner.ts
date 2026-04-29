@@ -21,7 +21,8 @@ import { VerificationReport, ReviewReport } from "../schemas/repository.js";
 import { deterministicSkillFrame } from "../skills/skill-frame.js";
 import { parseSkillfileMarkdown } from "../skills/skillfile-parser.js";
 import { generateWorkflowSkill } from "../skills/workflow-skill-generator.js";
-import { createArtifactSummary, registerArtifacts } from "../artifacts/artifact-viewer.js";
+import { createArtifactSummary, registerArtifacts, removeArtifactsByDemo } from "../artifacts/artifact-viewer.js";
+import { createRunSummary, registerRun, removeRunsByDemo } from "../artifacts/run-index.js";
 import type { ArtifactSummary } from "../artifacts/artifact-model.js";
 import { getDemo, listDemos, type DemoDefinition } from "./demo-registry.js";
 
@@ -32,6 +33,7 @@ export interface DemoRunInput {
   readonly dry_run?: boolean;
   readonly output_dir?: string;
   readonly index_path?: string;
+  readonly run_index_path?: string;
   readonly stdout_only?: boolean;
   readonly clean?: boolean;
   readonly now?: string;
@@ -51,14 +53,48 @@ export async function runDemo(input: DemoRunInput): Promise<DemoRunResult> {
   const now = input.now ?? new Date().toISOString();
   const run_id = runId(now);
   const baseDir = input.output_dir ? resolve(callerCwd(), input.output_dir) : join(callerCwd(), ".open-lagrange", "demos", demo.demo_id, run_id);
-  if (input.clean) cleanDemo(demo.demo_id);
+  const runIndexPath = input.run_index_path ?? (input.index_path ? join(dirname(resolve(callerCwd(), input.index_path)), "runs-index.json") : undefined);
+  const latestPath = input.index_path ? join(dirname(resolve(callerCwd(), input.index_path)), "latest-run.json") : undefined;
+  const latestSummaryPath = input.index_path ? join(dirname(resolve(callerCwd(), input.index_path)), "latest-summary.md") : undefined;
+  if (input.clean) cleanDemo(demo.demo_id, {
+    ...(input.index_path ? { index_path: input.index_path } : {}),
+    ...(runIndexPath ? { run_index_path: runIndexPath } : {}),
+    ...(latestPath ? { latest_path: latestPath } : {}),
+    ...(latestSummaryPath ? { latest_summary_path: latestSummaryPath } : {}),
+    now,
+  });
   const live = input.dry_run === false;
   const artifacts = demo.demo_id === "repo-json-output"
     ? live
       ? await liveRepoDemo(demo, run_id, baseDir, now, input.stdout_only ?? false)
       : repoDemo(demo, run_id, baseDir, now, input.stdout_only ?? false)
     : skillDemo(demo, run_id, baseDir, now, input.stdout_only ?? false);
-  if (!(input.stdout_only ?? false)) registerArtifacts({ artifacts, ...(input.index_path ? { index_path: input.index_path } : {}), now });
+  if (!(input.stdout_only ?? false)) {
+    registerArtifacts({ artifacts, ...(input.index_path ? { index_path: input.index_path } : {}), now });
+    registerRun({
+      run: createRunSummary({
+        run_id,
+        workflow_kind: "demo",
+        title: demo.title,
+        summary: demo.summary,
+        status: "completed",
+        started_at: now,
+        completed_at: now,
+        output_dir: baseDir,
+        related_demo_id: demo.demo_id,
+        related_plan_id: artifacts.find((artifact) => artifact.related_plan_id)?.related_plan_id,
+        related_skill_id: artifacts.find((artifact) => artifact.related_skill_id)?.related_skill_id,
+        primary_artifact_refs: artifacts.filter((artifact) => artifact.artifact_role === "primary_output").map((artifact) => artifact.artifact_id),
+        supporting_artifact_refs: artifacts.filter((artifact) => artifact.artifact_role !== "primary_output" && artifact.artifact_role !== "debug_log").map((artifact) => artifact.artifact_id),
+        debug_artifact_refs: artifacts.filter((artifact) => artifact.artifact_role === "debug_log").map((artifact) => artifact.artifact_id),
+      }),
+      artifacts,
+      ...(runIndexPath ? { index_path: runIndexPath } : {}),
+      ...(latestPath ? { latest_path: latestPath } : {}),
+      ...(latestSummaryPath ? { latest_summary_path: latestSummaryPath } : {}),
+      now,
+    });
+  }
   return { demo, run_id, ...(input.stdout_only ? {} : { output_dir: baseDir }), artifacts, stdout_only: input.stdout_only ?? false };
 }
 
@@ -116,12 +152,12 @@ function repoDemo(demo: DemoDefinition, runIdValue: string, outputDir: string, n
     follow_up_notes: [],
   });
   return writeArtifacts(stdoutOnly, outputDir, now, demo.demo_id, [
-    { kind: "planfile", filename: "planfile.plan.md", title: "Repository Planfile", summary: "Planfile for the repository demo.", content: renderPlanfileMarkdown(plan), content_type: "text/markdown", related_plan_id: plan.plan_id },
-    { kind: "patch_plan", filename: "patch-plan.json", title: "PatchPlan Preview", summary: "Structured patch plan preview.", content: patchPlan, content_type: "application/json", related_plan_id: plan.plan_id },
-    { kind: "patch_artifact", filename: "patch-artifact.json", title: "PatchArtifact Preview", summary: "Patch artifact preview.", content: patchArtifact, content_type: "application/json", related_plan_id: plan.plan_id },
-    { kind: "verification_report", filename: "verification-report.json", title: "Verification Preview", summary: "Verification report preview.", content: verification, content_type: "application/json", related_plan_id: plan.plan_id },
-    { kind: "review_report", filename: "review-report.json", title: "Review Preview", summary: "Review report preview.", content: review, content_type: "application/json", related_plan_id: plan.plan_id },
-    { kind: "execution_timeline", filename: "timeline.json", title: "Execution Timeline", summary: "Demo execution timeline.", content: [{ at: now, event: "dry_run_preview_created" }], content_type: "application/json", related_plan_id: plan.plan_id },
+    { kind: "planfile", artifact_role: "primary_output", filename: "planfile.plan.md", title: "Repository Planfile", summary: "Planfile for the repository demo.", content: renderPlanfileMarkdown(plan), content_type: "text/markdown", related_plan_id: plan.plan_id },
+    { kind: "patch_plan", artifact_role: "supporting_evidence", filename: "patch-plan.json", title: "PatchPlan Preview", summary: "Structured patch plan preview.", content: patchPlan, content_type: "application/json", related_plan_id: plan.plan_id },
+    { kind: "patch_artifact", artifact_role: "primary_output", filename: "patch-artifact.json", title: "PatchArtifact Preview", summary: "Patch artifact preview.", content: patchArtifact, content_type: "application/json", related_plan_id: plan.plan_id },
+    { kind: "verification_report", artifact_role: "primary_output", filename: "verification-report.json", title: "Verification Preview", summary: "Verification report preview.", content: verification, content_type: "application/json", related_plan_id: plan.plan_id },
+    { kind: "review_report", artifact_role: "primary_output", filename: "review-report.json", title: "Review Preview", summary: "Review report preview.", content: review, content_type: "application/json", related_plan_id: plan.plan_id },
+    { kind: "execution_timeline", artifact_role: "supporting_evidence", filename: "timeline.json", title: "Execution Timeline", summary: "Demo execution timeline.", content: [{ at: now, event: "dry_run_preview_created" }], content_type: "application/json", related_plan_id: plan.plan_id },
   ]);
 }
 
@@ -185,12 +221,12 @@ async function liveRepoDemo(demo: DemoDefinition, runIdValue: string, outputDir:
     ...(state ? [{ at: state.updated_at, event: `plan_${state.status}` }] : []),
   ];
   return writeArtifacts(false, outputDir, now, demo.demo_id, [
-    { kind: "planfile", filename: "planfile.plan.md", title: "Live Repository Planfile", summary: "Planfile executed through PlanRunner and repository handlers.", content: renderPlanfileMarkdown(plan), content_type: "text/markdown", related_plan_id: plan.plan_id },
-    { kind: "raw_log", filename: "worktree-session.json", title: "Worktree Session", summary: "Isolated git worktree used by the live demo.", content: session, content_type: "application/json", related_plan_id: plan.plan_id },
+    { kind: "planfile", artifact_role: "primary_output", filename: "planfile.plan.md", title: "Live Repository Planfile", summary: "Planfile executed through PlanRunner and repository handlers.", content: renderPlanfileMarkdown(plan), content_type: "text/markdown", related_plan_id: plan.plan_id },
+    { kind: "raw_log", artifact_role: "debug_log", filename: "worktree-session.json", title: "Worktree Session", summary: "Isolated git worktree used by the live demo.", content: session, content_type: "application/json", related_plan_id: plan.plan_id },
     ...captured.map((artifact) => demoArtifactItemForCaptured(artifact, plan.plan_id)),
-    { kind: "patch_artifact", filename: "final-patch-artifact.json", title: "Final Git Patch Artifact", summary: `${finalPatch.changed_files.length} changed file(s) exported from worktree.`, content: finalPatch, content_type: "application/json", related_plan_id: plan.plan_id },
-    { kind: "patch_artifact", filename: "final.patch", title: "Final Patch", summary: "Unified diff exported from the live worktree.", content: finalPatch.unified_diff, content_type: "text/x-patch", related_plan_id: plan.plan_id },
-    { kind: "execution_timeline", filename: "timeline.json", title: "Execution Timeline", summary: "Live demo execution timeline.", content: timeline, content_type: "application/json", related_plan_id: plan.plan_id },
+    { kind: "patch_artifact", artifact_role: "primary_output", filename: "final-patch-artifact.json", title: "Final Git Patch Artifact", summary: `${finalPatch.changed_files.length} changed file(s) exported from worktree.`, content: finalPatch, content_type: "application/json", related_plan_id: plan.plan_id },
+    { kind: "patch_artifact", artifact_role: "primary_output", filename: "final.patch", title: "Final Patch", summary: "Unified diff exported from the live worktree.", content: finalPatch.unified_diff, content_type: "text/x-patch", related_plan_id: plan.plan_id },
+    { kind: "execution_timeline", artifact_role: "supporting_evidence", filename: "timeline.json", title: "Execution Timeline", summary: "Live demo execution timeline.", content: timeline, content_type: "application/json", related_plan_id: plan.plan_id },
   ]);
 }
 
@@ -202,16 +238,17 @@ function skillDemo(demo: DemoDefinition, runIdValue: string, outputDir: string, 
   const brief = demo.demo_id === "skills-research-brief" ? researchBrief(now) : notesDraft(frame.interpreted_goal, now);
   const planMarkdown = generated.workflow_skill ? renderPlanfileMarkdown(generated.workflow_skill.planfile_template) : "No Planfile generated.";
   return writeArtifacts(stdoutOnly, outputDir, now, demo.demo_id, [
-    { kind: "skill_frame", filename: "skill-frame.json", title: "SkillFrame", summary: "Interpreted skill frame.", content: frame, content_type: "application/json", related_skill_id: frame.skill_id },
-    { kind: "workflow_skill", filename: "workflow-skill.skill.md", title: "WorkflowSkill", summary: "Workflow Skill markdown artifact.", content: generated.markdown, content_type: "text/markdown", related_plan_id: generated.workflow_skill?.planfile_template.plan_id, related_skill_id: frame.skill_id },
-    { kind: "planfile", filename: "planfile.plan.md", title: "Planfile Preview", summary: "Planfile preview for the workflow skill.", content: planMarkdown, content_type: "text/markdown", related_plan_id: generated.workflow_skill?.planfile_template.plan_id, related_skill_id: frame.skill_id },
-    { kind: "research_brief", filename: demo.demo_id === "skills-research-brief" ? "research-brief.json" : "notes-draft.json", title: demo.demo_id === "skills-research-brief" ? "Mocked ResearchBrief" : "Notes Draft", summary: "Deterministic fixture artifact preview.", content: brief, content_type: "application/json", related_plan_id: generated.workflow_skill?.planfile_template.plan_id, related_skill_id: frame.skill_id },
-    { kind: "execution_timeline", filename: "timeline.json", title: "Execution Timeline", summary: "Demo execution timeline.", content: [{ at: now, event: "dry_run_preview_created" }], content_type: "application/json", related_plan_id: generated.workflow_skill?.planfile_template.plan_id, related_skill_id: frame.skill_id },
+    { kind: "skill_frame", artifact_role: "supporting_evidence", filename: "skill-frame.json", title: "SkillFrame", summary: "Interpreted skill frame.", content: frame, content_type: "application/json", related_skill_id: frame.skill_id },
+    { kind: "workflow_skill", artifact_role: "primary_output", filename: "workflow-skill.skill.md", title: "WorkflowSkill", summary: "Workflow Skill markdown artifact.", content: generated.markdown, content_type: "text/markdown", related_plan_id: generated.workflow_skill?.planfile_template.plan_id, related_skill_id: frame.skill_id },
+    { kind: "planfile", artifact_role: "primary_output", filename: "planfile.plan.md", title: "Planfile Preview", summary: "Planfile preview for the workflow skill.", content: planMarkdown, content_type: "text/markdown", related_plan_id: generated.workflow_skill?.planfile_template.plan_id, related_skill_id: frame.skill_id },
+    { kind: "research_brief", artifact_role: "primary_output", filename: demo.demo_id === "skills-research-brief" ? "research-brief.json" : "notes-draft.json", title: demo.demo_id === "skills-research-brief" ? "Mocked ResearchBrief" : "Notes Draft", summary: "Deterministic fixture artifact preview.", content: brief, content_type: "application/json", related_plan_id: generated.workflow_skill?.planfile_template.plan_id, related_skill_id: frame.skill_id },
+    { kind: "execution_timeline", artifact_role: "supporting_evidence", filename: "timeline.json", title: "Execution Timeline", summary: "Demo execution timeline.", content: [{ at: now, event: "dry_run_preview_created" }], content_type: "application/json", related_plan_id: generated.workflow_skill?.planfile_template.plan_id, related_skill_id: frame.skill_id },
   ]);
 }
 
 interface DemoArtifactItem {
   readonly kind: ArtifactSummary["kind"];
+  readonly artifact_role?: ArtifactSummary["artifact_role"];
   readonly filename: string;
   readonly title: string;
   readonly summary: string;
@@ -235,9 +272,11 @@ function writeArtifacts(
     return createArtifactSummary({
       artifact_id: `${item.kind}_${stableHash({ demoId, filename: item.filename, now }).slice(0, 18)}`,
       kind: item.kind,
+      artifact_role: item.artifact_role ?? "supporting_evidence",
       title: item.title,
       summary: item.summary,
       path_or_uri: stdoutOnly ? `memory://${demoId}/${item.filename}` : path,
+      related_run_id: runId(now),
       related_demo_id: demoId,
       ...(item.related_plan_id ? { related_plan_id: item.related_plan_id } : {}),
       ...(item.related_skill_id ? { related_skill_id: item.related_skill_id } : {}),
@@ -303,21 +342,21 @@ function jsonOutputPatchPlan(planId: string, nodeId: string, objective: string, 
 
 function demoArtifactItemForCaptured(artifact: RepositoryHandlerArtifact, planId: string): DemoArtifactItem {
   if (artifact.kind === "evidence_bundle") {
-    return { kind: "raw_log", filename: "evidence-bundle.json", title: "EvidenceBundle", summary: "Repository evidence collected through pack capabilities.", content: artifact.artifact, content_type: "application/json", related_plan_id: planId };
+    return { kind: "raw_log", artifact_role: "debug_log", filename: "evidence-bundle.json", title: "EvidenceBundle", summary: "Repository evidence collected through pack capabilities.", content: artifact.artifact, content_type: "application/json", related_plan_id: planId };
   }
   if (artifact.kind === "patch_plan") {
-    return { kind: "patch_plan", filename: "patch-plan.json", title: "Live PatchPlan", summary: artifact.artifact.summary, content: artifact.artifact, content_type: "application/json", related_plan_id: planId };
+    return { kind: "patch_plan", artifact_role: "supporting_evidence", filename: "patch-plan.json", title: "Live PatchPlan", summary: artifact.artifact.summary, content: artifact.artifact, content_type: "application/json", related_plan_id: planId };
   }
   if (artifact.kind === "patch_artifact") {
-    return { kind: "patch_artifact", filename: "patch-artifact.json", title: "Live PatchArtifact", summary: `${artifact.artifact.changed_files.length} changed file(s).`, content: artifact.artifact, content_type: "application/json", related_plan_id: planId };
+    return { kind: "patch_artifact", artifact_role: "primary_output", filename: "patch-artifact.json", title: "Live PatchArtifact", summary: `${artifact.artifact.changed_files.length} changed file(s).`, content: artifact.artifact, content_type: "application/json", related_plan_id: planId };
   }
   if (artifact.kind === "verification_report") {
-    return { kind: "verification_report", filename: "verification-report.json", title: "Live VerificationReport", summary: artifact.artifact.summary, content: artifact.artifact, content_type: "application/json", related_plan_id: planId };
+    return { kind: "verification_report", artifact_role: "primary_output", filename: "verification-report.json", title: "Live VerificationReport", summary: artifact.artifact.summary, content: artifact.artifact, content_type: "application/json", related_plan_id: planId };
   }
   if (artifact.kind === "review_report") {
-    return { kind: "review_report", filename: "review-report.json", title: "Live ReviewReport", summary: artifact.artifact.pr_summary, content: artifact.artifact, content_type: "application/json", related_plan_id: planId };
+    return { kind: "review_report", artifact_role: "primary_output", filename: "review-report.json", title: "Live ReviewReport", summary: artifact.artifact.pr_summary, content: artifact.artifact, content_type: "application/json", related_plan_id: planId };
   }
-  return { kind: "raw_log", filename: "repair-attempt.json", title: "Repair Attempt", summary: artifact.artifact.failure_summary, content: artifact.artifact, content_type: "application/json", related_plan_id: planId };
+  return { kind: "raw_log", artifact_role: "debug_log", filename: "repair-attempt.json", title: "Repair Attempt", summary: artifact.artifact.failure_summary, content: artifact.artifact, content_type: "application/json", related_plan_id: planId };
 }
 
 function createDemoPlanStateStore(): PlanStateStore {
@@ -437,9 +476,23 @@ function runId(now: string): string {
   return now.replace(/\D/g, "").slice(0, 14);
 }
 
-function cleanDemo(demoId: string): void {
+function cleanDemo(demoId: string, options: {
+  readonly index_path?: string;
+  readonly run_index_path?: string;
+  readonly latest_path?: string;
+  readonly latest_summary_path?: string;
+  readonly now: string;
+}): void {
   const path = resolve(callerCwd(), ".open-lagrange", "demos", demoId);
   if (existsSync(path)) rmSync(path, { recursive: true, force: true });
+  removeArtifactsByDemo({ demo_id: demoId, ...(options.index_path ? { index_path: options.index_path } : {}), now: options.now });
+  removeRunsByDemo({
+    demo_id: demoId,
+    ...(options.run_index_path ? { index_path: options.run_index_path } : {}),
+    ...(options.latest_path ? { latest_path: options.latest_path } : {}),
+    ...(options.latest_summary_path ? { latest_summary_path: options.latest_summary_path } : {}),
+    now: options.now,
+  });
 }
 
 function resolveExamplePath(demo: DemoDefinition): string {

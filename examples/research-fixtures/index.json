@@ -1,0 +1,35 @@
+{
+  "source_mode": "fixture",
+  "sources": [
+    {
+      "source_id": "planning-primitive",
+      "title": "Planning Primitive Notes",
+      "url": "https://example.invalid/open-lagrange/planning-primitive",
+      "path": "planning-primitive.md",
+      "snippet": "Planfiles turn vague goals into reviewable Markdown with typed YAML execution data.",
+      "source_type": "documentation",
+      "domain": "example.invalid",
+      "confidence": "high"
+    },
+    {
+      "source_id": "capability-packs",
+      "title": "Capability Pack SDK Notes",
+      "url": "https://example.invalid/open-lagrange/capability-packs",
+      "path": "capability-packs.md",
+      "snippet": "Capability Packs expose bounded operations through descriptors, schemas, policy, and approvals.",
+      "source_type": "documentation",
+      "domain": "example.invalid",
+      "confidence": "high"
+    },
+    {
+      "source_id": "source-provenance",
+      "title": "Source Provenance Notes",
+      "url": "https://example.invalid/open-lagrange/source-provenance",
+      "path": "source-provenance.md",
+      "snippet": "Research artifacts should preserve source URLs, retrieval timestamps, extraction warnings, citations, and lineage.",
+      "source_type": "documentation",
+      "domain": "example.invalid",
+      "confidence": "medium"
+    }
+  ]
+}

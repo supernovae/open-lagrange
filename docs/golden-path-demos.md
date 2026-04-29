@@ -74,11 +74,12 @@ This is a smaller Workflow Skill example for a notes workflow. It is useful when
 
 ## Output Modes
 
-By default, demo runs write artifacts and register them in `.open-lagrange/artifacts/index.json`.
+By default, demo runs write artifacts, register them in `.open-lagrange/artifacts/index.json`, and add a run summary to `.open-lagrange/runs/index.json`.
 
 ```bash
 npm run cli -- demo run skills-research-brief --dry-run
-npm run cli -- artifact list
+npm run cli -- run outputs latest
+npm run cli -- artifact recent
 ```
 
 Use a custom directory:
