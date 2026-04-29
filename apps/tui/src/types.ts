@@ -1,7 +1,8 @@
 import type { ProjectRunStatus, RuntimeHealth, UserFrameEvent } from "@open-lagrange/core/interface";
+import type { SuggestedFlow, TuiUserFrameEvent } from "@open-lagrange/core/interface";
 import type { TaskStatusSnapshot } from "@open-lagrange/core/interface";
 
-export type PaneId = "chat" | "timeline" | "tasks" | "plan" | "approvals" | "diff" | "verification" | "review" | "artifact_json" | "demo" | "pack_builder" | "help";
+export type PaneId = "home" | "chat" | "timeline" | "tasks" | "plan" | "run" | "approvals" | "diff" | "verification" | "review" | "artifact_json" | "demo" | "pack_builder" | "doctor" | "capabilities" | "help";
 export type InputMode = "chat" | "command" | "approval_reason" | "rejection_reason" | "scope_adjustment";
 
 export interface ConversationTurn {
@@ -94,6 +95,7 @@ export interface TuiViewModel {
   readonly verificationResults: readonly VerificationResultSummary[];
   readonly plan?: PlanViewSummary;
   readonly skill?: SkillViewSummary;
+  readonly pendingFlow?: SuggestedFlow;
   readonly selectedPane: PaneId;
   readonly inputMode: InputMode;
   readonly isLoading: boolean;
@@ -102,6 +104,8 @@ export interface TuiViewModel {
 }
 
 export type ParsedInput =
-  | { readonly kind: "command"; readonly command: string; readonly event?: UserFrameEvent | undefined; readonly pane?: PaneId; readonly quit?: boolean; readonly attachProjectId?: string; readonly error?: string }
-  | { readonly kind: "event"; readonly event: UserFrameEvent }
+  | { readonly kind: "command"; readonly command: string; readonly event?: UserFrameEvent | TuiUserFrameEvent | undefined; readonly pane?: PaneId; readonly quit?: boolean; readonly attachProjectId?: string; readonly error?: string }
+  | { readonly kind: "event"; readonly event: UserFrameEvent | TuiUserFrameEvent }
+  | { readonly kind: "suggestion"; readonly flow: SuggestedFlow; readonly message?: string }
+  | { readonly kind: "suggestions"; readonly flows: readonly SuggestedFlow[]; readonly message: string }
   | { readonly kind: "empty" };

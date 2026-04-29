@@ -14,6 +14,18 @@ export class PlatformClient {
     return this.get("/v1/runtime/packs");
   }
 
+  async getCapabilitiesSummary(): Promise<unknown> {
+    return this.get("/v1/chat/capabilities");
+  }
+
+  async classifyIntent(text: string): Promise<unknown> {
+    return this.post("/v1/chat/intent", { text });
+  }
+
+  async getSuggestedFlows(text?: string): Promise<unknown> {
+    return this.post("/v1/chat/suggested-flows", text ? { text } : {});
+  }
+
   async getVersion(): Promise<unknown> {
     return this.get("/v1/runtime/version");
   }

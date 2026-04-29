@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useApp } from "ink";
-import type { UserFrameEvent } from "@open-lagrange/core/interface";
+import type { SuggestedFlow, TuiUserFrameEvent, UserFrameEvent } from "@open-lagrange/core/interface";
 import { buildViewModel } from "./view-model.js";
 import { parseUserInput } from "./command-parser.js";
+import { suggestionText } from "./input-router.js";
 import type { ConversationTurn, PaneId } from "./types.js";
 import { useProjectStatus } from "./hooks/useProjectStatus.js";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts.js";
@@ -24,11 +25,12 @@ export interface AppProps {
 export function App(props: AppProps): React.ReactElement {
   const app = useApp();
   const [projectId, setProjectId] = useState<string | undefined>(props.projectId);
-  const [selectedPane, setSelectedPane] = useState<PaneId>("timeline");
+  const [selectedPane, setSelectedPane] = useState<PaneId>("home");
   const [input, setInput] = useState("");
   const [conversation, setConversation] = useState<ConversationTurn[]>([]);
   const [started, setStarted] = useState(false);
   const [lastError, setLastError] = useState<string | undefined>();
+  const [pendingFlow, setPendingFlow] = useState<SuggestedFlow | undefined>();
   const { submitEvent } = useUserFrameEvents();
   const status = useProjectStatus({ ...(projectId ? { projectId } : {}), pollIntervalMs: props.pollIntervalMs, ...(props.apiUrl ? { apiUrl: props.apiUrl } : {}) });
 
@@ -43,7 +45,8 @@ export function App(props: AppProps): React.ReactElement {
     ...(status.health ? { health: status.health } : {}),
     ...(lastError ?? status.lastError ? { lastError: lastError ?? status.lastError } : {}),
     conversation,
-  }), [status.project, selectedPane, status.isLoading, status.health, status.lastError, lastError, conversation]);
+    ...(pendingFlow ? { pendingFlow } : {}),
+  }), [status.project, selectedPane, status.isLoading, status.health, status.lastError, lastError, conversation, pendingFlow]);
 
   useEffect(() => {
     if (started || !props.goal) return;
@@ -84,7 +87,7 @@ export function App(props: AppProps): React.ReactElement {
     }
   }
 
-  async function dispatch(event: UserFrameEvent): Promise<void> {
+  async function dispatch(event: UserFrameEvent | TuiUserFrameEvent): Promise<void> {
     setConversation((turns) => [...turns, userTurn(eventText(event), projectId, activeTask?.task_run_id)]);
     try {
       const result = await submitEvent(event);
@@ -92,6 +95,7 @@ export function App(props: AppProps): React.ReactElement {
       const submittedTaskId = result.status === "submitted" ? result.task_run_id : undefined;
       setConversation((turns) => [...turns, systemTurn(result.message, submittedProjectId ?? projectId, submittedTaskId ?? activeTask?.task_run_id)]);
       if (submittedProjectId) setProjectId(submittedProjectId);
+      setPendingFlow(undefined);
       setLastError(undefined);
       await status.refresh();
     } catch (error) {
@@ -108,6 +112,7 @@ export function App(props: AppProps): React.ReactElement {
       ...(activeApproval ? { approval_request_id: activeApproval.approval_request_id } : {}),
       ...(props.repo ? { repo_path: props.repo } : {}),
       ...(props.workspaceId ? { workspace_id: props.workspaceId } : {}),
+      ...(pendingFlow ? { pendingFlow } : {}),
       dry_run: props.dryRun ?? !props.apply,
     });
     setInput("");
@@ -127,6 +132,21 @@ export function App(props: AppProps): React.ReactElement {
       setLastError(parsed.error);
       return;
     }
+    if (parsed.kind === "suggestion") {
+      setPendingFlow(parsed.flow);
+      setSelectedPane("home");
+      setConversation((turns) => [...turns, userTurn(value, projectId, activeTask?.task_run_id), systemTurn(suggestionText(parsed.flow), projectId, activeTask?.task_run_id)]);
+      setLastError(undefined);
+      return;
+    }
+    if (parsed.kind === "suggestions") {
+      const [first] = parsed.flows;
+      setPendingFlow(first);
+      setSelectedPane("home");
+      setConversation((turns) => [...turns, userTurn(value, projectId, activeTask?.task_run_id), systemTurn(`${parsed.message}\n${parsed.flows.map((flow) => `- ${flow.command}`).join("\n")}`, projectId, activeTask?.task_run_id)]);
+      setLastError(undefined);
+      return;
+    }
     if (parsed.event) await dispatch(parsed.event);
   }
 
@@ -141,7 +161,18 @@ function systemTurn(text: string, project_id?: string, task_id?: string): Conver
   return { turn_id: `turn-system-${Date.now()}`, role: "system", text, created_at: new Date().toISOString(), ...(project_id ? { project_id } : {}), ...(task_id ? { task_id } : {}) };
 }
 
-function eventText(event: UserFrameEvent): string {
+function eventText(event: UserFrameEvent | TuiUserFrameEvent): string {
+  if (event.type === "chat.message" || event.type === "intent.classify") return event.text;
+  if (event.type === "plan.create") return event.goal;
+  if (event.type === "repo.run") return event.goal;
+  if (event.type === "skill.frame" || event.type === "skill.plan" || event.type === "pack.build") return `${event.type} ${event.file}`;
+  if (event.type === "pack.inspect") return `inspect ${event.pack_id}`;
+  if (event.type === "demo.run") return `run demo ${event.demo_id}`;
+  if (event.type === "artifact.show") return `show artifact ${event.artifact_id}`;
+  if (event.type === "approval.approve") return `approve ${event.approval_id}`;
+  if (event.type === "approval.reject") return `reject ${event.approval_id}`;
+  if (event.type === "doctor.run" || event.type === "status.show") return event.type;
+  if (event.type === "plan.apply") return `apply ${event.planfile}`;
   if (event.type === "submit_goal") return event.text;
   if (event.type === "refine_goal" || event.type === "ask_explanation") return event.text;
   if (event.type === "approve") return `approve ${event.task_id}`;

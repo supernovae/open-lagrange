@@ -1,5 +1,6 @@
 import type { ProjectRunStatus, RuntimeHealth } from "@open-lagrange/core/interface";
 import type { TaskStatusSnapshot } from "@open-lagrange/core/interface";
+import type { SuggestedFlow } from "@open-lagrange/core/interface";
 import type { ApprovalRequestSummary, ArtifactSummary, ChangedFileSummary, ConversationTurn, InputMode, PaneId, PlanViewSummary, ReconciliationTimelineItem, SkillViewSummary, TuiViewModel, VerificationResultSummary } from "./types.js";
 
 const fallbackHealth: RuntimeHealth = {
@@ -21,6 +22,7 @@ export function buildViewModel(input: {
   readonly health?: RuntimeHealth;
   readonly lastError?: string;
   readonly conversation?: readonly ConversationTurn[];
+  readonly pendingFlow?: SuggestedFlow;
 }): TuiViewModel {
   const activeTask = input.project?.task_statuses[0];
   const approvals = approvalSummaries(input.project?.task_statuses ?? []);
@@ -38,6 +40,7 @@ export function buildViewModel(input: {
     verificationResults: verificationResults(activeTask),
     ...(plan ? { plan } : {}),
     ...(skill ? { skill } : {}),
+    ...(input.pendingFlow ? { pendingFlow: input.pendingFlow } : {}),
     selectedPane: input.selectedPane,
     inputMode: input.inputMode,
     isLoading: input.isLoading,

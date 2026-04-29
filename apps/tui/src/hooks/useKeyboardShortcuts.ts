@@ -1,7 +1,7 @@
 import { useInput } from "ink";
 import type { PaneId } from "../types.js";
 
-const panes: readonly PaneId[] = ["chat", "timeline", "tasks", "plan", "approvals", "diff", "verification", "review", "pack_builder", "artifact_json", "help"];
+const panes: readonly PaneId[] = ["home", "chat", "timeline", "tasks", "plan", "run", "approvals", "diff", "verification", "review", "pack_builder", "doctor", "capabilities", "artifact_json", "help"];
 
 export function nextPane(current: PaneId, direction: 1 | -1): PaneId {
   const index = panes.indexOf(current);

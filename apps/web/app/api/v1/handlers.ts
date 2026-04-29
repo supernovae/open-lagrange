@@ -1,4 +1,4 @@
-import { applyPlanfile, applyRepositoryPlanfile, approvePlan, approveTask, cleanupRepositoryPlan, createMockDelegationContext, DEFAULT_EXECUTION_BOUNDS, deterministicProjectId, deterministicRepositoryTaskRunId, exportRepositoryPlanPatch, getPlanExecutionStatus, getProjectStatus, getRepositoryPlanStatus, getRuntimeHealth, getTaskStatus, listRegisteredPacks, rejectPlan, rejectTask, requestArtifact, submitProject, submitRepositoryTask, submitUserFrameEvent, UserFrameEvent } from "@open-lagrange/core/interface";
+import { applyPlanfile, applyRepositoryPlanfile, approvePlan, approveTask, cleanupRepositoryPlan, createMockDelegationContext, DEFAULT_EXECUTION_BOUNDS, deterministicProjectId, deterministicRepositoryTaskRunId, exportRepositoryPlanPatch, getCapabilitiesSummary, getPlanExecutionStatus, getProjectStatus, getRepositoryPlanStatus, getRuntimeHealth, getTaskStatus, listRegisteredPacks, rejectPlan, rejectTask, requestArtifact, routeIntent, submitProject, submitRepositoryTask, submitUserFrameEvent, UserFrameEvent } from "@open-lagrange/core/interface";
 import { z } from "zod";
 import { SubmitJobPayload } from "../jobs/schema";
 import { SubmitRepositoryJobPayload } from "../repository/jobs/schema";
@@ -32,6 +32,26 @@ export async function handleRuntimePackHealth(): Promise<unknown> {
   const health = await getRuntimeHealth();
   return {
     packs: health.pack_health ?? [],
+  };
+}
+
+export async function handleCapabilitiesSummary(): Promise<unknown> {
+  return getCapabilitiesSummary({ health: await getRuntimeHealth() });
+}
+
+export function handleIntentClassify(raw: unknown): unknown {
+  const payload = z.object({ text: z.string().min(1) }).strict().parse(raw);
+  return routeIntent({ text: payload.text });
+}
+
+export function handleSuggestedFlows(raw: unknown): unknown {
+  const payload = z.object({ text: z.string().min(1).optional() }).strict().parse(raw);
+  return payload.text ? routeIntent({ text: payload.text }) : {
+    suggestions: [
+      routeIntent({ text: "add json output to my cli" }),
+      routeIntent({ text: "build a pack from skills.md" }),
+      routeIntent({ text: "run the repo demo" }),
+    ],
   };
 }
 

@@ -28,8 +28,8 @@ Attach to an existing project:
 npm run dev:tui -- --project-id <project-id>
 ```
 
-If no project or goal is provided, the TUI opens with an input lane. Plain text
-starts a new goal when no project is active.
+If no project or goal is provided, the TUI opens to Home. Plain text is
+classified into a suggested flow. Workflow-starting flows require `/confirm`.
 
 ## Layout
 
@@ -40,7 +40,7 @@ bar.
   pack count, and model configuration.
 - Sidebar: goal, project status, phase, active task, approval count, changed
   files, and safety boundaries.
-- Main detail area: conversation, timeline, task list, approvals, diff,
+- Main detail area: home, conversation, timeline, task list, approvals, diff,
   verification, review report, generated pack builder, artifact JSON, or help.
 - Input bar: controlled command and intent lane.
 
@@ -59,29 +59,26 @@ bar.
 
 - `/help`
 - `/status`
-- `/diff`
-- `/verify`
-- `/review`
-- `/pack`
-- `/json`
-- `/approve <reason>`
-- `/reject <reason>`
-- `/scope allow <path>`
-- `/scope deny <path>`
-- `/run <goal>`
-- `/attach <project_id>`
+- `/doctor`
+- `/capabilities`
+- `/packs`
+- `/demos`
+- `/plan repo <goal>`
+- `/repo run <goal>`
+- `/skill frame <file>`
+- `/skill plan <file>`
+- `/pack build <file>`
+- `/pack inspect <pack_id>`
+- `/artifact list`
+- `/artifact show <artifact_id>`
+- `/approve <approval_id>`
+- `/reject <approval_id>`
+- `/confirm`
 - `/quit`
 
-Non-slash text is converted into a typed user frame event. With no active
-project it becomes `submit_goal`. In an active project, text starting with
-`why`, `what`, or `explain` becomes `ask_explanation`; other text becomes
-`refine_goal`.
-
-`refine_goal` and `/scope` currently record durable observations against the
-project so the next reconciliation run can account for the user's frame. They
-do not mutate an already validated capability intent. `ask_explanation` reads
-the typed status surfaces and returns a deterministic explanation from current
-project, task, approval, and error state.
+Non-slash text is routed by the Chat Pack. Informational prompts answer
+directly. Workflow-starting prompts produce a `SuggestedFlow` with a command
+preview, side effects, and approval notes.
 
 `/verify <command_id>` starts a Hatchet-managed repository verification request
 when the active task has repository status. The workflow reloads the repository
@@ -95,17 +92,17 @@ Approval is explicit. When a task requires approval, the sidebar shows the
 count and the approvals pane shows the request ID, task ID, requested
 capability, risk level, and prompt.
 
-Press `a` or enter `/approve <reason>` to approve the selected request. Press
-`x` or enter `/reject <reason>` to reject it. Both actions go through the
-shared workflow client and approval store. Approval allows a previously
+Enter `/approve <approval_id>` or `/reject <approval_id>`. Both actions go
+through the shared workflow client and approval store. Approval allows a previously
 validated intent to continue; it does not change the intent, arguments, digest,
 or delegated authority.
 
 ## Why Chat Is Controlled
 
-The input lane captures intent. It does not call the model directly and does
-not execute capabilities. Every input is parsed into a typed user frame event
-and sent through the same shared client used by the CLI and web interface.
+The input lane captures intent. It does not execute arbitrary capabilities.
+Every input is parsed into a typed user frame event or a suggested flow. The TUI
+uses local deterministic routing first and can add model-assisted routing for
+ambiguous input only after redaction and validation.
 
 The backend reconciler owns execution. Capability Packs provide bounded skills.
 Policy gates define trust. The TUI renders the conversation, durable timeline,

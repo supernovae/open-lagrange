@@ -49,6 +49,14 @@
     "./model-providers": {
       "types": "./dist/model-providers/index.d.ts",
       "import": "./dist/model-providers/index.js"
+    },
+    "./chat-pack": {
+      "types": "./dist/chat-pack/index.d.ts",
+      "import": "./dist/chat-pack/index.js"
+    },
+    "./events": {
+      "types": "./dist/events/index.d.ts",
+      "import": "./dist/events/index.js"
     }
   },
   "scripts": {

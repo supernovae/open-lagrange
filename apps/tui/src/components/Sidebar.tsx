@@ -23,10 +23,10 @@ export function Sidebar({ model, width, height }: { readonly model: TuiViewModel
       <Text>Verification: {model.verificationResults.length > 0 ? verificationLabel(model) : "none"}</Text>
       <Box marginTop={1} flexDirection="column">
         <Text color={theme.title}>Commands</Text>
-        <Text>/approve   /reject</Text>
-        <Text>/plan      /diff</Text>
-        <Text>/verify    /pack</Text>
-        <Text>/json      /help</Text>
+        <Text>/confirm   /help</Text>
+        <Text>/plan repo /repo run</Text>
+        <Text>/doctor    /packs</Text>
+        <Text>/artifact  /approve</Text>
         <Text>tab pane   ctrl+q quit</Text>
       </Box>
     </Box>

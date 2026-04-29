@@ -2,25 +2,25 @@ import { describe, expect, it } from "vitest";
 import { parseUserInput } from "./command-parser.js";
 
 describe("TUI input parsing", () => {
-  it("maps plain text without an active project to a submit_goal event", () => {
+  it("maps plain text without an active project to a suggested flow", () => {
     const parsed = parseUserInput("Add JSON output to status", {
       repo_path: ".",
       workspace_id: "workspace-local",
       dry_run: true,
     });
 
-    expect(parsed.kind).toBe("event");
-    if (parsed.kind !== "event") return;
-    expect(parsed.event).toMatchObject({
-      type: "submit_goal",
-      text: "Add JSON output to status",
+    expect(parsed.kind).toBe("suggestion");
+    if (parsed.kind !== "suggestion") return;
+    expect(parsed.flow.event).toMatchObject({
+      type: "plan.create",
+      target: "repo",
+      goal: "Add JSON output to status",
       repo_path: ".",
-      workspace_id: "workspace-local",
       dry_run: true,
     });
   });
 
-  it("maps explanation text during a project to ask_explanation", () => {
+  it("maps explanation text during a project to a read-only chat event", () => {
     const parsed = parseUserInput("why did this need approval?", {
       project_id: "project-1",
       task_id: "task-run-1",
@@ -28,29 +28,21 @@ describe("TUI input parsing", () => {
 
     expect(parsed.kind).toBe("event");
     if (parsed.kind !== "event") return;
-    expect(parsed.event).toMatchObject({
-      type: "ask_explanation",
-      project_id: "project-1",
-      task_id: "task-run-1",
-    });
+    expect(parsed.event).toMatchObject({ type: "chat.message" });
   });
 
-  it("maps refinement text during a project to refine_goal", () => {
-    const parsed = parseUserInput("Only update apps/cli", {
+  it("maps ambiguous text to multiple suggestions", () => {
+    const parsed = parseUserInput("hello there", {
       project_id: "project-1",
     });
 
-    expect(parsed.kind).toBe("event");
-    if (parsed.kind !== "event") return;
-    expect(parsed.event).toMatchObject({
-      type: "refine_goal",
-      project_id: "project-1",
-      text: "Only update apps/cli",
-    });
+    expect(parsed.kind).toBe("suggestions");
+    if (parsed.kind !== "suggestions") return;
+    expect(parsed.flows.length).toBeGreaterThan(0);
   });
 
   it("maps approval commands to approval events", () => {
-    const parsed = parseUserInput("/approve Looks bounded", {
+    const parsed = parseUserInput("/approve approval-1 Looks bounded", {
       project_id: "project-1",
       task_id: "task-run-1",
       approval_request_id: "approval-1",
@@ -59,8 +51,8 @@ describe("TUI input parsing", () => {
     expect(parsed.kind).toBe("command");
     if (parsed.kind !== "command") return;
     expect(parsed.event).toMatchObject({
-      type: "approve",
-      approval_request_id: "approval-1",
+      type: "approval.approve",
+      approval_id: "approval-1",
       task_id: "task-run-1",
       reason: "Looks bounded",
     });
@@ -100,12 +92,12 @@ describe("TUI input parsing", () => {
     });
   });
 
-  it("maps attach to a local pane command", () => {
+  it("reports attach as a guided startup option", () => {
     const parsed = parseUserInput("/attach project-2", {});
 
     expect(parsed.kind).toBe("command");
     if (parsed.kind !== "command") return;
-    expect(parsed.attachProjectId).toBe("project-2");
+    expect(parsed.error).toContain("--project-id");
     expect(parsed.event).toBeUndefined();
   });
 
@@ -116,5 +108,23 @@ describe("TUI input parsing", () => {
     if (parsed.kind !== "command") return;
     expect(parsed.pane).toBe("pack_builder");
     expect(parsed.event).toBeUndefined();
+  });
+
+  it("maps natural language skills file requests to pack build suggestions", () => {
+    const parsed = parseUserInput("build a pack from skills.md", {});
+
+    expect(parsed.kind).toBe("suggestion");
+    if (parsed.kind !== "suggestion") return;
+    expect(parsed.flow.event).toMatchObject({ type: "pack.build", file: "skills.md" });
+  });
+
+  it("maps confirm to the pending suggested event", () => {
+    const suggested = parseUserInput("add json output to my cli", {});
+    if (suggested.kind !== "suggestion") throw new Error("missing suggestion");
+    const parsed = parseUserInput("/confirm", { pendingFlow: suggested.flow });
+
+    expect(parsed.kind).toBe("command");
+    if (parsed.kind !== "command") return;
+    expect(parsed.event).toMatchObject({ type: "plan.create" });
   });
 });

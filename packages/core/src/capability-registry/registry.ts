@@ -2,12 +2,14 @@ import { createPackRegistry, type CapabilityFilter, type CapabilityExecutionResu
 import type { PackExecutionContext } from "@open-lagrange/capability-sdk";
 import { repositoryPack } from "../capability-packs/repository/pack.js";
 import { mockCapabilityPack } from "../capability-packs/mock/pack.js";
+import { chatPack } from "../chat-pack/chat-pack.js";
 import { sdkDescriptorsToCapabilitySnapshot } from "./open-cot.js";
 import type { CapabilitySnapshot } from "../schemas/capabilities.js";
 import { loadInstalledPacksForRuntime } from "../packs/runtime-pack-loader.js";
 
 export const packRegistry = createPackRegistry()
   .registerPack(mockCapabilityPack)
+  .registerPack(chatPack)
   .registerPack(repositoryPack);
 
 loadInstalledPacksForRuntime(packRegistry);

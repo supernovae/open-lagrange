@@ -6,14 +6,15 @@ export function HelpPane(): React.ReactElement {
   return (
     <Box flexDirection="column">
       <Text color={theme.title}>Help</Text>
-      <Text>Plain text submits a new goal or refines the active project.</Text>
+      <Text>Plain text suggests a typed flow. Use /confirm before work starts.</Text>
       <Text>Commands start with /. Normal letters are never shortcuts.</Text>
       <Text>tab / shift+tab: cycle pane</Text>
       <Text>ctrl+r refresh   ctrl+q quit   esc help</Text>
       <Text>ctrl+s start runtime   ctrl+d doctor   ctrl+l logs</Text>
-      <Text>/run &lt;goal&gt;       /attach &lt;project_id&gt;</Text>
-      <Text>/approve &lt;reason&gt;  /reject &lt;reason&gt;</Text>
-      <Text>/diff /verify /review /pack /json /status</Text>
+      <Text>/plan repo &lt;goal&gt;  /repo run &lt;goal&gt;</Text>
+      <Text>/skill plan &lt;file&gt; /pack build &lt;file&gt;</Text>
+      <Text>/artifact show &lt;id&gt; /approve &lt;id&gt; /reject &lt;id&gt;</Text>
+      <Text>/status /doctor /capabilities /packs /demos</Text>
     </Box>
   );
 }

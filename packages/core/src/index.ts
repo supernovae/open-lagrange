@@ -3,6 +3,8 @@ export * from "./artifacts/index.js";
 export * from "./approval/approval-store.js";
 export * from "./clients/workflow-client.js";
 export * from "./clients/mock-delegation.js";
+export * from "./chat-pack/index.js";
+export * from "./events/index.js";
 export * from "./hatchet/client.js";
 export * from "./hatchet/worker.js";
 export * from "./hatchet/workflow-client.js";

@@ -9,10 +9,14 @@ import { observation, structuredError } from "./reconciliation/records.js";
 import { getStateStore } from "./storage/state-store.js";
 import type { TaskStatusSnapshot } from "./status/status-store.js";
 import { getPackHealth, type PackHealthStatus } from "./packs/pack-health.js";
+import { TuiUserFrameEvent } from "./events/user-frame-event.js";
+import { routeIntent } from "./chat-pack/intent-router.js";
+import { getCapabilitiesSummary } from "./chat-pack/capability-discovery.js";
+import { explainSystem } from "./chat-pack/system-explainer.js";
 
 export const ArtifactType = z.enum(["diff", "review", "verification", "plan", "artifact_json"]);
 
-export const UserFrameEvent = z.discriminatedUnion("type", [
+export const LegacyUserFrameEvent = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("submit_goal"),
     text: z.string().min(1),
@@ -30,7 +34,10 @@ export const UserFrameEvent = z.discriminatedUnion("type", [
   z.object({ type: z.literal("request_verification"), project_id: z.string().min(1), task_id: z.string().optional(), command_id: z.string().min(1) }).strict(),
 ]);
 
+export const UserFrameEvent = z.union([LegacyUserFrameEvent, TuiUserFrameEvent]);
+
 export type UserFrameEvent = z.infer<typeof UserFrameEvent>;
+export type LegacyUserFrameEvent = z.infer<typeof LegacyUserFrameEvent>;
 export type ArtifactType = z.infer<typeof ArtifactType>;
 
 export type UserFrameEventResult =
@@ -124,6 +131,43 @@ export async function submitRepositoryGoal(input: SubmitRepositoryGoalInput): Pr
 
 export async function submitUserFrameEvent(rawEvent: UserFrameEvent): Promise<UserFrameEventResult> {
   const event = UserFrameEvent.parse(rawEvent);
+  if (event.type === "chat.message") {
+    const summary = getCapabilitiesSummary();
+    return { status: "completed", message: explainSystem(summary), output: { summary } };
+  }
+  if (event.type === "intent.classify") {
+    const result = routeIntent({ text: event.text });
+    return { status: "completed", message: result.message ?? result.flow?.summary ?? "Intent classified.", output: result };
+  }
+  if (event.type === "status.show") {
+    return { status: "completed", message: "Runtime status loaded.", output: await getRuntimeHealth() };
+  }
+  if (event.type === "doctor.run") {
+    return { status: "completed", message: "Doctor checks are available from the runtime manager.", output: { command: "open-lagrange doctor" } };
+  }
+  if (event.type === "plan.create") {
+    if (event.target === "repo") {
+      return submitRepositoryGoal({ goal: event.goal, repo_path: event.repo_path ?? ".", dry_run: event.dry_run, apply: false });
+    }
+    return submitProjectGoal({ goal: event.goal });
+  }
+  if (event.type === "repo.run") return submitRepositoryGoal({ goal: event.goal, repo_path: event.repo_path, dry_run: event.dry_run, apply: event.apply });
+  if (event.type === "skill.frame" || event.type === "skill.plan" || event.type === "pack.build" || event.type === "pack.inspect" || event.type === "demo.run" || event.type === "plan.apply") {
+    return { status: "completed", message: "This flow is available from the local TUI dispatcher or CLI.", output: event };
+  }
+  if (event.type === "artifact.show") {
+    return { status: "completed", message: "Artifact lookup is available from the local artifact index.", output: event };
+  }
+  if (event.type === "approval.approve") {
+    if (!event.task_id) return { status: "failed", message: "Approval requires a selected task in this runtime." };
+    const result = await approveTask({ task_id: event.task_id, decided_by: "human-local", reason: event.reason });
+    return { status: "completed", message: "Approval recorded.", output: result };
+  }
+  if (event.type === "approval.reject") {
+    if (!event.task_id) return { status: "failed", message: "Rejection requires a selected task in this runtime." };
+    const result = await rejectTask({ task_id: event.task_id, decided_by: "human-local", reason: event.reason });
+    return { status: "completed", message: "Rejection recorded.", output: result };
+  }
   if (event.type === "submit_goal") {
     if (event.repo_path) {
       return submitRepositoryGoal({

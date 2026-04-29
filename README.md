@@ -168,6 +168,29 @@ Open the terminal cockpit:
 npm run cli -- tui
 ```
 
+The TUI now opens to Home, a chat-guided cockpit. You can type natural language
+and review the suggested flow before anything starts:
+
+```text
+what can you do?
+add json output to my cli
+build a pack from skills.md
+run the repo demo
+why did this need approval?
+```
+
+Workflow-starting chat shows the equivalent slash command and requires
+`/confirm`. Slash commands remain first-class:
+
+```text
+/status
+/doctor
+/capabilities
+/plan repo "add json output to my cli"
+/pack build ./skills.md
+/demo run repo-json-output
+```
+
 ## Current Capabilities
 
 Open Lagrange currently includes:
@@ -183,6 +206,7 @@ Open Lagrange currently includes:
 - Workflow Skill Builder Phase 1
 - Generated Capability Packs Phase 2 with scaffold, static safety checks, compile/test validation, and explicit install
 - runtime activation for installed local packs, pack health, smoke tests, artifact lineage, and policy decision reports
+- TUI Home with Chat Pack guided discovery and typed User Frame Events
 - Golden Path demos, artifact index, doctor checks, and pack inspection
 
 ## How It Thinks About Work
@@ -227,6 +251,9 @@ runtime, authority, or owner of the work.
 - [Pack smoke tests](docs/pack-smoke-tests.md)
 - [Artifact lineage](docs/artifact-lineage.md)
 - [Policy decision reports](docs/policy-decision-reports.md)
+- [TUI Home](docs/tui-home.md)
+- [Chat Pack](docs/chat-pack.md)
+- [User Frame Events](docs/user-frame-events.md)
 
 ## Roadmap
 
