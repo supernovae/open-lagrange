@@ -1,4 +1,4 @@
-export function localComposeTemplate(): string {
+export function localComposeTemplate(input: { readonly sourceRoot: string }): string {
   return `name: open-lagrange
 
 services:
@@ -20,14 +20,13 @@ services:
 
   rabbitmq:
     image: rabbitmq:4-management
+    user: rabbitmq
     environment:
       RABBITMQ_DEFAULT_USER: user
       RABBITMQ_DEFAULT_PASS: password
     ports:
       - "5673:5672"
       - "15673:15672"
-    volumes:
-      - hatchet_rabbitmq_data:/var/lib/rabbitmq
     healthcheck:
       test: ["CMD", "rabbitmqctl", "status"]
       interval: 10s
@@ -67,6 +66,17 @@ services:
       hatchet-migration:
         condition: service_completed_successfully
 
+  hatchet-token:
+    image: ghcr.io/hatchet-dev/hatchet/hatchet-admin:latest
+    command: sh -c 'set -eu; if [ ! -s /hatchet/config/client.token ]; then tmp=/tmp/open-lagrange-client-token; /hatchet/hatchet-admin --config /hatchet/config token create --tenant-id 707d0855-80ab-4e1f-a156-f1c4546cbf52 --name open-lagrange-local > "$$tmp"; tail -n 1 "$$tmp" > /hatchet/config/client.token; test -s /hatchet/config/client.token; fi'
+    environment:
+      DATABASE_URL: postgres://hatchet:hatchet@postgres:5432/hatchet
+    volumes:
+      - hatchet_config:/hatchet/config
+    depends_on:
+      hatchet-config:
+        condition: service_completed_successfully
+
   hatchet-engine:
     image: ghcr.io/hatchet-dev/hatchet/hatchet-engine:latest
     command: /hatchet/hatchet-engine --config /hatchet/config
@@ -80,7 +90,7 @@ services:
       - hatchet_config:/hatchet/config
       - hatchet_certs:/hatchet/certs
     depends_on:
-      hatchet-config:
+      hatchet-token:
         condition: service_completed_successfully
 
   hatchet-dashboard:
@@ -94,14 +104,15 @@ services:
       - hatchet_config:/hatchet/config
       - hatchet_certs:/hatchet/certs
     depends_on:
-      hatchet-config:
+      hatchet-token:
         condition: service_completed_successfully
 
   open-lagrange-api:
     image: ghcr.io/supernovae/open-lagrange-api:latest
     build:
-      context: .
+      context: ${yamlString(input.sourceRoot)}
       dockerfile: containers/api.Containerfile
+    command: sh -c 'export HATCHET_CLIENT_TOKEN="$$(cat /hatchet/config/client.token)"; npm run start -w @open-lagrange/web -- -p 4317'
     ports:
       - "4317:4317"
     environment:
@@ -114,6 +125,7 @@ services:
       OPENAI_MODEL: \${OPENAI_MODEL:-gpt-4o-mini}
     volumes:
       - open_lagrange_data:/data
+      - hatchet_config:/hatchet/config:ro
     depends_on:
       hatchet-engine:
         condition: service_started
@@ -121,8 +133,9 @@ services:
   open-lagrange-worker:
     image: ghcr.io/supernovae/open-lagrange-worker:latest
     build:
-      context: .
+      context: ${yamlString(input.sourceRoot)}
       dockerfile: containers/worker.Containerfile
+    command: sh -c 'export HATCHET_CLIENT_TOKEN="$$(cat /hatchet/config/client.token)"; node packages/core/dist/hatchet/worker.js'
     environment:
       OPEN_LAGRANGE_DB_DIALECT: sqlite
       OPEN_LAGRANGE_SQLITE_PATH: /data/open-lagrange.sqlite
@@ -133,6 +146,7 @@ services:
       OPENAI_MODEL: \${OPENAI_MODEL:-gpt-4o-mini}
     volumes:
       - open_lagrange_data:/data
+      - hatchet_config:/hatchet/config:ro
     depends_on:
       hatchet-engine:
         condition: service_started
@@ -140,7 +154,7 @@ services:
   open-lagrange-web:
     image: ghcr.io/supernovae/open-lagrange-web:latest
     build:
-      context: .
+      context: ${yamlString(input.sourceRoot)}
       dockerfile: containers/web.Containerfile
     ports:
       - "3000:3000"
@@ -152,9 +166,12 @@ services:
 
 volumes:
   hatchet_postgres_data:
-  hatchet_rabbitmq_data:
   hatchet_config:
   hatchet_certs:
   open_lagrange_data:
 `;
+}
+
+function yamlString(value: string): string {
+  return JSON.stringify(value);
 }

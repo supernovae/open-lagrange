@@ -45,6 +45,8 @@ const FILES = [
   "packages/runtime-manager/src/config.ts",
   "packages/runtime-manager/src/profiles.ts",
   "packages/runtime-manager/src/compose.ts",
+  "packages/runtime-manager/src/compose-template.ts",
+  "packages/runtime-manager/src/source-root.ts",
   "packages/runtime-manager/src/manager.ts",
   "packages/platform-client/src/types.ts",
   "packages/platform-client/src/client.ts",

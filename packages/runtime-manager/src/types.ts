@@ -61,6 +61,7 @@ export const RuntimeStatus = z.object({
 export interface ComposeRuntime {
   readonly kind: "docker" | "podman";
   readonly command: readonly string[];
+  readonly env?: Readonly<Record<string, string>>;
 }
 
 export interface RuntimePaths {
