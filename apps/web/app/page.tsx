@@ -1,207 +1,225 @@
-"use client";
+const platformHighlights = [
+  {
+    title: "Open WebUI chat",
+    body: "A planner-first chat surface for knowledge work, grounded answers, clarification, plan approval, evidence-gated writing, and multi-axis critic review.",
+  },
+  {
+    title: "Coder-side agents",
+    body: "Claude Code, opencode, IDE clients, and other agentic tools can connect to the coder endpoint and MCP tools while sharing the same organizational intelligence layer.",
+  },
+  {
+    title: "Graph-native knowledge",
+    body: "NornicDB stores documents, code, symbols, relationships, provenance, authorization metadata, and BGE-M3 embeddings as one retrieval graph.",
+  },
+  {
+    title: "Operator control",
+    body: "Model registry, provider governance, RAG ingestion, security review, traces, usage, and quality feedback are managed from the Synesis admin surface.",
+  },
+];
 
-import { useState } from "react";
+const developerExperience = [
+  "Open WebUI for planner-governed chat and reviewed answers",
+  "Claude Code, opencode, and IDE agents for coder-side work",
+  "MCP tools for shared knowledge, taxonomy, and quality gates",
+  "Open Lagrange for plans, approvals, artifacts, and repository tasks",
+];
 
-interface ProjectResponse {
-  readonly project_id?: string;
-  readonly project_run_id?: string;
-  readonly hatchet_run_id?: string;
-  readonly status_url?: string;
-  readonly status?: { readonly status?: string; readonly final_message?: string; readonly observations?: readonly Item[]; readonly errors?: readonly Item[] };
-  readonly task_statuses?: readonly TaskStatus[];
-}
+const showcase = [
+  {
+    title: "One platform, multiple front doors",
+    body: "Chat users get a guided Open WebUI experience. Developers keep their native agent tools. Operators govern models, data, and review policy from one admin plane.",
+  },
+  {
+    title: "Knowledge that follows the work",
+    body: "The same graph-backed retrieval, provenance, freshness, and authorization rules can support product research, internal documentation, and coder workflows.",
+  },
+  {
+    title: "Execution stays reviewable",
+    body: "Open Lagrange complements Synesis by turning agent work into typed plans, continuation boundaries, artifacts, repository diffs, and explicit human decisions.",
+  },
+];
 
-interface TaskStatus {
-  readonly project_id: string;
-  readonly task_id: string;
-  readonly task_run_id: string;
-  readonly status: string;
-  readonly final_message?: string;
-  readonly observations: readonly Item[];
-  readonly errors: readonly Item[];
-  readonly repository_status?: {
-    readonly current_phase: string;
-    readonly changed_files: readonly string[];
-    readonly diff_summary?: string;
-    readonly review_report?: { readonly pr_title: string; readonly pr_summary: string; readonly test_notes: readonly string[]; readonly risk_notes: readonly string[] };
-  };
-}
-
-interface Item {
-  readonly summary?: string;
-  readonly message?: string;
-  readonly code?: string;
-}
+const fieldNotes = [
+  {
+    eyebrow: "Architecture",
+    title: "Why Synesis moved retrieval into a content graph",
+    body: "The current RAG path starts with vector seeds, then expands across deterministic code and document relationships. This gives coder and planner workflows local structural context without depending on LLM-generated graph edges.",
+  },
+  {
+    eyebrow: "Security",
+    title: "Graph expansion has to obey the same auth boundary",
+    body: "Schema v19 carries visibility, tenant, owner, session, ACL group, and authz object metadata onto chunks and structural nodes. Neighbor expansion cannot cross those predicates.",
+  },
+  {
+    eyebrow: "Operations",
+    title: "NornicDB is the active retrieval data plane",
+    body: "The production indexer writes graph nodes and edges into the content_graph catalog, while planner retrieval uses the embeddings vector index, graph depth controls, edge allow lists, and freshness-aware scoring.",
+  },
+];
 
 export default function Page(): React.ReactNode {
-  const [goal, setGoal] = useState("Create a short README summary for this repository.");
-  const [repoRoot, setRepoRoot] = useState("");
-  const [applyPatch, setApplyPatch] = useState(false);
-  const [projectId, setProjectId] = useState("");
-  const [status, setStatus] = useState<ProjectResponse | undefined>();
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState("");
-
-  async function submit(): Promise<void> {
-    setBusy(true);
-    setMessage("");
-    try {
-      const response = await fetch("/api/jobs", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ goal }),
-      });
-      const data = await response.json() as ProjectResponse;
-      setStatus(data);
-      setProjectId(data.project_id ?? "");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function submitRepository(): Promise<void> {
-    setBusy(true);
-    setMessage("");
-    try {
-      const response = await fetch("/api/repository/jobs", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ goal, repo_root: repoRoot, dry_run: !applyPatch, apply: applyPatch }),
-      });
-      const data = await response.json() as { readonly task_run_id?: string; readonly error?: string };
-      setProjectId(data.task_run_id ?? "");
-      setMessage(data.task_run_id ? `Repository task: ${data.task_run_id}` : data.error ?? "Repository task submitted");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function poll(id = projectId): Promise<void> {
-    if (!id) return;
-    setBusy(true);
-    try {
-      const response = await fetch(`/api/jobs/${encodeURIComponent(id)}`);
-      setStatus(await response.json() as ProjectResponse);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function decide(taskRunId: string, decision: "approve" | "reject"): Promise<void> {
-    setBusy(true);
-    setMessage("");
-    try {
-      const response = await fetch(`/api/tasks/${encodeURIComponent(taskRunId)}/${decision}`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(decision === "approve"
-          ? { approved_by: "human-local", reason: "Approved from web UI" }
-          : { rejected_by: "human-local", reason: "Rejected from web UI" }),
-      });
-      const data = await response.json() as { readonly continuation_run_id?: string; readonly error?: string };
-      setMessage(data.continuation_run_id ? `Continuation run: ${data.continuation_run_id}` : data.error ?? "Decision recorded");
-      await poll();
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  const tasks = status?.task_statuses ?? [];
-
   return (
-    <main className="shell">
-      <section className="toolbar">
-        <div>
-          <h1>Open Lagrange</h1>
-          <p>Open Lagrange is an agentic control plane for submitting goals, inspecting reconciliation status, and approving bounded task continuations.</p>
-        </div>
-        <button type="button" onClick={() => poll()} disabled={busy || !projectId}>Refresh</button>
-      </section>
+    <main>
+      <section className="hero">
+        <nav className="nav" aria-label="Main navigation">
+          <a className="brand" href="#top" aria-label="Kybern home">
+            <span className="brandMark">K</span>
+            <span>Kybern</span>
+          </a>
+          <div className="navLinks">
+            <a href="#synesis">Synesis</a>
+            <a href="#open-lagrange">Open Lagrange</a>
+            <a href="/papers-we-love">Papers We Love</a>
+            <a href="/about">About</a>
+            <a href="#notes">Notes</a>
+          </div>
+        </nav>
 
-      <section className="panel">
-        <label htmlFor="goal">Goal</label>
-        <textarea id="goal" value={goal} onChange={(event) => setGoal(event.target.value)} rows={4} />
-        <div className="actions">
-          <button type="button" onClick={submit} disabled={busy || !goal.trim()}>Submit</button>
-          <input value={projectId} onChange={(event) => setProjectId(event.target.value)} placeholder="project ID or run ID" />
-        </div>
-      </section>
-
-      <section className="panel">
-        <h2>Repository Task Pack</h2>
-        <input value={repoRoot} onChange={(event) => setRepoRoot(event.target.value)} placeholder="/path/to/repository" />
-        <label className="check">
-          <input type="checkbox" checked={applyPatch} onChange={(event) => setApplyPatch(event.target.checked)} />
-          Apply after policy checks
-        </label>
-        <button type="button" onClick={submitRepository} disabled={busy || !goal.trim() || !repoRoot.trim()}>Run Repository Task</button>
-      </section>
-
-      {status ? (
-        <section className="panel">
-          <h2>Project</h2>
-          <dl className="grid">
-            <dt>Project ID</dt><dd>{status.project_id ?? "pending"}</dd>
-            <dt>Project Run ID</dt><dd>{status.project_run_id ?? "pending"}</dd>
-            <dt>Hatchet Run ID</dt><dd>{status.hatchet_run_id ?? "pending"}</dd>
-            <dt>Status</dt><dd>{status.status?.status ?? "accepted"}</dd>
-          </dl>
-          {status.status?.final_message ? <p>{status.status.final_message}</p> : null}
-        </section>
-      ) : null}
-
-      {message ? <section className="notice">{message}</section> : null}
-
-      <section className="panel">
-        <h2>Tasks</h2>
-        {tasks.length === 0 ? <p>No task status records yet.</p> : null}
-        {tasks.map((task) => (
-          <article className="task" key={task.task_run_id}>
-            <div className="taskHead">
-              <strong>{task.task_id}</strong>
-              <span>{task.status}</span>
+        <div className="heroGrid" id="top">
+          <div className="heroCopy">
+            <p className="eyebrow">Synesis + Open Lagrange</p>
+            <h1>Kybern</h1>
+            <p className="lede">
+              Building self-hosted intelligence systems where enterprise knowledge, agentic coding,
+              model operations, and bounded execution work as one product surface.
+            </p>
+            <div className="heroActions">
+              <a className="button primary" href="#synesis">Explore Synesis</a>
+              <a className="button secondary" href="#open-lagrange">Open Lagrange</a>
             </div>
-            <p>{task.final_message}</p>
-            {task.repository_status ? (
-              <div>
-                <p>Repository phase: {task.repository_status.current_phase}</p>
-                {task.repository_status.changed_files.length > 0 ? <p>Changed: {task.repository_status.changed_files.join(", ")}</p> : null}
-                {task.repository_status.diff_summary ? <pre>{task.repository_status.diff_summary}</pre> : null}
-                {task.repository_status.review_report ? (
-                  <div>
-                    <h3>{task.repository_status.review_report.pr_title}</h3>
-                    <p>{task.repository_status.review_report.pr_summary}</p>
-                    <ItemList title="Verification" items={task.repository_status.review_report.test_notes.map((summary) => ({ summary }))} />
-                    <ItemList title="Risk" items={task.repository_status.review_report.risk_notes.map((summary) => ({ summary }))} />
-                  </div>
-                ) : null}
+          </div>
+
+          <div className="systemVisual" role="img" aria-label="Kybern product map showing Synesis, Open WebUI, coder agents, NornicDB, and Open Lagrange">
+            <div className="visualHeader">
+              <span>Kybern product map</span>
+              <span>self-hosted</span>
+            </div>
+            <div className="visualBody">
+              <div className="visualColumn">
+                <span className="node client">Open WebUI</span>
+                <span className="node client">Claude Code</span>
+                <span className="node client">opencode + IDEs</span>
               </div>
-            ) : null}
-            {task.status === "requires_approval" ? (
-              <div className="actions">
-                <button type="button" onClick={() => decide(task.task_run_id, "approve")} disabled={busy}>Approve</button>
-                <button type="button" onClick={() => decide(task.task_run_id, "reject")} disabled={busy}>Reject</button>
+              <div className="visualColumn center">
+                <span className="node planner">Synesis planner</span>
+                <span className="node route">MCP + model routing</span>
+                <span className="node writer">Quality gates</span>
               </div>
-            ) : null}
-            <ItemList title="Observations" items={task.observations} />
-            <ItemList title="Errors" items={task.errors} />
-          </article>
-        ))}
+              <div className="visualColumn">
+                <span className="node graph">NornicDB graph</span>
+                <span className="node graph">Admin console</span>
+                <span className="node graph">Open Lagrange</span>
+              </div>
+            </div>
+            <div className="visualFooter">
+              <span>Chat, coder agents, retrieval, governance, approvals, and artifacts in one operating model</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="section" id="synesis">
+        <div className="sectionHead">
+          <p className="eyebrow">Project page</p>
+          <h2>Synesis</h2>
+          <p>
+            Synesis is a self-hosted enterprise intelligence platform for Kubernetes: Open WebUI chat,
+            MCP-connected coder workflows, graph-native knowledge, model governance, quality review, and an admin
+            surface for operators.
+          </p>
+        </div>
+
+        <div className="featureGrid">
+          {platformHighlights.map((item) => (
+            <article className="feature" key={item.title}>
+              <h3>{item.title}</h3>
+              <p>{item.body}</p>
+            </article>
+          ))}
+        </div>
+
+        <div className="deepDive">
+          <div>
+            <p className="eyebrow">Developer experience</p>
+            <h3>Chat, coding agents, knowledge, and execution control meet in one workflow.</h3>
+            <p>
+              A team can use Open WebUI for planner-governed chat, then move into Claude Code, opencode, or IDE agents
+              for implementation work without losing the shared Synesis context. Coder-side tools reach the same
+              knowledge, taxonomy, model routing, and quality policy through MCP and OpenAI-compatible endpoints.
+            </p>
+            <p>
+              NornicDB still matters underneath: it supplies graph-aware retrieval across docs, code, symbols, and
+              provenance. Open Lagrange wraps the work with typed plans, approvals, repository artifacts, and reviewable
+              execution history.
+            </p>
+          </div>
+
+          <aside className="schemaPanel">
+            <h3>How it comes together</h3>
+            <ol className="experienceList">
+              {developerExperience.map((item) => <li key={item}>{item}</li>)}
+            </ol>
+          </aside>
+        </div>
+      </section>
+
+      <section className="section split" id="open-lagrange">
+        <div>
+          <p className="eyebrow">Control plane</p>
+          <h2>Open Lagrange</h2>
+        </div>
+        <div className="copyBlock">
+          <p>
+            Open Lagrange is the execution and reconciliation layer: it accepts goals, builds typed plans,
+            runs bounded task continuations, captures artifacts, supports repository work, and keeps human approvals
+            explicit.
+          </p>
+          <p>
+            Together, Synesis and Open Lagrange separate intelligence infrastructure from execution control. Synesis
+            supplies trusted organizational context and quality gates; Open Lagrange records the work, state, evidence,
+            and decisions needed to make non-deterministic agent runs reviewable.
+          </p>
+        </div>
+      </section>
+
+      <section className="section showcase">
+        <div className="sectionHead">
+          <p className="eyebrow">Product coverage</p>
+          <h2>Built for the whole AI workflow</h2>
+          <p>
+            Synesis is not only retrieval infrastructure. It is a way to run enterprise AI across chat,
+            developer agents, operations, model routing, and governed execution.
+          </p>
+        </div>
+        <div className="showcaseGrid">
+          {showcase.map((item) => (
+            <article className="showcaseItem" key={item.title}>
+              <h3>{item.title}</h3>
+              <p>{item.body}</p>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="section" id="notes">
+        <div className="sectionHead">
+          <p className="eyebrow">Synesis field notes</p>
+          <h2>Latest development notes</h2>
+          <p>
+            The Synesis articles below reflect the current product direction across graph-native knowledge,
+            authenticated retrieval, and coder-side agent workflows.
+          </p>
+        </div>
+        <div className="noteGrid">
+          {fieldNotes.map((note) => (
+            <article className="note" key={note.title}>
+              <p className="eyebrow">{note.eyebrow}</p>
+              <h3>{note.title}</h3>
+              <p>{note.body}</p>
+            </article>
+          ))}
+        </div>
       </section>
     </main>
-  );
-}
-
-function ItemList({ title, items }: { readonly title: string; readonly items: readonly Item[] }): React.ReactNode {
-  if (items.length === 0) return null;
-  return (
-    <div>
-      <h3>{title}</h3>
-      <ul>
-        {items.map((item, index) => (
-          <li key={`${title}-${index}`}>{item.code ? `${item.code}: ` : ""}{item.summary ?? item.message}</li>
-        ))}
-      </ul>
-    </div>
   );
 }
