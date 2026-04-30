@@ -2,6 +2,7 @@ import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { ApprovalContinuationContext, ApprovalContinuationEnvelope, ApprovalDecision, ApprovalRequest, WorkflowStatusSnapshot, type ApprovalContinuationContext as ApprovalContinuationContextType, type ApprovalContinuationEnvelope as ApprovalContinuationEnvelopeType, type ApprovalDecision as ApprovalDecisionType, type ApprovalRequest as ApprovalRequestType, type WorkflowStatusSnapshot as WorkflowStatusSnapshotType } from "../schemas/reconciliation.js";
+import { approvalTokenForRequest, approvalTokenHash } from "../approval/approval-token.js";
 import { Observation, StructuredError, type Observation as ObservationType, type StructuredError as StructuredErrorType } from "../schemas/open-cot.js";
 import { PlanState } from "../planning/plan-state.js";
 import { parseTaskStatus, type TaskStatusSnapshot } from "../status/status-store.js";
@@ -137,6 +138,7 @@ export function createSqliteStateStore(options: SqliteStateStoreOptions): OpenLa
         requested_capability: parsed.requested_capability,
         requested_at: parsed.requested_at,
         decision: "requested",
+        approval_token_hash: approvalTokenHash(parsed.approval_request_id, approvalTokenForRequest(parsed.approval_request_id)),
         trace_id: parsed.trace_id,
       });
       writeApproval(db, parsed, decision, parsed.requested_at);

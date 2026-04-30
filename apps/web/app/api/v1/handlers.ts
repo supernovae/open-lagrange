@@ -1,7 +1,9 @@
 import { applyPlanfile, applyRepositoryPlanfile, approvePlan, approveTask, cleanupRepositoryPlan, createMockDelegationContext, DEFAULT_EXECUTION_BOUNDS, deterministicProjectId, deterministicRepositoryTaskRunId, exportRepositoryPlanPatch, getCapabilitiesSummary, getPlanExecutionStatus, getProjectStatus, getRepositoryPlanStatus, getRuntimeHealth, getTaskStatus, listRegisteredPacks, rejectPlan, rejectTask, requestArtifact, routeIntent, submitProject, submitRepositoryTask, submitUserFrameEvent, UserFrameEvent } from "@open-lagrange/core/interface";
+import { approvalTokenForRequest } from "@open-lagrange/core/approval";
 import { z } from "zod";
 import { SubmitJobPayload } from "../jobs/schema";
 import { SubmitRepositoryJobPayload } from "../repository/jobs/schema";
+import { assertAllowedRepoRoot } from "../repository/security";
 
 const ProjectPayload = SubmitJobPayload.extend({
   kind: z.literal("project").optional(),
@@ -65,6 +67,7 @@ export function handleRuntimeVersion(): unknown {
 export async function handleSubmitProject(raw: unknown): Promise<unknown> {
   const payload = ProjectPayload.parse(raw);
   if ("kind" in payload && payload.kind === "repository") {
+    assertAllowedRepoRoot(payload.repo_root);
     const project_id = deterministicProjectId({
       goal: payload.goal,
       workspace_id: payload.workspace_id ?? "workspace-local",
@@ -166,23 +169,25 @@ export async function handleResumePlan(planId: string): Promise<unknown> {
 }
 
 export function handleApprovePlan(planId: string, raw: unknown): Promise<unknown> {
-  const payload = z.object({ approved_by: z.string().min(1), reason: z.string().min(1) }).strict().parse(raw);
+  const payload = z.object({ approved_by: z.string().min(1).max(128), reason: z.string().min(1).max(2_000), approval_token: z.string().min(1).max(256) }).strict().parse(raw);
+  assertPlanApprovalToken(planId, payload.approval_token);
   return approvePlan(planId, payload.approved_by, payload.reason);
 }
 
 export function handleRejectPlan(planId: string, raw: unknown): Promise<unknown> {
-  const payload = z.object({ rejected_by: z.string().min(1), reason: z.string().min(1) }).strict().parse(raw);
+  const payload = z.object({ rejected_by: z.string().min(1).max(128), reason: z.string().min(1).max(2_000), approval_token: z.string().min(1).max(256) }).strict().parse(raw);
+  assertPlanApprovalToken(planId, payload.approval_token);
   return rejectPlan(planId, payload.rejected_by, payload.reason);
 }
 
 export function handleApprove(taskId: string, raw: unknown): Promise<unknown> {
-  const payload = z.object({ approved_by: z.string().min(1), reason: z.string().min(1) }).strict().parse(raw);
-  return approveTask({ task_id: taskId, decided_by: payload.approved_by, reason: payload.reason });
+  const payload = z.object({ approved_by: z.string().min(1).max(128), reason: z.string().min(1).max(2_000), approval_token: z.string().min(1).max(256) }).strict().parse(raw);
+  return approveTask({ task_id: taskId, decided_by: payload.approved_by, reason: payload.reason, approval_token: payload.approval_token });
 }
 
 export function handleReject(taskId: string, raw: unknown): Promise<unknown> {
-  const payload = z.object({ rejected_by: z.string().min(1), reason: z.string().min(1) }).strict().parse(raw);
-  return rejectTask({ task_id: taskId, decided_by: payload.rejected_by, reason: payload.reason });
+  const payload = z.object({ rejected_by: z.string().min(1).max(128), reason: z.string().min(1).max(2_000), approval_token: z.string().min(1).max(256) }).strict().parse(raw);
+  return rejectTask({ task_id: taskId, decided_by: payload.rejected_by, reason: payload.reason, approval_token: payload.approval_token });
 }
 
 export function handleEvent(raw: unknown): Promise<unknown> {
@@ -201,4 +206,8 @@ export function handleArtifact(artifactId: string, request: Request): Promise<un
 function artifactType(value: string): "diff" | "review" | "verification" | "plan" | "artifact_json" {
   if (value === "diff" || value === "review" || value === "verification" || value === "plan" || value === "artifact_json") return value;
   return "artifact_json";
+}
+
+function assertPlanApprovalToken(planId: string, token: string): void {
+  if (token !== approvalTokenForRequest(planId)) throw new Error("INVALID_APPROVAL_TOKEN");
 }

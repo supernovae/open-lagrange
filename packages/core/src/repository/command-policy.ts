@@ -13,7 +13,7 @@ export function assertAllowedCommand(workspace: RepositoryWorkspace, commandIdOr
   if (UNSAFE_TOKENS.test(commandIdOrDisplay)) throw new Error("Command contains unsupported shell syntax");
   const command = findAllowedCommand(workspace, commandIdOrDisplay);
   if (!command) throw new Error("Command is not allowlisted");
-  for (const token of [command.executable]) {
+  for (const token of [command.executable, ...command.args]) {
     if (UNSAFE_TOKENS.test(token)) throw new Error("Allowlisted command contains unsupported shell syntax");
   }
   return command;

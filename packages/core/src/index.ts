@@ -1,6 +1,7 @@
 export * from "./activities/cognition.js";
 export * from "./artifacts/index.js";
 export * from "./approval/approval-store.js";
+export * from "./approval/approval-token.js";
 export * from "./clients/workflow-client.js";
 export * from "./clients/mock-delegation.js";
 export * from "./chat-pack/index.js";

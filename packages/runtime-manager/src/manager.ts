@@ -324,10 +324,11 @@ function delay(ms: number): Promise<void> {
 }
 
 async function authHeaders(auth: RuntimeProfile["auth"]): Promise<HeadersInit> {
-  if (auth?.type !== "token") return {};
+  if (auth?.type !== "token") return process.env.OPEN_LAGRANGE_API_TOKEN ? { authorization: `Bearer ${process.env.OPEN_LAGRANGE_API_TOKEN}` } : {};
   const profile = await getCurrentProfile().catch(() => undefined);
   const token = profile ? await resolveProfileAuthToken(profile) : auth.tokenEnv ? process.env[auth.tokenEnv] : undefined;
-  return token ? { authorization: `Bearer ${token}` } : {};
+  const resolved = token ?? process.env.OPEN_LAGRANGE_API_TOKEN;
+  return resolved ? { authorization: `Bearer ${resolved}` } : {};
 }
 
 function remoteRefusal(profile: RuntimeProfile, message: string): RuntimeStatusType {

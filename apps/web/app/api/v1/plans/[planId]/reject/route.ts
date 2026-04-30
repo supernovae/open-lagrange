@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { handleRouteError, json, parseJson } from "../../../../http";
+import { handleRouteError, json, parseJson, requireMutationSecurity } from "../../../../http";
 import { handleRejectPlan } from "../../../handlers";
 
 export const runtime = "nodejs";
@@ -7,6 +7,7 @@ export const dynamic = "force-dynamic";
 
 export async function POST(request: Request, context: { readonly params: Promise<{ readonly planId: string }> }): Promise<Response> {
   try {
+    requireMutationSecurity(request);
     const payload = await parseJson(request, z.unknown());
     const { planId } = await context.params;
     return json(await handleRejectPlan(planId, payload), { status: 202 });

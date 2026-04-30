@@ -8,6 +8,7 @@ import {
   type ApprovalDecision as ApprovalDecisionType,
   type ApprovalRequest as ApprovalRequestType,
 } from "../schemas/reconciliation.js";
+import { approvalTokenForRequest, approvalTokenHash } from "./approval-token.js";
 
 export interface ApprovalStore {
   readonly createApprovalRequest: (request: ApprovalRequestType) => Promise<ApprovalDecisionType>;
@@ -37,6 +38,7 @@ export const inMemoryApprovalStore: ApprovalStore = {
       requested_capability: parsed.requested_capability,
       requested_at: parsed.requested_at,
       decision: "requested",
+      approval_token_hash: approvalTokenHash(parsed.approval_request_id, approvalTokenForRequest(parsed.approval_request_id)),
       trace_id: parsed.trace_id,
     });
     approvals.set(parsed.approval_request_id, decision);

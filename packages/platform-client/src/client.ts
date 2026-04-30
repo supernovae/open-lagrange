@@ -82,6 +82,7 @@ export class PlatformClient {
     return this.post(`/v1/plans/${encodeURIComponent(planId)}/approve`, {
       approved_by: input.decided_by,
       reason: input.reason,
+      approval_token: input.approval_token,
     });
   }
 
@@ -89,6 +90,7 @@ export class PlatformClient {
     return this.post(`/v1/plans/${encodeURIComponent(planId)}/reject`, {
       rejected_by: input.decided_by,
       reason: input.reason,
+      approval_token: input.approval_token,
     });
   }
 
@@ -100,6 +102,7 @@ export class PlatformClient {
     return this.post(`/v1/tasks/${encodeURIComponent(taskId)}/approve`, {
       approved_by: input.decided_by,
       reason: input.reason,
+      approval_token: input.approval_token,
     });
   }
 
@@ -107,6 +110,7 @@ export class PlatformClient {
     return this.post(`/v1/tasks/${encodeURIComponent(taskId)}/reject`, {
       rejected_by: input.decided_by,
       reason: input.reason,
+      approval_token: input.approval_token,
     });
   }
 
@@ -142,11 +146,11 @@ export class PlatformClient {
 
 export async function createPlatformClientFromCurrentProfile(): Promise<PlatformClient> {
   const profile = await getCurrentProfile();
-  const authToken = await resolveProfileAuthToken(profile);
+  const authToken = await resolveProfileAuthToken(profile) ?? process.env.OPEN_LAGRANGE_API_TOKEN;
   return new PlatformClient({ apiUrl: profile.apiUrl, ...(authToken ? { authToken } : {}) });
 }
 
 export function createPlatformClientFromProfile(profile: RuntimeProfile): PlatformClient {
-  const authToken = profile.auth?.type === "token" && profile.auth.tokenEnv ? process.env[profile.auth.tokenEnv] : undefined;
+  const authToken = (profile.auth?.type === "token" && profile.auth.tokenEnv ? process.env[profile.auth.tokenEnv] : undefined) ?? process.env.OPEN_LAGRANGE_API_TOKEN;
   return new PlatformClient({ apiUrl: profile.apiUrl, ...(authToken ? { authToken } : {}) });
 }

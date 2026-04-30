@@ -1,5 +1,5 @@
 import { createMockDelegationContext, DEFAULT_EXECUTION_BOUNDS, submitProject } from "@open-lagrange/core/interface";
-import { handleRouteError, json, parseJson } from "../http";
+import { handleRouteError, json, parseJson, requireMutationSecurity } from "../http";
 import { SubmitJobPayload } from "./schema";
 
 export const runtime = "nodejs";
@@ -7,6 +7,7 @@ export const dynamic = "force-dynamic";
 
 export async function POST(request: Request): Promise<Response> {
   try {
+    requireMutationSecurity(request);
     const payload = await parseJson(request, SubmitJobPayload);
     const delegation_context = createMockDelegationContext({
       goal: payload.goal,

@@ -79,6 +79,7 @@ export const ApprovalDecision = z.object({
   rejected_by: z.string().min(1).optional(),
   decided_at: z.string().datetime().optional(),
   reason: z.string().optional(),
+  approval_token_hash: z.string().min(1).optional(),
   trace_id: z.string().min(1),
 }).strict();
 

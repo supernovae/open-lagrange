@@ -4,6 +4,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { Command } from "commander";
+import { approvalTokenForRequest } from "@open-lagrange/core/approval";
 import { exportArtifact, listArtifacts, listRunArtifacts, listRuns, recentArtifacts, reindexArtifacts, showArtifact, showRun } from "@open-lagrange/core/artifacts";
 import { listDemos, openDemo, runDemo } from "@open-lagrange/core/demos";
 import { runCoreDoctor } from "@open-lagrange/core/doctor";
@@ -96,9 +97,10 @@ program
   .description("Approve a task.")
   .argument("<taskId>", "Task ID or task run ID")
   .requiredOption("--reason <reason>", "Approval reason")
+  .requiredOption("--approval-token <approvalToken>", "Approval token")
   .option("--approved-by <approvedBy>", "Approver identifier", "human-local")
-  .action(async (taskId: string, options: { readonly reason: string; readonly approvedBy: string }) => {
-    console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).approveTask(taskId, { decided_by: options.approvedBy, reason: options.reason }), null, 2));
+  .action(async (taskId: string, options: { readonly reason: string; readonly approvalToken: string; readonly approvedBy: string }) => {
+    console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).approveTask(taskId, { decided_by: options.approvedBy, reason: options.reason, approval_token: options.approvalToken }), null, 2));
   });
 
 program
@@ -106,9 +108,18 @@ program
   .description("Reject a task.")
   .argument("<taskId>", "Task ID or task run ID")
   .requiredOption("--reason <reason>", "Rejection reason")
+  .requiredOption("--approval-token <approvalToken>", "Approval token")
   .option("--rejected-by <rejectedBy>", "Reviewer identifier", "human-local")
-  .action(async (taskId: string, options: { readonly reason: string; readonly rejectedBy: string }) => {
-    console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).rejectTask(taskId, { decided_by: options.rejectedBy, reason: options.reason }), null, 2));
+  .action(async (taskId: string, options: { readonly reason: string; readonly approvalToken: string; readonly rejectedBy: string }) => {
+    console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).rejectTask(taskId, { decided_by: options.rejectedBy, reason: options.reason, approval_token: options.approvalToken }), null, 2));
+  });
+
+program
+  .command("approval-token")
+  .description("Derive the approval token for an approval request ID using the local approval secret.")
+  .argument("<approvalRequestId>", "Approval request ID")
+  .action((approvalRequestId: string) => {
+    console.log(approvalTokenForRequest(approvalRequestId));
   });
 
 program.command("run-demo").description("Submit the README summary demo.").action(async () => {
@@ -505,12 +516,12 @@ repo.command("cleanup").argument("<planId>", "Repository plan ID").action(async 
   console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).cleanupRepositoryPlan(planId), null, 2));
 });
 
-repo.command("approve").argument("<taskId>", "Task ID or task run ID").requiredOption("--reason <reason>", "Approval reason").option("--approved-by <approvedBy>", "Approver identifier", "human-local").action(async (taskId: string, options: { readonly reason: string; readonly approvedBy: string }) => {
-  console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).approveTask(taskId, { decided_by: options.approvedBy, reason: options.reason }), null, 2));
+repo.command("approve").argument("<taskId>", "Task ID or task run ID").requiredOption("--reason <reason>", "Approval reason").requiredOption("--approval-token <approvalToken>", "Approval token").option("--approved-by <approvedBy>", "Approver identifier", "human-local").action(async (taskId: string, options: { readonly reason: string; readonly approvalToken: string; readonly approvedBy: string }) => {
+  console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).approveTask(taskId, { decided_by: options.approvedBy, reason: options.reason, approval_token: options.approvalToken }), null, 2));
 });
 
-repo.command("reject").argument("<taskId>", "Task ID or task run ID").requiredOption("--reason <reason>", "Rejection reason").option("--rejected-by <rejectedBy>", "Reviewer identifier", "human-local").action(async (taskId: string, options: { readonly reason: string; readonly rejectedBy: string }) => {
-  console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).rejectTask(taskId, { decided_by: options.rejectedBy, reason: options.reason }), null, 2));
+repo.command("reject").argument("<taskId>", "Task ID or task run ID").requiredOption("--reason <reason>", "Rejection reason").requiredOption("--approval-token <approvalToken>", "Approval token").option("--rejected-by <rejectedBy>", "Reviewer identifier", "human-local").action(async (taskId: string, options: { readonly reason: string; readonly approvalToken: string; readonly rejectedBy: string }) => {
+  console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).rejectTask(taskId, { decided_by: options.rejectedBy, reason: options.reason, approval_token: options.approvalToken }), null, 2));
 });
 
 const research = program.command("research").description("Run fixture-backed and bounded live research workflows.");
@@ -633,12 +644,12 @@ plan.command("status").argument("<planId>", "Plan ID").action(async (planId: str
   console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).getPlanStatus(planId), null, 2));
 });
 
-plan.command("approve").argument("<planId>", "Plan ID").requiredOption("--reason <reason>", "Approval reason").option("--approved-by <approvedBy>", "Approver identifier", "human-local").action(async (planId: string, options: { readonly reason: string; readonly approvedBy: string }) => {
-  console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).approvePlan(planId, { decided_by: options.approvedBy, reason: options.reason }), null, 2));
+plan.command("approve").argument("<planId>", "Plan ID").requiredOption("--reason <reason>", "Approval reason").requiredOption("--approval-token <approvalToken>", "Approval token").option("--approved-by <approvedBy>", "Approver identifier", "human-local").action(async (planId: string, options: { readonly reason: string; readonly approvalToken: string; readonly approvedBy: string }) => {
+  console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).approvePlan(planId, { decided_by: options.approvedBy, reason: options.reason, approval_token: options.approvalToken }), null, 2));
 });
 
-plan.command("reject").argument("<planId>", "Plan ID").requiredOption("--reason <reason>", "Rejection reason").option("--rejected-by <rejectedBy>", "Reviewer identifier", "human-local").action(async (planId: string, options: { readonly reason: string; readonly rejectedBy: string }) => {
-  console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).rejectPlan(planId, { decided_by: options.rejectedBy, reason: options.reason }), null, 2));
+plan.command("reject").argument("<planId>", "Plan ID").requiredOption("--reason <reason>", "Rejection reason").requiredOption("--approval-token <approvalToken>", "Approval token").option("--rejected-by <rejectedBy>", "Reviewer identifier", "human-local").action(async (planId: string, options: { readonly reason: string; readonly approvalToken: string; readonly rejectedBy: string }) => {
+  console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).rejectPlan(planId, { decided_by: options.rejectedBy, reason: options.reason, approval_token: options.approvalToken }), null, 2));
 });
 
 const skill = program.command("skill").description("Build and preview Workflow Skill artifacts.");

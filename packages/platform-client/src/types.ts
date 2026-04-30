@@ -22,6 +22,7 @@ export interface SubmitRepositoryGoalInput {
 export interface ApprovalInput {
   readonly decided_by: string;
   readonly reason: string;
+  readonly approval_token: string;
 }
 
 export interface ApplyPlanfileInput {

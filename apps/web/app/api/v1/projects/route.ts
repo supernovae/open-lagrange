@@ -1,4 +1,4 @@
-import { handleRouteError, json, parseJson } from "../../http";
+import { handleRouteError, json, parseJson, requireMutationSecurity } from "../../http";
 import { handleSubmitProject } from "../handlers";
 import { z } from "zod";
 
@@ -7,6 +7,7 @@ export const dynamic = "force-dynamic";
 
 export async function POST(request: Request): Promise<Response> {
   try {
+    requireMutationSecurity(request);
     const payload = await parseJson(request, z.unknown());
     const submitted = await handleSubmitProject(payload);
     return json(submitted, { status: 202 });

@@ -41,15 +41,19 @@ describe("repository capability pack", () => {
     const root = repoFixture();
     const workspace = workspaceFor(root);
     expect(() => assertAllowedCommand(workspace, "npm test; rm -rf .")).toThrow(/unsupported shell/);
+    expect(() => assertAllowedCommand({
+      ...workspace,
+      allowed_commands: [{ command_id: "unsafe_arg", executable: "npm", args: ["run", "test;rm"], display: "unsafe arg" }],
+    }, "unsafe_arg")).toThrow(/unsupported shell/);
   });
 
   it("truncates verification output and creates review notes", async () => {
     const root = repoFixture();
     const workspace = {
       ...workspaceFor(root),
-      allowed_commands: [{ command_id: "node_output", executable: "node", args: ["-e", "console.log('x'.repeat(30000))"], display: "node output" }],
+      allowed_commands: [{ command_id: "long_output", executable: "printf", args: ["x".repeat(30000)], display: "long output" }],
     };
-    const report = await runRepositoryVerificationReport(workspace, ["node_output"]);
+    const report = await runRepositoryVerificationReport(workspace, ["long_output"]);
     const review = createRepositoryReviewReport({
       goal: "Check output",
       changed_files: ["README.md"],
@@ -57,7 +61,7 @@ describe("repository capability pack", () => {
       verification_report: report,
     });
     expect(report.results[0]?.truncated).toBe(true);
-    expect(review.test_notes[0]).toContain("node output");
+    expect(review.test_notes[0]).toContain("long output");
   });
 });
 

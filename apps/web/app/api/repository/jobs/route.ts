@@ -1,13 +1,16 @@
 import { createMockDelegationContext, deterministicProjectId, deterministicRepositoryTaskRunId, submitRepositoryTask } from "@open-lagrange/core/interface";
-import { handleRouteError, json, parseJson } from "../../http";
+import { handleRouteError, json, parseJson, requireMutationSecurity } from "../../http";
 import { SubmitRepositoryJobPayload } from "./schema";
+import { assertAllowedRepoRoot } from "../security";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request): Promise<Response> {
   try {
+    requireMutationSecurity(request);
     const payload = await parseJson(request, SubmitRepositoryJobPayload);
+    assertAllowedRepoRoot(payload.repo_root);
     const project_id = deterministicProjectId({
       goal: payload.goal,
       workspace_id: payload.workspace_id ?? "workspace-local",

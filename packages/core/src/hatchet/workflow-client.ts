@@ -6,6 +6,7 @@ import { ApprovalDecision, ProjectReconcilerInput, WorkflowStatusSnapshot, type 
 import { RepositoryTaskInput, type RepositoryTaskInput as RepositoryTaskInputType } from "../schemas/repository.js";
 import { type TaskStatusSnapshot } from "../status/status-store.js";
 import { getStateStore } from "../storage/state-store.js";
+import { verifyApprovalToken } from "../approval/approval-token.js";
 
 export interface SubmittedProjectRun {
   readonly project_id: string;
@@ -33,6 +34,7 @@ export interface ApprovalActionInput {
   readonly task_id: string;
   readonly decided_by: string;
   readonly reason: string;
+  readonly approval_token?: string;
 }
 
 export interface ApprovalActionResult {
@@ -133,6 +135,7 @@ export async function approveTask(input: ApprovalActionInput): Promise<ApprovalA
   const store = getStateStore();
   const existing = await store.getApprovalDecisionForTask(input.task_id);
   if (!existing) return {};
+  assertApprovalToken(existing, input.approval_token);
   const decision = ApprovalDecision.parse(await store.approveRequest(
     existing.approval_request_id,
     input.decided_by,
@@ -173,6 +176,7 @@ export async function rejectTask(input: ApprovalActionInput): Promise<ApprovalAc
   const store = getStateStore();
   const existing = await store.getApprovalDecisionForTask(input.task_id);
   if (!existing) return {};
+  assertApprovalToken(existing, input.approval_token);
   const decision = ApprovalDecision.parse(await store.rejectRequest(
     existing.approval_request_id,
     input.decided_by,
@@ -251,6 +255,13 @@ export async function rejectTask(input: ApprovalActionInput): Promise<ApprovalAc
   }
   const status = await getTaskStatus(input.task_id);
   return { decision, task_status: status };
+}
+
+function assertApprovalToken(decision: ApprovalDecisionType, token: string | undefined): void {
+  if (!token) return;
+  if (!decision.approval_token_hash || !verifyApprovalToken(decision.approval_request_id, token, decision.approval_token_hash)) {
+    throw new Error("INVALID_APPROVAL_TOKEN");
+  }
 }
 
 export async function continueApprovedTask(input: {

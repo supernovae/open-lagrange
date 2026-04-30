@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
+import { approvalTokenForRequest, verifyApprovalToken } from "../src/approval/approval-token.js";
 import { createSqliteStateStore } from "../src/storage/sqlite-state-store.js";
 import type { ApprovalContinuationContext, ApprovalContinuationEnvelope, ApprovalRequest, WorkflowStatusSnapshot } from "../src/schemas/reconciliation.js";
 
@@ -20,6 +21,8 @@ describe("approval state", () => {
       approved_by: "reviewer-local",
       reason: "Looks bounded",
     });
+    expect(decision?.approval_token_hash).toBeDefined();
+    expect(verifyApprovalToken(request.approval_request_id, approvalTokenForRequest(request.approval_request_id), decision?.approval_token_hash ?? "")).toBe(true);
   });
 
   it("stores continuation context without mutating the approved intent", async () => {

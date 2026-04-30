@@ -24,7 +24,13 @@ interface TaskStatus {
     readonly changed_files: readonly string[];
     readonly diff_summary?: string;
     readonly review_report?: { readonly pr_title: string; readonly pr_summary: string; readonly test_notes: readonly string[]; readonly risk_notes: readonly string[] };
+    readonly approval_request?: ApprovalRequest;
   };
+  readonly result?: { readonly approval_request?: ApprovalRequest };
+}
+
+interface ApprovalRequest {
+  readonly approval_request_id: string;
 }
 
 interface Item {
@@ -37,7 +43,9 @@ export default function Page(): React.ReactNode {
   const [goal, setGoal] = useState("Create a short README summary for this repository.");
   const [repoRoot, setRepoRoot] = useState("");
   const [applyPatch, setApplyPatch] = useState(false);
+  const [apiToken, setApiToken] = useState("");
   const [projectId, setProjectId] = useState("");
+  const [approvalToken, setApprovalToken] = useState("");
   const [status, setStatus] = useState<ProjectResponse | undefined>();
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
@@ -48,7 +56,7 @@ export default function Page(): React.ReactNode {
     try {
       const response = await fetch("/api/jobs", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: apiHeaders(apiToken),
         body: JSON.stringify({ goal }),
       });
       const data = await response.json() as ProjectResponse;
@@ -65,7 +73,7 @@ export default function Page(): React.ReactNode {
     try {
       const response = await fetch("/api/repository/jobs", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: apiHeaders(apiToken),
         body: JSON.stringify({ goal, repo_root: repoRoot, dry_run: !applyPatch, apply: applyPatch }),
       });
       const data = await response.json() as { readonly task_run_id?: string; readonly error?: string };
@@ -80,7 +88,7 @@ export default function Page(): React.ReactNode {
     if (!id) return;
     setBusy(true);
     try {
-      const response = await fetch(`/api/jobs/${encodeURIComponent(id)}`);
+      const response = await fetch(`/api/jobs/${encodeURIComponent(id)}`, { headers: apiHeaders(apiToken) });
       setStatus(await response.json() as ProjectResponse);
     } finally {
       setBusy(false);
@@ -93,10 +101,10 @@ export default function Page(): React.ReactNode {
     try {
       const response = await fetch(`/api/tasks/${encodeURIComponent(taskRunId)}/${decision}`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: apiHeaders(apiToken),
         body: JSON.stringify(decision === "approve"
-          ? { approved_by: "human-local", reason: "Approved from web UI" }
-          : { rejected_by: "human-local", reason: "Rejected from web UI" }),
+          ? { approved_by: "human-local", reason: "Approved from web UI", approval_token: approvalToken }
+          : { rejected_by: "human-local", reason: "Rejected from web UI", approval_token: approvalToken }),
       });
       const data = await response.json() as { readonly continuation_run_id?: string; readonly error?: string };
       setMessage(data.continuation_run_id ? `Continuation run: ${data.continuation_run_id}` : data.error ?? "Decision recorded");
@@ -122,9 +130,10 @@ export default function Page(): React.ReactNode {
         <label htmlFor="goal">Goal</label>
         <textarea id="goal" value={goal} onChange={(event) => setGoal(event.target.value)} rows={4} />
         <div className="actions">
-          <button type="button" onClick={submit} disabled={busy || !goal.trim()}>Submit</button>
-          <input value={projectId} onChange={(event) => setProjectId(event.target.value)} placeholder="project ID or run ID" />
-        </div>
+        <button type="button" onClick={submit} disabled={busy || !goal.trim()}>Submit</button>
+        <input value={projectId} onChange={(event) => setProjectId(event.target.value)} placeholder="project ID or run ID" />
+        <input value={apiToken} onChange={(event) => setApiToken(event.target.value)} placeholder="API bearer token" />
+      </div>
       </section>
 
       <section className="panel">
@@ -134,6 +143,7 @@ export default function Page(): React.ReactNode {
           <input type="checkbox" checked={applyPatch} onChange={(event) => setApplyPatch(event.target.checked)} />
           Apply after policy checks
         </label>
+        <input value={approvalToken} onChange={(event) => setApprovalToken(event.target.value)} placeholder="approval token" />
         <button type="button" onClick={submitRepository} disabled={busy || !goal.trim() || !repoRoot.trim()}>Run Repository Task</button>
       </section>
 
@@ -179,6 +189,7 @@ export default function Page(): React.ReactNode {
             ) : null}
             {task.status === "requires_approval" ? (
               <div className="actions">
+                <span>Approval request: {task.result?.approval_request?.approval_request_id ?? task.repository_status?.approval_request?.approval_request_id ?? "pending"}</span>
                 <button type="button" onClick={() => decide(task.task_run_id, "approve")} disabled={busy}>Approve</button>
                 <button type="button" onClick={() => decide(task.task_run_id, "reject")} disabled={busy}>Reject</button>
               </div>
@@ -190,6 +201,13 @@ export default function Page(): React.ReactNode {
       </section>
     </main>
   );
+}
+
+function apiHeaders(apiToken: string): HeadersInit {
+  return {
+    "content-type": "application/json",
+    ...(apiToken ? { authorization: `Bearer ${apiToken}` } : {}),
+  };
 }
 
 function ItemList({ title, items }: { readonly title: string; readonly items: readonly Item[] }): React.ReactNode {

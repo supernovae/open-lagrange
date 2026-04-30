@@ -22,6 +22,10 @@
       "types": "./dist/secrets/index.d.ts",
       "import": "./dist/secrets/index.js"
     },
+    "./approval": {
+      "types": "./dist/approval/approval-token.d.ts",
+      "import": "./dist/approval/approval-token.js"
+    },
     "./repository": {
       "types": "./dist/repository/index.d.ts",
       "import": "./dist/repository/index.js"
