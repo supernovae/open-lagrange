@@ -4,8 +4,8 @@ const platformHighlights = [
     body: "A planner-first chat surface for knowledge work, grounded answers, clarification, plan approval, evidence-gated writing, and multi-axis critic review.",
   },
   {
-    title: "Coder-side agents",
-    body: "Claude Code, opencode, IDE clients, and other agentic tools can connect to the coder endpoint and MCP tools while sharing the same organizational intelligence layer.",
+    title: "Coder-side tools",
+    body: "Claude Code, opencode, IDE clients, and other coding tools can connect to the coder endpoint and MCP tools while sharing the same organizational intelligence layer.",
   },
   {
     title: "Graph-native knowledge",
@@ -19,7 +19,7 @@ const platformHighlights = [
 
 const developerExperience = [
   "Open WebUI for planner-governed chat and reviewed answers",
-  "Claude Code, opencode, and IDE agents for coder-side work",
+  "Claude Code, opencode, and IDE assistants for coder-side work",
   "MCP tools for shared knowledge, taxonomy, and quality gates",
   "Open Lagrange for plans, approvals, artifacts, and repository tasks",
 ];
@@ -27,7 +27,7 @@ const developerExperience = [
 const showcase = [
   {
     title: "One platform, multiple front doors",
-    body: "Chat users get a guided Open WebUI experience. Developers keep their native agent tools. Operators govern models, data, and review policy from one admin plane.",
+    body: "Chat users get a guided Open WebUI experience. Developers keep their native coding tools. Operators govern models, data, and review policy from one admin plane.",
   },
   {
     title: "Knowledge that follows the work",
@@ -35,7 +35,7 @@ const showcase = [
   },
   {
     title: "Execution stays reviewable",
-    body: "Open Lagrange complements Synesis by turning agent work into typed plans, continuation boundaries, artifacts, repository diffs, and explicit human decisions.",
+    body: "Open Lagrange complements Synesis by turning tool-assisted work into typed plans, continuation boundaries, artifacts, repository diffs, and explicit human decisions.",
   },
 ];
 
@@ -85,7 +85,7 @@ export default function Page(): React.ReactNode {
             <p className="eyebrow">Synesis + Open Lagrange</p>
             <h1>Kybern</h1>
             <p className="lede">
-              Building self-hosted intelligence systems where enterprise knowledge, agentic coding,
+              Building self-hosted intelligence systems where enterprise knowledge, assisted coding,
               model operations, and bounded execution work as one product surface.
             </p>
             <div className="heroActions">
@@ -98,7 +98,7 @@ export default function Page(): React.ReactNode {
             </div>
           </div>
 
-          <div className="systemVisual" role="img" aria-label="Kybern product map showing Synesis, Open WebUI, coder agents, NornicDB, and Open Lagrange">
+          <div className="systemVisual" role="img" aria-label="Kybern product map showing Synesis, Open WebUI, coder tools, NornicDB, and Open Lagrange">
             <div className="visualHeader">
               <span>Kybern product map</span>
               <span>self-hosted</span>
@@ -121,7 +121,7 @@ export default function Page(): React.ReactNode {
               </div>
             </div>
             <div className="visualFooter">
-              <span>Chat, coder agents, retrieval, governance, approvals, and artifacts in one operating model</span>
+              <span>Chat, coder tools, retrieval, governance, approvals, and artifacts in one operating model</span>
             </div>
           </div>
         </div>
@@ -155,9 +155,9 @@ export default function Page(): React.ReactNode {
         <div className="deepDive">
           <div>
             <p className="eyebrow">Developer experience</p>
-            <h3>Chat, coding agents, knowledge, and execution control meet in one workflow.</h3>
+            <h3>Chat, coding tools, knowledge, and execution control meet in one workflow.</h3>
             <p>
-              A team can use Open WebUI for planner-governed chat, then move into Claude Code, opencode, or IDE agents
+              A team can use Open WebUI for planner-governed chat, then move into Claude Code, opencode, or IDE assistants
               for implementation work without losing the shared Synesis context. Coder-side tools reach the same
               knowledge, taxonomy, model routing, and quality policy through MCP and OpenAI-compatible endpoints.
             </p>
@@ -191,7 +191,7 @@ export default function Page(): React.ReactNode {
           <p>
             Together, Synesis and Open Lagrange separate intelligence infrastructure from execution control. Synesis
             supplies trusted organizational context and quality gates; Open Lagrange records the work, state, evidence,
-            and decisions needed to make non-deterministic agent runs reviewable.
+            and decisions needed to make non-deterministic AI-assisted runs reviewable.
           </p>
           <div className="sectionActions">
             <a className="button secondary" href={githubRepos.openLagrange} target="_blank" rel="noreferrer">
@@ -207,7 +207,7 @@ export default function Page(): React.ReactNode {
           <h2>Built for the whole AI workflow</h2>
           <p>
             Synesis is not only retrieval infrastructure. It is a way to run enterprise AI across chat,
-            developer agents, operations, model routing, and governed execution.
+            developer tools, operations, model routing, and governed execution.
           </p>
         </div>
         <div className="showcaseGrid">
@@ -226,7 +226,7 @@ export default function Page(): React.ReactNode {
           <h2>Latest development notes</h2>
           <p>
             The Synesis articles below reflect the current product direction across graph-native knowledge,
-            authenticated retrieval, and coder-side agent workflows.
+            authenticated retrieval, and coder-side workflows.
           </p>
         </div>
         <div className="noteGrid">
