@@ -113,7 +113,7 @@ export default function Page(): React.ReactNode {
       <section className="toolbar">
         <div>
           <h1>Open Lagrange</h1>
-          <p>Submit a goal, inspect reconciliation status, and approve bounded task continuations.</p>
+          <p>Open Lagrange is an agentic control plane for submitting goals, inspecting reconciliation status, and approving bounded task continuations.</p>
         </div>
         <button type="button" onClick={() => poll()} disabled={busy || !projectId}>Refresh</button>
       </section>
