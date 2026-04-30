@@ -321,6 +321,34 @@ h3 {
   gap: 12px;
 }
 
+.repoLinks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.repoLinks a {
+  background: #fffdf6;
+  border: 1px solid #c7cabd;
+  border-radius: 999px;
+  color: #1b4038;
+  font-size: 0.9rem;
+  font-weight: 720;
+  padding: 0.5rem 0.72rem;
+}
+
+.repoLinks a:hover {
+  background: #eef3ed;
+}
+
+.sectionActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 22px;
+}
+
 .button {
   border-radius: 6px;
   display: inline-flex;

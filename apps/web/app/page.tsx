@@ -57,6 +57,11 @@ const fieldNotes = [
   },
 ];
 
+const githubRepos = {
+  synesis: "https://github.com/supernovae/synesis",
+  openLagrange: "https://github.com/supernovae/open-lagrange",
+};
+
 export default function Page(): React.ReactNode {
   return (
     <main>
@@ -86,6 +91,10 @@ export default function Page(): React.ReactNode {
             <div className="heroActions">
               <a className="button primary" href="#synesis">Explore Synesis</a>
               <a className="button secondary" href="#open-lagrange">Open Lagrange</a>
+            </div>
+            <div className="repoLinks" aria-label="GitHub repositories">
+              <a href={githubRepos.synesis} target="_blank" rel="noreferrer">GitHub: Synesis</a>
+              <a href={githubRepos.openLagrange} target="_blank" rel="noreferrer">GitHub: Open Lagrange</a>
             </div>
           </div>
 
@@ -127,6 +136,11 @@ export default function Page(): React.ReactNode {
             MCP-connected coder workflows, graph-native knowledge, model governance, quality review, and an admin
             surface for operators.
           </p>
+          <div className="sectionActions">
+            <a className="button secondary" href={githubRepos.synesis} target="_blank" rel="noreferrer">
+              View Synesis on GitHub
+            </a>
+          </div>
         </div>
 
         <div className="featureGrid">
@@ -179,6 +193,11 @@ export default function Page(): React.ReactNode {
             supplies trusted organizational context and quality gates; Open Lagrange records the work, state, evidence,
             and decisions needed to make non-deterministic agent runs reviewable.
           </p>
+          <div className="sectionActions">
+            <a className="button secondary" href={githubRepos.openLagrange} target="_blank" rel="noreferrer">
+              View Open Lagrange on GitHub
+            </a>
+          </div>
         </div>
       </section>
 
