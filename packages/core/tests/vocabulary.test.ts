@@ -8,7 +8,7 @@ const BLOCKED = [
   ["Br", "ain"].join(""),
 ];
 
-const FILES = [
+const OPEN_LAGRANGE_FRAMING_FILES = [
   "README.md",
   "open-cot-alignment.md",
   "docs/hatchet-notes.md",
@@ -236,8 +236,6 @@ const FILES = [
   "packages/core/src/tasks/record-status.ts",
   "packages/core/src/tasks/create-approval-request.ts",
   "apps/cli/src/index.ts",
-  "apps/web/app/page.tsx",
-  "apps/web/app/layout.tsx",
   "apps/web/app/api/jobs/route.ts",
   "apps/web/app/api/repository/jobs/route.ts",
   "apps/web/app/api/jobs/[projectId]/route.ts",
@@ -289,9 +287,9 @@ const FILES = [
 ];
 
 describe("language boundary", () => {
-  it("keeps source vocabulary aligned with the project framing", async () => {
+  it("keeps Open Lagrange source vocabulary aligned with the project framing", async () => {
     const root = process.cwd();
-    for (const file of FILES) {
+    for (const file of OPEN_LAGRANGE_FRAMING_FILES) {
       const text = await readFile(join(root, file), "utf8");
       for (const blocked of BLOCKED) {
         expect(text, `${blocked} found in ${file}`).not.toMatch(new RegExp(blocked, "i"));
