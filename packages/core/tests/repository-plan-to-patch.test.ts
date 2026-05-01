@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -10,6 +10,8 @@ import { cleanupWorktreeSession, createWorktreeSession } from "../src/repository
 import { exportFinalPatch } from "../src/repository/patch-exporter.js";
 import { validateRepositoryPatchPlan } from "../src/repository/patch-validator.js";
 import { nextRepairAttempt } from "../src/repository/repair-loop.js";
+import { createRepositoryPlanfile, applyRepositoryPlanfile } from "../src/repository/repository-plan-control.js";
+import { runVerificationPolicy } from "../src/repository/verification-runner.js";
 import type { RepositoryPatchPlan } from "../src/repository/patch-plan.js";
 
 describe("repository Planfile to patch pipeline", () => {
@@ -18,9 +20,24 @@ describe("repository Planfile to patch pipeline", () => {
     const session = createWorktreeSession({ repo_root: root, plan_id: "repo_plan_test" });
     writeFileSync(join(session.worktree_path, "README.md"), "# Demo\n\nChanged in worktree.\n");
 
+    expect(session.branch_name).toBe("ol/repo_plan_test");
     expect(readFileSync(join(root, "README.md"), "utf8")).toBe("# Demo\n");
     expect(readFileSync(join(session.worktree_path, "README.md"), "utf8")).toContain("Changed in worktree");
 
+    cleanupWorktreeSession(session);
+  });
+
+  it("excludes Open Lagrange internals from final patch export", () => {
+    const root = gitFixture();
+    const session = createWorktreeSession({ repo_root: root, plan_id: "repo_plan_internal_patch" });
+    writeFileSync(join(session.worktree_path, "README.md"), "# Demo\n\nFinal patch.\n");
+    mkdirSync(join(session.worktree_path, ".open-lagrange", "runs"), { recursive: true });
+    writeFileSync(join(session.worktree_path, ".open-lagrange", "runs", "debug.json"), "{}\n");
+
+    const patch = exportFinalPatch(session);
+
+    expect(patch.changed_files).toEqual(["README.md"]);
+    expect(patch.unified_diff).not.toContain(".open-lagrange");
     cleanupWorktreeSession(session);
   });
 
@@ -81,6 +98,59 @@ describe("repository Planfile to patch pipeline", () => {
     expect(third.status).toBe("yielded");
   });
 
+  it("rejects verification commands with shell syntax", async () => {
+    await expect(runVerificationPolicy({
+      plan_id: "plan",
+      node_id: "verify",
+      cwd: gitFixture(),
+      commands: [{
+        command_id: "unsafe",
+        display_name: "unsafe",
+        executable: "npm",
+        args: ["run", "typecheck;echo unsafe"],
+        timeout_ms: 1_000,
+        output_limit_bytes: 1_000,
+      }],
+      command_ids: ["unsafe"],
+    })).rejects.toThrow(/shell syntax/);
+  });
+
+  it("generates and applies a durable repository Planfile", async () => {
+    const root = gitFixture({ package_json: true });
+    const originalInitCwd = process.env.INIT_CWD;
+    process.env.INIT_CWD = root;
+    try {
+      const created = await createRepositoryPlanfile({
+        repo_root: root,
+        goal: "add json output to my cli",
+        dry_run: true,
+        verification_command_ids: ["npm_run_typecheck"],
+        now: "2026-04-30T12:00:00.000Z",
+      });
+
+      expect(existsSync(created.path)).toBe(true);
+      expect(created.markdown).toContain("flowchart TD");
+      expect(created.planfile.nodes.map((node) => node.id)).toContain("export_patch");
+
+      const status = await applyRepositoryPlanfile({
+        planfile: created.planfile,
+        now: "2026-04-30T12:01:00.000Z",
+      });
+
+      expect(status.status).toBe("completed");
+      expect(status.worktree_session?.worktree_path).toContain(".open-lagrange/worktrees");
+      expect(status.changed_files).toContain("README.md");
+      expect(status.evidence_bundle_ids.length).toBeGreaterThan(0);
+      expect(status.patch_artifact_ids.length).toBeGreaterThan(0);
+      expect(status.verification_report_ids.length).toBeGreaterThan(0);
+      expect(status.final_patch_artifact_id).toBeTruthy();
+      expect(readFileSync(join(root, "README.md"), "utf8")).toBe("# Demo\n");
+    } finally {
+      if (originalInitCwd === undefined) delete process.env.INIT_CWD;
+      else process.env.INIT_CWD = originalInitCwd;
+    }
+  });
+
   it("includes changed files and verification status in the final review", () => {
     const review = createRepositoryReviewReport({
       goal: "Update README",
@@ -106,7 +176,7 @@ describe("repository Planfile to patch pipeline", () => {
   });
 });
 
-function gitFixture(): string {
+function gitFixture(options: { readonly package_json?: boolean } = {}): string {
   const root = mkdtempSync(join(tmpdir(), "open-lagrange-plan-patch-"));
   git(root, ["init", "-q"]);
   git(root, ["config", "user.email", "test@example.com"]);
@@ -114,7 +184,14 @@ function gitFixture(): string {
   writeFileSync(join(root, "README.md"), "# Demo\n");
   writeFileSync(join(root, ".gitignore"), ".env\n.open-lagrange/\n");
   writeFileSync(join(root, ".env"), "SECRET=1\n");
-  git(root, ["add", "README.md", ".gitignore"]);
+  if (options.package_json) {
+    writeFileSync(join(root, "package.json"), JSON.stringify({
+      scripts: {
+        typecheck: "node -e \"process.exit(0)\"",
+      },
+    }, null, 2));
+  }
+  git(root, ["add", "README.md", ".gitignore", ...(options.package_json ? ["package.json"] : [])]);
   git(root, ["commit", "-q", "-m", "init"]);
   return root;
 }

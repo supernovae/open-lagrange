@@ -92,12 +92,15 @@ export function createRepositoryWorkOrderHandlers(options: RepositoryWorkOrderHa
       const artifact = RepositoryPatchArtifact.parse({
         patch_artifact_id: `patch_artifact_${stableHash({ patchPlan, diff }).slice(0, 18)}`,
         patch_plan_id: patchPlan.patch_plan_id,
+        plan_id: patchPlan.plan_id,
+        node_id: patchPlan.node_id,
         changed_files: diff.changed_files,
         unified_diff: diff.diff_text,
         before_hashes: state.evidence.file_hashes,
         after_hashes: {},
         apply_status: "applied",
         errors: [],
+        artifact_id: `patch_artifact_${stableHash({ patchPlan, diff }).slice(0, 18)}`,
         created_at: new Date().toISOString(),
       });
       state.patch_artifact = artifact;
@@ -232,12 +235,14 @@ async function inspectRepository(
     evidence_bundle_id: `evidence_${stableHash({ planId, nodeId, files: file_excerpts.map((file) => file.sha256) }).slice(0, 18)}`,
     plan_id: planId,
     node_id: nodeId,
-    goal: workOrder.objective,
-    file_excerpts,
-    findings: search_results.length > 0 ? ["Search found potentially relevant repository context."] : ["No direct search matches were found."],
+    repo_root: options.workspace.repo_root,
+    worktree_path: options.workspace.repo_root,
+    file_reads: file_excerpts,
+    findings: search_results.length > 0
+      ? [{ finding_id: "finding_search_context", kind: "pattern", summary: "Search found potentially relevant repository context.", source_ref: "repo.search_text" }]
+      : [{ finding_id: "finding_search_empty", kind: "pattern", summary: "No direct search matches were found.", source_ref: "repo.search_text" }],
     search_results,
     notes: ["Evidence was collected through repository capabilities."],
-    artifact_refs: [],
     created_at: new Date().toISOString(),
   });
 }
@@ -262,7 +267,9 @@ function deterministicRepositoryPatchPlan(workOrder: WorkOrder, evidence: Eviden
     }],
     expected_changed_files: [relative_path],
     verification_command_ids: workOrder.constraints.filter((item) => item.startsWith("verification_command:")).map((item) => item.slice("verification_command:".length)),
-    preconditions: target ? [`${relative_path} sha256 is ${target.sha256}`] : [`${relative_path} may be created`],
+    preconditions: target
+      ? [{ kind: "file_hash", path: relative_path, expected_sha256: target.sha256, summary: `${relative_path} hash matches collected evidence.` }]
+      : [{ kind: "file_absent", path: relative_path, summary: `${relative_path} may be created.` }],
     risk_level: "write",
     approval_required: true,
   });
@@ -284,7 +291,7 @@ function legacyPatchPlanFromRepositoryPlan(patchPlan: RepositoryPatchPlan, evide
     goal: patchPlan.summary,
     summary: patchPlan.summary,
     files,
-    expected_preconditions: patchPlan.preconditions,
+    expected_preconditions: patchPlan.preconditions.map((precondition) => precondition.summary),
     risk_level: patchPlan.risk_level,
     requires_approval: patchPlan.approval_required,
     idempotency_key: `idem_${stableHash(patchPlan).slice(0, 24)}`,

@@ -100,7 +100,9 @@ describe("capability execution step wrapper", () => {
       },
     });
 
-    expect(result.status).toBe("completed");
+    expect(result.status).toBe("success");
+    expect(result.started_at).toBeTruthy();
+    expect(result.completed_at).toBeTruthy();
     expect(result.output_artifact_refs).toContain("capability_step_artifact");
     expect(updatedPlanState?.node_states[0]?.status).toBe("completed");
     expect(updatedPlanState?.node_states[0]?.artifacts[0]?.kind).toBe("capability_step_result");
@@ -150,7 +152,7 @@ describe("capability execution step wrapper", () => {
       record_artifact: async (artifact) => { artifacts.push(artifact); },
     });
 
-    expect(result.status).toBe("completed");
+    expect(result.status).toBe("success");
     expect(result.output).toMatchObject({ source_id: "planning-primitive", content_type: "text/markdown" });
     expect(result.output_artifact_refs.some((artifactId) => artifactId.startsWith("source_text_"))).toBe(true);
     expect(artifacts.length).toBeGreaterThan(0);

@@ -17,6 +17,7 @@ export * from "./mcp/mock-registry.js";
 export * from "./open-cot/adapters.js";
 export * from "./planning/control-plane.js";
 export * from "./planning/goal-frame.js";
+export * from "./planning/local-plan-artifacts.js";
 export * from "./planning/mermaid-renderer.js";
 export * from "./planning/plan-artifacts.js";
 export * from "./planning/plan-cognition.js";

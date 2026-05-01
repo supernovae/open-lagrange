@@ -12,8 +12,10 @@ export const ArtifactKind = z.enum([
   "pack_install_report",
   "pack_smoke_report",
   "policy_decision_report",
+  "evidence_bundle",
   "patch_plan",
   "patch_artifact",
+  "final_patch_artifact",
   "verification_report",
   "review_report",
   "source_search_results",
@@ -25,6 +27,7 @@ export const ArtifactKind = z.enum([
   "capability_step_result",
   "approval_request",
   "execution_timeline",
+  "worktree_session",
   "raw_log",
 ]);
 
@@ -51,6 +54,7 @@ export const ArtifactSummary = z.object({
   produced_by_node_id: z.string().min(1).optional(),
   input_artifact_refs: z.array(z.string().min(1)).optional(),
   output_artifact_refs: z.array(z.string().min(1)).optional(),
+  source_mode: z.enum(["fixture", "live"]).optional(),
   validation_status: z.string().min(1).optional(),
   redaction_status: z.enum(["redacted", "not_redacted", "unknown"]).optional(),
   redacted: z.boolean(),

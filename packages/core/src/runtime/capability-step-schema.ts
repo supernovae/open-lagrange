@@ -24,6 +24,7 @@ export const CapabilityStepPolicyDecisionReport = z.object({
 }).strict();
 
 export const CapabilityStepInput = z.object({
+  step_id: z.string().min(1).optional(),
   plan_id: z.string().min(1),
   node_id: z.string().min(1),
   capability_ref: z.string().min(1),
@@ -32,9 +33,11 @@ export const CapabilityStepInput = z.object({
   delegation_context: DelegationContext,
   idempotency_key: z.string().min(1),
   input_artifact_refs: z.array(z.string().min(1)).default([]),
+  dry_run: z.boolean().default(false),
+  trace_id: z.string().min(1).optional(),
 }).strict();
 
-export const CapabilityStepStatus = z.enum(["completed", "failed", "requires_approval", "yielded"]);
+export const CapabilityStepStatus = z.enum(["success", "failed", "requires_approval", "yielded"]);
 
 export const CapabilityStepResult = z.object({
   status: CapabilityStepStatus,
@@ -44,6 +47,8 @@ export const CapabilityStepResult = z.object({
   observations: z.array(Observation),
   structured_errors: z.array(StructuredError),
   duration_ms: z.number().int().min(0),
+  started_at: z.string().datetime(),
+  completed_at: z.string().datetime(),
 }).strict();
 
 export type CapabilityStepInput = z.infer<typeof CapabilityStepInput>;

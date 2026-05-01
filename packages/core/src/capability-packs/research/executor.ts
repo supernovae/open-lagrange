@@ -20,7 +20,12 @@ export async function runResearchFetchSource(context: PackExecutionContext, inpu
 
 export async function runResearchExtractContent(context: PackExecutionContext, input: ExtractContentInput) {
   const primitives = primitiveContext(context, "research.extract_content");
-  const extracted = extractReadableContent(input);
+  const sourceArtifact = input.source_artifact_id ? await artifacts.readMetadata(primitives, input.source_artifact_id) : undefined;
+  const resolvedInput = input.source_artifact_id && !input.html && !input.markdown && !input.text
+    ? { ...input, ...sourceInputFromArtifact(sourceArtifact) }
+    : input;
+  const sourceMode = sourceModeFromArtifact(sourceArtifact);
+  const extracted = extractReadableContent(resolvedInput);
   await artifacts.write(primitives, {
     artifact_id: extracted.artifact_id,
     kind: "source_text",
@@ -30,8 +35,43 @@ export async function runResearchExtractContent(context: PackExecutionContext, i
     input_artifact_refs: input.source_artifact_id ? [input.source_artifact_id] : [],
     validation_status: "pass",
     redaction_status: "redacted",
+    metadata: {
+      ...(sourceMode ? { source_mode: sourceMode } : {}),
+    },
   });
   return extracted;
+}
+
+function sourceInputFromArtifact(artifact: unknown): Partial<ExtractContentInput> {
+  const record = artifact && typeof artifact === "object" ? artifact as Record<string, unknown> : {};
+  const content = record.content;
+  const metadata = record.metadata && typeof record.metadata === "object" ? record.metadata as Record<string, unknown> : {};
+  const url = stringValue(metadata.final_url) ?? stringValue(metadata.url) ?? stringValue(record.path_or_uri);
+  if (typeof content === "string") {
+    const contentType = stringValue(record.content_type) ?? "";
+    return {
+      ...(contentType.includes("html") ? { html: content } : contentType.includes("markdown") ? { markdown: content } : { text: content }),
+      ...(url && url.startsWith("http") ? { url } : {}),
+    };
+  }
+  if (content && typeof content === "object") {
+    const value = content as Record<string, unknown>;
+    const nestedContent = stringValue(value.content);
+    if (nestedContent) return { markdown: nestedContent, ...(stringValue((value.source as Record<string, unknown> | undefined)?.url) ? { url: String((value.source as Record<string, unknown>).url) } : {}) };
+    if (stringValue(value.extracted_text)) return { text: stringValue(value.extracted_text), ...(stringValue(value.url) ? { url: stringValue(value.url) } : {}) };
+  }
+  return {};
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function sourceModeFromArtifact(artifact: unknown): "fixture" | "live" | undefined {
+  const record = artifact && typeof artifact === "object" ? artifact as Record<string, unknown> : {};
+  const metadata = record.metadata && typeof record.metadata === "object" ? record.metadata as Record<string, unknown> : {};
+  const value = stringValue(record.source_mode) ?? stringValue(metadata.source_mode) ?? stringValue(metadata.mode);
+  return value === "fixture" || value === "live" ? value : undefined;
 }
 
 export async function runResearchCreateSourceSet(context: PackExecutionContext, input: CreateSourceSetInput) {
@@ -47,9 +87,11 @@ export async function runResearchExportMarkdown(context: PackExecutionContext, i
 }
 
 function primitiveContext(context: PackExecutionContext, capabilityId: string) {
+  const artifactStore = runtimeArtifactStore(context);
   return createPrimitiveContext(context, {
     pack_id: RESEARCH_PACK_ID,
     capability_id: capabilityId,
+    ...(artifactStore ? { artifact_store: artifactStore } : {}),
     policy_context: {
       allowed_http_methods: ["GET"],
       ...(Array.isArray(context.runtime_config.allowed_hosts) ? { allowed_hosts: context.runtime_config.allowed_hosts as string[] } : {}),
@@ -63,6 +105,20 @@ function primitiveContext(context: PackExecutionContext, capabilityId: string) {
     },
     ...(typeof context.runtime_config.fetch_impl === "function" ? { fetch_impl: context.runtime_config.fetch_impl as typeof fetch } : {}),
   });
+}
+
+function runtimeArtifactStore(context: PackExecutionContext) {
+  const store = context.runtime_config.artifact_store;
+  if (!store || typeof store !== "object") return undefined;
+  const candidate = store as {
+    readonly readMetadata?: (artifact_id: string) => Promise<unknown | undefined>;
+    readonly link?: (from_artifact_id: string, to_artifact_id: string, metadata?: Record<string, unknown>) => Promise<void>;
+  };
+  return {
+    write: context.recordArtifact,
+    ...(candidate.readMetadata ? { readMetadata: candidate.readMetadata } : {}),
+    ...(candidate.link ? { link: candidate.link } : {}),
+  };
 }
 
 export function researchRunId(input: unknown): string {

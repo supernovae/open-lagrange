@@ -116,6 +116,19 @@ Fetch one explicit live URL through SDK HTTP policy:
 npm run cli -- research fetch https://example.com --live
 ```
 
+Run the first live Planfile workflow end to end:
+
+```bash
+npm run cli -- plan apply examples/planfiles/research-url-summary.plan.md --live
+npm run cli -- artifact list
+```
+
+This executes locally through PlanRunner, PackRegistry, CapabilityStepRunner,
+the Research Pack, SDK HTTP policy, and the artifact index. The URL fetch,
+source snapshot, extraction, Markdown export, and lineage are real. Live search,
+remote distributed execution, browser automation, JavaScript execution, OAuth,
+and model-generated briefs are still out of scope for this path.
+
 Inspect runtime and packs:
 
 ```bash
@@ -145,6 +158,16 @@ npm run cli -- repo plan \
   --goal "Add JSON output to the status command" \
   --dry-run
 ```
+
+Apply the generated repository Planfile in an isolated git worktree and export a validated patch:
+
+```bash
+npm run cli -- repo apply .open-lagrange/plans/<plan_id>.plan.md
+npm run cli -- repo status <plan_id>
+npm run cli -- repo patch <plan_id> --output final.patch
+```
+
+This path is real local runtime execution. The Planfile is validated, repository capabilities are invoked through PackRegistry and CapabilityStepRunner, evidence is recorded, file writes happen only in `.open-lagrange/worktrees/<plan_id>/`, verification commands are allowlisted, and the final patch is exported as a reviewable artifact against the original base commit. Patch planning is still intentionally narrow and deterministic for small TypeScript/CLI tasks.
 
 Build a Workflow Skill from ordinary Markdown:
 

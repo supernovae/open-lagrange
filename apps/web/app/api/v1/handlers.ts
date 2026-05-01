@@ -155,8 +155,7 @@ export async function handleRepositoryPlanPatch(planId: string): Promise<unknown
 
 export async function handleRepositoryPlanReview(planId: string): Promise<unknown> {
   const state = await getRepositoryPlanStatus(planId);
-  const review = state?.artifact_refs.filter((artifact) => artifact.kind === "review_report").at(-1);
-  return review ?? { plan_id: planId, status: "missing" };
+  return state?.review_report_id ? { plan_id: planId, review_report_id: state.review_report_id } : { plan_id: planId, status: "missing" };
 }
 
 export function handleCleanupRepositoryPlan(planId: string): Promise<unknown> {

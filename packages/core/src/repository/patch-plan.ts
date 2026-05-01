@@ -1,9 +1,16 @@
 import { z } from "zod";
-import { RiskLevel } from "../schemas/capabilities.js";
+
+export const PatchPrecondition = z.object({
+  kind: z.enum(["file_hash", "file_exists", "file_absent", "text_present"]),
+  path: z.string().min(1).optional(),
+  expected_sha256: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+  text: z.string().optional(),
+  summary: z.string().min(1),
+}).strict();
 
 export const RepositoryPatchOperation = z.object({
   operation_id: z.string().min(1),
-  kind: z.enum(["replace_range", "insert_after", "create_file", "unified_diff", "full_replacement", "delete_file"]),
+  kind: z.enum(["replace_range", "insert_after", "insert_before", "create_file", "unified_diff", "full_replacement"]),
   relative_path: z.string().min(1),
   expected_sha256: z.string().regex(/^[a-f0-9]{64}$/).optional(),
   start_line: z.number().int().min(1).optional(),
@@ -24,10 +31,11 @@ export const RepositoryPatchPlan = z.object({
   operations: z.array(RepositoryPatchOperation).min(1),
   expected_changed_files: z.array(z.string().min(1)).min(1),
   verification_command_ids: z.array(z.string().min(1)),
-  preconditions: z.array(z.string()),
-  risk_level: RiskLevel,
+  preconditions: z.array(PatchPrecondition),
+  risk_level: z.enum(["read", "write", "destructive"]),
   approval_required: z.boolean(),
 }).strict();
 
+export type PatchPrecondition = z.infer<typeof PatchPrecondition>;
 export type RepositoryPatchOperation = z.infer<typeof RepositoryPatchOperation>;
 export type RepositoryPatchPlan = z.infer<typeof RepositoryPatchPlan>;

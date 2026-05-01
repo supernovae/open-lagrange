@@ -1,3 +1,8 @@
+import type { PackRegistry } from "@open-lagrange/capability-sdk";
+import { packRegistry } from "../capability-registry/registry.js";
+import type { DelegationContext } from "../schemas/delegation.js";
+import { resolveCapabilityForStep } from "../runtime/capability-step.js";
+import { runCapabilityStep, type CapabilityStepRunnerOptions } from "../runtime/capability-step-runner.js";
 import type { CapabilitySnapshot } from "../schemas/capabilities.js";
 import { renderPlanfileMarkdown } from "./planfile-markdown.js";
 import { PlanValidationError } from "./plan-errors.js";
@@ -30,7 +35,16 @@ export interface PlanRunnerOptions {
   readonly store: PlanStateStore;
   readonly capability_snapshot: CapabilitySnapshot;
   readonly handlers?: PlanRunnerHandlers;
+  readonly registry?: PackRegistry;
+  readonly delegation_context?: DelegationContext;
+  readonly runtime_config?: Record<string, unknown>;
+  readonly record_artifact?: CapabilityStepRunnerOptions["record_artifact"];
   readonly now?: () => string;
+}
+
+export interface PlanRunnerExecutionResult {
+  readonly state: PlanState;
+  readonly outputs: Readonly<Record<string, unknown>>;
 }
 
 export class PlanRunner {
@@ -73,6 +87,42 @@ export class PlanRunner {
     return this.markNode(plan, state, node, result.status, result.artifacts ?? [], result.errors ?? []);
   }
 
+  async runToCompletion(planfile: unknown): Promise<PlanRunnerExecutionResult> {
+    const plan = withCanonicalPlanDigest(PlanfileSchema.parse(planfile));
+    const validation = validatePlanfile(plan, { capability_snapshot: this.options.capability_snapshot });
+    if (!validation.ok) throw new PlanValidationError(validation.issues);
+    let state = await this.options.store.getPlanState(plan.plan_id) ?? await this.load(plan);
+    const outputs: Record<string, unknown> = {};
+    for (let index = 0; index < plan.nodes.length + 2; index += 1) {
+      const node = this.readyNodes(plan, state)[0];
+      if (!node) break;
+      state = await this.markNodeRunning(state, node);
+      if (canRunCapabilityStep(node)) {
+        const result = await this.runCapabilityNode(plan, state, node, outputs);
+        if (result.output !== undefined) outputs[node.id] = result.output;
+        const artifacts = result.output_artifact_refs.map((artifactId) => ({
+          artifact_id: artifactId,
+          kind: "capability_step_result" as const,
+          path_or_uri: `artifact://${artifactId}`,
+          summary: `Capability step artifact ${artifactId}`,
+          created_at: this.now(),
+        }));
+        state = await this.markNode(plan, state, node, planStatusFromStep(result.status), artifacts, result.structured_errors.map((error) => error.message));
+      } else {
+        const handler = this.options.handlers?.[node.kind];
+        if (!handler) {
+          state = await this.markNode(plan, state, node, "yielded", [], [`No handler registered for ${node.kind}.`]);
+        } else {
+          const workOrder = compileWorkOrder({ plan, node_id: node.id, capability_snapshot: this.options.capability_snapshot });
+          const result = await handler(workOrder, { plan, node, state });
+          state = await this.markNode(plan, state, node, result.status, result.artifacts ?? [], result.errors ?? []);
+        }
+      }
+      if (state.status === "completed" || state.status === "failed" || state.status === "yielded") break;
+    }
+    return { state, outputs };
+  }
+
   private async markNode(
     plan: Planfile,
     state: PlanState,
@@ -89,7 +139,10 @@ export class PlanRunner {
     const projectedPlan = {
       ...plan,
       status: nextStatus,
-      nodes: plan.nodes.map((candidate) => candidate.id === node.id ? { ...candidate, status, artifacts, errors: [...errors] } : candidate),
+      nodes: plan.nodes.map((candidate) => {
+        const nodeState = nodeStates.find((item) => item.node_id === candidate.id);
+        return nodeState ? { ...candidate, status: nodeState.status, artifacts: nodeState.artifacts, errors: nodeState.errors } : candidate;
+      }),
       artifact_refs: [...plan.artifact_refs, ...artifacts],
       updated_at: now,
     };
@@ -103,7 +156,100 @@ export class PlanRunner {
     });
   }
 
+  private async markNodeRunning(state: PlanState, node: PlanNode): Promise<PlanState> {
+    const now = this.now();
+    return this.options.store.recordPlanState({
+      ...state,
+      status: "running",
+      node_states: state.node_states.map((nodeState) => nodeState.node_id === node.id
+        ? { ...nodeState, status: "running", started_at: nodeState.started_at ?? now }
+        : nodeState),
+      updated_at: now,
+    });
+  }
+
+  private async runCapabilityNode(
+    plan: Planfile,
+    state: PlanState,
+    node: PlanNode,
+    outputs: Readonly<Record<string, unknown>>,
+  ) {
+    const registry = this.options.registry ?? packRegistry;
+    const capabilityRef = node.allowed_capability_refs[0] ?? "";
+    const resolved = resolveCapabilityForStep(registry, capabilityRef);
+    if (!resolved) throw new Error(`Unknown capability: ${capabilityRef}`);
+    if (!this.options.delegation_context) throw new Error("Capability PlanRunner execution requires a delegation context.");
+    const input = resolveTemplates(nodeInput(plan, node.id), outputs);
+    return runCapabilityStep({
+      step_id: `${plan.plan_id}:${node.id}`,
+      plan_id: plan.plan_id,
+      node_id: node.id,
+      capability_ref: capabilityRef,
+      capability_digest: resolved.descriptor.capability_digest,
+      input,
+      delegation_context: this.options.delegation_context,
+      idempotency_key: `${plan.plan_id}:${node.id}:${resolved.descriptor.capability_digest}`,
+      input_artifact_refs: [...inputArtifactRefs(state, node)],
+      dry_run: plan.mode === "dry_run",
+      trace_id: this.options.delegation_context.trace_id,
+    }, {
+      registry,
+      now: this.now(),
+      ...(this.options.runtime_config ? { runtime_config: this.options.runtime_config } : {}),
+      ...(this.options.record_artifact ? { record_artifact: this.options.record_artifact } : {}),
+    });
+  }
+
   private now(): string {
     return this.options.now?.() ?? new Date().toISOString();
   }
+}
+
+function canRunCapabilityStep(node: PlanNode): boolean {
+  return node.allowed_capability_refs.length === 1 && node.kind !== "frame";
+}
+
+function nodeInput(plan: Planfile, nodeId: string): unknown {
+  const context = plan.execution_context;
+  const nodes = context && typeof context === "object" ? (context as Record<string, unknown>).nodes : undefined;
+  const nodeConfig = nodes && typeof nodes === "object" ? (nodes as Record<string, unknown>)[nodeId] : undefined;
+  if (!nodeConfig || typeof nodeConfig !== "object") return {};
+  return (nodeConfig as Record<string, unknown>).input ?? {};
+}
+
+function resolveTemplates(value: unknown, outputs: Readonly<Record<string, unknown>>): unknown {
+  if (typeof value === "string") return resolveTemplateString(value, outputs);
+  if (Array.isArray(value)) return value.map((item) => resolveTemplates(item, outputs));
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, item]) => [key, resolveTemplates(item, outputs)]));
+  }
+  return value;
+}
+
+function resolveTemplateString(value: string, outputs: Readonly<Record<string, unknown>>): unknown {
+  const exact = /^\$nodes\.([^.]+)\.output\.(.+)$/.exec(value);
+  if (exact) return pathValue(outputs[exact[1] ?? ""], exact[2] ?? "");
+  return value.replace(/\{\{nodes\.([^.]+)\.output\.([^}]+)\}\}/g, (_match, nodeId: string, path: string) => {
+    const resolved = pathValue(outputs[nodeId], path);
+    return resolved === undefined ? "" : String(resolved);
+  });
+}
+
+function pathValue(source: unknown, path: string): unknown {
+  return path.split(".").reduce<unknown>((current, part) => {
+    if (!current || typeof current !== "object") return undefined;
+    return (current as Record<string, unknown>)[part];
+  }, source);
+}
+
+function inputArtifactRefs(state: PlanState, node: PlanNode): readonly string[] {
+  return state.node_states
+    .filter((candidate) => node.depends_on.includes(candidate.node_id))
+    .flatMap((candidate) => candidate.artifacts.map((artifact) => artifact.artifact_id));
+}
+
+function planStatusFromStep(status: "success" | "failed" | "yielded" | "requires_approval"): "completed" | "failed" | "yielded" {
+  if (status === "success") return "completed";
+  if (status === "failed") return "failed";
+  return "yielded";
 }

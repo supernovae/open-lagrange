@@ -1,9 +1,9 @@
 # Repository Worktrees
 
-Repository plan execution uses an isolated git worktree under:
+Repository apply never mutates the caller's current worktree. It creates a git worktree under:
 
 ```text
-.open-lagrange/worktrees/<plan_id>
+.open-lagrange/worktrees/<plan_id>/
 ```
 
 The branch name is deterministic:
@@ -12,24 +12,30 @@ The branch name is deterministic:
 ol/<plan_id>
 ```
 
-The source worktree is never modified directly during plan execution. Open Lagrange records the base ref and base commit, applies repository PatchPlans in the isolated worktree, and exports the final diff from that worktree.
+Each `WorktreeSession` records the repository root, worktree path, base ref, base commit, branch name, status, creation time, update time, and final patch artifact ID when available.
 
-## Dirty Base Handling
+## Dirty Base
 
-By default, repository apply refuses to start when the source worktree has uncommitted changes. This avoids exporting a patch against an unstable base. Use the explicit dirty-base flag only when the caller owns that risk:
+By default, apply refuses to start when the source worktree has uncommitted user changes:
 
 ```bash
-open-lagrange repo apply <planfile> --allow-dirty-base
+open-lagrange repo apply .open-lagrange/plans/<plan_id>.plan.md
 ```
 
-## Cleanup
+Use the explicit flag only when the caller owns that risk:
 
-Worktrees are retained by default so failed or yielded runs can be inspected. Remove a plan worktree with:
+```bash
+open-lagrange repo apply .open-lagrange/plans/<plan_id>.plan.md --allow-dirty-base
+```
+
+Open Lagrange internal files under `.open-lagrange/` are ignored for this dirty-base check so creating a Planfile does not block the matching apply.
+
+## Retain And Cleanup
+
+Failed and yielded runs retain the worktree by default for inspection. Remove it with:
 
 ```bash
 open-lagrange repo cleanup <plan_id>
 ```
 
-## Patch Validation
-
-The exported patch is checked against the recorded base before it is returned. A final patch artifact is not treated as merged work; it is a reviewable artifact for the caller to inspect, apply, or discard.
+The cleanup command updates the durable `WorktreeSession` status to `cleaned`.

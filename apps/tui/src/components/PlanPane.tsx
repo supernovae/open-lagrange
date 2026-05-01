@@ -34,6 +34,9 @@ export function PlanPane({ model }: { readonly model: TuiViewModel }): React.Rea
       <Text>ID: {plan.plan_id}</Text>
       <Text>Status: {plan.status}</Text>
       <Text>Current node: {plan.current_node ?? "none"}</Text>
+      <Text>Capability: {plan.current_capability ?? "none"}</Text>
+      <Text>Policy: {plan.policy_result ?? "none"}</Text>
+      <Text>Markdown artifact: {plan.final_markdown_artifact ?? "none"}</Text>
       <Text>Worktree: {plan.worktree_path ?? "none"}</Text>
       <Box marginTop={1} flexDirection="column">
         <Text color={theme.title}>DAG</Text>
@@ -57,6 +60,10 @@ export function PlanPane({ model }: { readonly model: TuiViewModel }): React.Rea
       <Box marginTop={1} flexDirection="column">
         <Text color={theme.title}>Validation Errors</Text>
         {(plan.validation_errors.length > 0 ? plan.validation_errors : ["none"]).map((line) => <Text key={line}>{line}</Text>)}
+      </Box>
+      <Box marginTop={1} flexDirection="column">
+        <Text color={theme.title}>Warnings</Text>
+        {(plan.warnings.length > 0 ? plan.warnings : ["none"]).map((line) => <Text key={line}>{line}</Text>)}
       </Box>
       </>
       ) : null}

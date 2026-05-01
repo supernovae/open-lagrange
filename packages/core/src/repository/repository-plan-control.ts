@@ -1,19 +1,17 @@
-import { mkdirSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { createArtifactSummary, registerArtifacts } from "../artifacts/index.js";
+import { createRunSummary, registerRun } from "../artifacts/run-index.js";
 import { stableHash } from "../util/hash.js";
-import { createMockDelegationContext } from "../clients/mock-delegation.js";
-import { createCapabilitySnapshotForTask } from "../capability-registry/registry.js";
 import { generateGoalFrame } from "../planning/goal-frame.js";
 import { renderPlanfileMarkdown } from "../planning/planfile-markdown.js";
-import { createArtifactRef } from "../planning/plan-artifacts.js";
-import { PlanRunner } from "../planning/plan-runner.js";
-import { getStateStore } from "../storage/state-store.js";
 import { Planfile, type Planfile as PlanfileType } from "../planning/planfile-schema.js";
+import { inMemoryPlanStateStore } from "../planning/plan-state.js";
 import { validatePlanfile, withCanonicalPlanDigest } from "../planning/planfile-validator.js";
-import { loadRepositoryWorkspace } from "./workspace.js";
 import { createWorktreeSession, cleanupWorktreeSession } from "./worktree-manager.js";
 import { WorktreeSession } from "./worktree-session.js";
-import { createRepositoryWorkOrderHandlers } from "./repository-work-order-handlers.js";
+import { RepositoryPlanRunner } from "./repository-plan-runner.js";
+import { readRepositoryPlanStatus, writeRepositoryPlanStatus } from "./repository-status.js";
 import { exportFinalPatch } from "./patch-exporter.js";
 
 export interface CreateRepositoryPlanfileInput {
@@ -45,11 +43,11 @@ export async function createRepositoryPlanfile(input: CreateRepositoryPlanfileIn
       node("frame_goal", "frame", "Frame repository goal", input.goal, [], [], "read", false),
       node("inspect_repo", "inspect", "Inspect repository evidence", "Collect bounded repository evidence for the change.", ["frame_goal"], ["repo.list_files", "repo.search_text", "repo.read_file"], "read", false),
       node("design_change", "design", "Design bounded change", "Create a design decision from evidence without file writes.", ["inspect_repo"], [], "read", false),
-      node("patch_repo", "patch", "Apply structured patch", "Produce and apply a validated repository PatchPlan in an isolated worktree.", ["design_change"], ["repo.propose_patch", "repo.apply_patch"], "write", true),
-      { ...node("verify_repo", "verify", "Verify patch", "Run allowlisted verification against the worktree.", ["patch_repo"], ["repo.run_verification"], "external_side_effect", true), verification_command_ids },
-      node("repair_repo", "repair", "Bounded repair", "Attempt bounded repair if verification fails.", ["verify_repo"], ["repo.propose_patch", "repo.apply_patch", "repo.run_verification"], "write", true, true),
-      node("review_repo", "review", "Review repository result", "Create review report from patch and verification artifacts.", ["verify_repo"], ["repo.create_review_report", "repo.get_diff"], "read", false),
-      node("finalize_repo", "finalize", "Export final patch", "Export final git patch artifact and final report.", ["review_repo"], ["repo.get_diff"], "read", false),
+      node("patch_repo", "patch", "Apply structured patch", "Produce and apply a validated repository PatchPlan in an isolated worktree.", ["design_change"], ["repo.propose_patch"], "write", true),
+      { ...node("verify_repo", "verify", "Verify patch", "Run allowlisted verification against the worktree.", ["patch_repo"], [], "external_side_effect", true), verification_command_ids },
+      node("repair_repo", "repair", "Bounded repair", "Attempt bounded repair if verification fails.", ["verify_repo"], [], "write", true, true),
+      node("review_repo", "review", "Review repository result", "Create review report from patch and verification artifacts.", ["verify_repo"], [], "read", false),
+      node("export_patch", "finalize", "Export final patch", "Export final git patch artifact.", ["review_repo"], [], "read", false),
     ],
     edges: [
       { from: "frame_goal", to: "inspect_repo", reason: "goal before evidence" },
@@ -58,14 +56,14 @@ export async function createRepositoryPlanfile(input: CreateRepositoryPlanfileIn
       { from: "patch_repo", to: "verify_repo", reason: "patch before verification" },
       { from: "verify_repo", to: "repair_repo", reason: "failed verification may repair" },
       { from: "verify_repo", to: "review_repo", reason: "verification before review" },
-      { from: "review_repo", to: "finalize_repo", reason: "review before final patch" },
+      { from: "review_repo", to: "export_patch", reason: "review before final patch" },
     ],
-    approval_policy: { require_approval_for_risks: ["write", "destructive", "external_side_effect"] },
+    approval_policy: { require_approval_for_risks: ["destructive"] },
     verification_policy: { allowed_command_ids: verification_command_ids },
     execution_context: {
       repository: {
         repo_root: repoRoot,
-        workspace_id: input.workspace_id,
+        ...(input.workspace_id ? { workspace_id: input.workspace_id } : {}),
         verification_command_ids,
       },
     },
@@ -73,9 +71,22 @@ export async function createRepositoryPlanfile(input: CreateRepositoryPlanfileIn
     created_at: now,
     updated_at: now,
   }));
-  const path = join(repoRoot, ".open-lagrange", "plans", `${planfile.plan_id}.md`);
+  const markdown = renderPlanfileMarkdown(planfile);
+  const path = join(repoRoot, ".open-lagrange", "plans", `${planfile.plan_id}.plan.md`);
   mkdirSync(dirname(path), { recursive: true });
-  return { planfile, markdown: renderPlanfileMarkdown(planfile), path };
+  writeFileSync(path, markdown, "utf8");
+  const artifact = createArtifactSummary({
+    artifact_id: `planfile_${planfile.plan_id}`,
+    kind: "planfile",
+    title: `Repository Planfile ${planfile.plan_id}`,
+    summary: planfile.goal_frame.interpreted_goal,
+    path_or_uri: path,
+    content_type: "text/markdown",
+    related_plan_id: planfile.plan_id,
+    created_at: now,
+  });
+  registerArtifacts({ artifacts: [artifact], now });
+  return { planfile, markdown, path };
 }
 
 export async function applyRepositoryPlanfile(input: {
@@ -86,108 +97,60 @@ export async function applyRepositoryPlanfile(input: {
 }) {
   const now = input.now ?? new Date().toISOString();
   const plan = withCanonicalPlanDigest(Planfile.parse(input.planfile));
-  const repoRoot = repositoryRootFromPlan(plan);
+  const validation = validatePlanfile(plan);
+  if (!validation.ok) throw new Error(validation.issues.map((issue) => issue.message).join("; "));
   const session = createWorktreeSession({
-    repo_root: repoRoot,
+    repo_root: repositoryRootFromPlan(plan),
     plan_id: plan.plan_id,
     ...(input.allow_dirty_base === undefined ? {} : { allow_dirty_base: input.allow_dirty_base }),
-    ...(input.retain_on_failure === undefined ? {} : { retain_on_failure: input.retain_on_failure }),
+    retain_on_failure: input.retain_on_failure ?? true,
     now,
   });
-  const base_delegation_context = createMockDelegationContext({
-    goal: plan.goal_frame.interpreted_goal,
-    project_id: plan.plan_id,
-    workspace_id: workspaceIdFromPlan(plan) ?? "workspace-local",
-    delegate_id: "open-lagrange-repository-plan",
-    allowed_scopes: ["project:read", "project:summarize", "project:write", "repository:read", "repository:write", "repository:verify"],
-  });
-  const delegation_context = {
-    ...base_delegation_context,
-    denied_scopes: [],
-    allowed_capabilities: ["repo.list_files", "repo.read_file", "repo.search_text", "repo.propose_patch", "repo.apply_patch", "repo.run_verification", "repo.get_diff", "repo.create_review_report"],
-    max_risk_level: "external_side_effect" as const,
-  };
-  const workspaceId = workspaceIdFromPlan(plan);
-  const workspace = loadRepositoryWorkspace({
-    repo_root: session.worktree_path,
-    ...(workspaceId ? { workspace_id: workspaceId } : {}),
-    trace_id: delegation_context.trace_id,
-    dry_run: false,
-    require_approval: true,
-  });
-  const capability_snapshot = createCapabilitySnapshotForTask({
-    allowed_capabilities: ["repo.list_files", "repo.read_file", "repo.search_text", "repo.propose_patch", "repo.apply_patch", "repo.run_verification", "repo.get_diff", "repo.create_review_report"],
-    allowed_scopes: ["repository:read", "repository:write", "repository:verify"],
-    max_risk_level: "external_side_effect",
+  const result = await new RepositoryPlanRunner({
+    store: inMemoryPlanStateStore,
+    planfile: plan,
+    session,
+    retain_worktree: input.retain_on_failure ?? true,
     now,
-  });
-  const validation = validatePlanfile(plan, { capability_snapshot });
-  if (!validation.ok) throw new Error(validation.issues.map((issue) => issue.message).join("; "));
-  const store = getStateStore();
-  const runner = new PlanRunner({
-    store,
-    capability_snapshot,
-    handlers: createRepositoryWorkOrderHandlers({
-      workspace,
-      delegation_context,
-      task_run_id: plan.plan_id,
-      snapshot_id: capability_snapshot.snapshot_id,
+  }).run();
+  registerRun({
+    run: createRunSummary({
+      run_id: `repo_${plan.plan_id}`,
+      workflow_kind: "repository",
+      title: plan.goal_frame.interpreted_goal,
+      summary: "Repository Planfile applied through durable repository PlanRunner.",
+      status: result.status.status === "completed" ? "completed" : result.status.status === "failed" ? "failed" : "yielded",
+      started_at: result.status.created_at,
+      completed_at: result.status.updated_at,
+      output_dir: join(repositoryRootFromPlan(plan), ".open-lagrange", "runs", plan.plan_id),
+      related_plan_id: plan.plan_id,
+      primary_artifact_refs: result.status.final_patch_artifact_id ? [result.status.final_patch_artifact_id] : [],
+      supporting_artifact_refs: result.status.artifact_refs,
+      debug_artifact_refs: [],
     }),
+    artifacts: result.artifacts,
+    now,
   });
-  let state = await runner.load(plan);
-  state = await store.recordPlanState({
-    ...state,
-    artifact_refs: [
-      ...state.artifact_refs,
-      createArtifactRef({
-        artifact_id: "worktree_session",
-        kind: "worktree_session",
-        path_or_uri: session.worktree_path,
-        summary: `${session.base_commit} ${session.base_ref}`,
-        created_at: session.created_at,
-      }),
-    ],
-    updated_at: now,
-  });
-  for (let index = 0; index < plan.nodes.length + 2; index += 1) {
-    const next = await runner.runReadyNode(plan);
-    state = next;
-    if (next.status === "completed" || next.status === "failed" || next.status === "yielded") break;
-  }
-  const finalPatch = exportFinalPatch(session);
-  return store.recordPlanState({
-    ...state,
-    artifact_refs: [
-      ...state.artifact_refs,
-      createArtifactRef({
-        artifact_id: "final_patch",
-        kind: "final_patch_artifact",
-        path_or_uri: `memory://${plan.plan_id}/final.patch`,
-        summary: `${finalPatch.changed_files.length} changed file(s) from ${finalPatch.base_commit}`,
-        created_at: finalPatch.created_at,
-      }),
-    ],
-    updated_at: new Date().toISOString(),
-  });
+  return result.status;
 }
 
 export async function getRepositoryPlanStatus(planId: string) {
-  return getStateStore().getPlanState(planId);
+  return readRepositoryPlanStatus(planId);
 }
 
 export async function exportRepositoryPlanPatch(planId: string, outputPath?: string) {
-  const state = await getStateStore().getPlanState(planId);
-  if (!state) return undefined;
-  const session = sessionFromState(planId, state.artifact_refs);
-  const patch = exportFinalPatch(session, outputPath);
+  const status = readRepositoryPlanStatus(planId);
+  if (!status?.worktree_session) return undefined;
+  const patch = exportFinalPatch(status.worktree_session, outputPath);
   return patch;
 }
 
 export async function cleanupRepositoryPlan(planId: string) {
-  const state = await getStateStore().getPlanState(planId);
-  if (!state) return { plan_id: planId, cleaned: false };
-  cleanupWorktreeSession(sessionFromState(planId, state.artifact_refs));
-  return { plan_id: planId, cleaned: true };
+  const status = readRepositoryPlanStatus(planId);
+  if (!status?.worktree_session) return { plan_id: planId, cleaned: false };
+  const cleaned = cleanupWorktreeSession(WorktreeSession.parse(status.worktree_session));
+  writeRepositoryPlanStatus({ ...status, worktree_session: cleaned, updated_at: cleaned.updated_at });
+  return { plan_id: planId, cleaned: true, worktree_path: cleaned.worktree_path };
 }
 
 function node(
@@ -226,28 +189,4 @@ function repositoryRootFromPlan(plan: PlanfileType): string {
     throw new Error("Repository Planfile is missing execution_context.repository.repo_root.");
   }
   return (repository as { repo_root: string }).repo_root;
-}
-
-function workspaceIdFromPlan(plan: PlanfileType): string | undefined {
-  const repository = plan.execution_context?.repository;
-  if (!repository || typeof repository !== "object") return undefined;
-  const value = (repository as { workspace_id?: unknown }).workspace_id;
-  return typeof value === "string" ? value : undefined;
-}
-
-function sessionFromState(planId: string, refs: readonly { readonly artifact_id: string; readonly kind?: string; readonly path_or_uri: string; readonly summary: string }[]): WorktreeSession {
-  const ref = refs.find((item) => item.kind === "worktree_session" || item.artifact_id === "worktree_session");
-  if (!ref) throw new Error(`Worktree session was not found for plan ${planId}.`);
-  const [base_commit = "", base_ref = "main"] = ref.summary.split(" ");
-  const repoRoot = ref.path_or_uri.split("/.open-lagrange/worktrees/")[0] ?? "";
-  return WorktreeSession.parse({
-    plan_id: planId,
-    repo_root: repoRoot,
-    worktree_path: ref.path_or_uri,
-    branch_name: `ol/${planId}`,
-    base_ref,
-    base_commit,
-    retain_on_failure: true,
-    created_at: new Date().toISOString(),
-  });
 }

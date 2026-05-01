@@ -20,6 +20,7 @@ export async function fetchSource(context: PrimitiveContext, input: ResearchFetc
       capture_body_as_artifact: true,
       artifact_id: `source_snapshot_${stableHash({ url: input.url, fetchedAt }).slice(0, 16)}`,
       artifact_kind: "source_snapshot",
+      artifact_metadata: { source_mode: input.mode, original_url: input.url },
     }), {
       max_attempts: 2,
       base_delay_ms: 100,
@@ -52,6 +53,7 @@ export async function fetchSource(context: PrimitiveContext, input: ResearchFetc
       retry_report: retried.report,
       policy_report: result.policy_report,
       capability_policy: capabilityPolicy,
+      source_mode: input.mode,
       rate_limit: rateLimitInfo,
       redacted_title: redaction.redactText(extracted.title ?? result.url),
     },

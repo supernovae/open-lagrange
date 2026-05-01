@@ -1,9 +1,16 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { createCapabilitySnapshotForTask } from "../src/capability-registry/registry.js";
+import { createMockDelegationContext } from "../src/clients/mock-delegation.js";
+import { createLocalPlanArtifactStore } from "../src/planning/local-plan-artifacts.js";
 import { buildCapabilitySnapshot } from "../src/schemas/capabilities.js";
 import { compileWorkOrder } from "../src/planning/work-order-compiler.js";
 import { renderPlanMermaid } from "../src/planning/mermaid-renderer.js";
 import { renderPlanfileMarkdown } from "../src/planning/planfile-markdown.js";
 import { parsePlanfileMarkdown } from "../src/planning/planfile-parser.js";
+import { PlanRunner } from "../src/planning/plan-runner.js";
+import { inMemoryPlanStateStore } from "../src/planning/plan-state.js";
 import { Planfile, type Planfile as PlanfileType } from "../src/planning/planfile-schema.js";
 import { validatePlanfile, withCanonicalPlanDigest } from "../src/planning/planfile-validator.js";
 
@@ -90,6 +97,51 @@ describe("planning primitive", () => {
     const parsed = parsePlanfileMarkdown(edited);
     expect(parsed.goal_frame.interpreted_goal).toBe("Goal for test");
     expect(validatePlanfile(parsed).ok).toBe(true);
+  });
+
+  it("executes the research URL summary Planfile through capability steps", async () => {
+    const markdown = readFileSync(join(process.cwd(), "examples/planfiles/research-url-summary.plan.md"), "utf8");
+    const plan = withCanonicalPlanDigest(parsePlanfileMarkdown(markdown));
+    const snapshot = createCapabilitySnapshotForTask({
+      allowed_capabilities: plan.nodes.flatMap((node) => node.allowed_capability_refs),
+      allowed_scopes: ["research:read", "project:read"],
+      max_risk_level: "read",
+      now,
+    });
+    const artifactStore = createLocalPlanArtifactStore({ plan_id: `${plan.plan_id}_test`, output_dir: ".open-lagrange/test-plan-runner/artifacts", now });
+    const runner = new PlanRunner({
+      store: inMemoryPlanStateStore,
+      capability_snapshot: snapshot,
+      delegation_context: {
+        ...createMockDelegationContext({
+          goal: plan.goal_frame.interpreted_goal,
+          project_id: plan.plan_id,
+          workspace_id: "workspace-local",
+          delegate_id: "test-plan-runner",
+          allowed_scopes: ["project:read", "research:read"],
+        }),
+        allowed_capabilities: ["research.fetch_source", "research.extract_content", "research.export_markdown"],
+        max_risk_level: "read",
+      },
+      runtime_config: {
+        artifact_store: artifactStore,
+        fetch_impl: async () => new Response("<html><title>Example Domain</title><body><p>This domain is for use in illustrative examples.</p></body></html>", {
+          status: 200,
+          headers: { "content-type": "text/html" },
+        }),
+      },
+      record_artifact: artifactStore.recordArtifact,
+      now: () => now,
+    });
+
+    const result = await runner.runToCompletion(plan);
+    const artifacts = artifactStore.flush();
+
+    expect(result.state.status).toBe("completed");
+    expect(artifacts.some((artifact) => artifact.kind === "source_snapshot" && artifact.source_mode === "live")).toBe(true);
+    expect(artifacts.some((artifact) => artifact.kind === "source_text")).toBe(true);
+    expect(artifacts.some((artifact) => artifact.kind === "research_brief")).toBe(true);
+    expect(artifacts.find((artifact) => artifact.kind === "research_brief")?.produced_by_node_id).toBe("export_markdown");
   });
 });
 

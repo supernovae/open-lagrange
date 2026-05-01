@@ -72,6 +72,30 @@ function skillSummary(project: ProjectRunStatus | undefined): SkillViewSummary |
 
 function planSummary(project: ProjectRunStatus | undefined): PlanViewSummary | undefined {
   const plan = project?.output?.plan;
+  const livePlan = livePlanExecution(project);
+  if (!plan && !livePlan) return undefined;
+  if (!plan && livePlan) {
+    return {
+      plan_id: livePlan.plan_id,
+      status: livePlan.status,
+      ...(livePlan.current_node ? { current_node: livePlan.current_node } : {}),
+      ...(livePlan.current_capability ? { current_capability: livePlan.current_capability } : {}),
+      ...(livePlan.policy_result ? { policy_result: livePlan.policy_result } : {}),
+      ...(livePlan.final_markdown_artifact ? { final_markdown_artifact: livePlan.final_markdown_artifact } : {}),
+      ...(livePlan.final_patch_artifact ? { final_patch_artifact: livePlan.final_patch_artifact } : {}),
+      ...(livePlan.worktree_path ? { worktree_path: livePlan.worktree_path } : {}),
+      dag_lines: livePlan.nodes.map((node) => `${node.node_id}: ${node.status}${node.capability ? ` (${node.capability})` : ""}`),
+      approval_requirements: [],
+      evidence_bundles: livePlan.evidence_bundle_ids,
+      changed_files: livePlan.changed_files,
+      patch_artifacts: livePlan.patch_artifact_ids,
+      verification_reports: livePlan.verification_report_ids,
+      repair_attempts: livePlan.repair_attempt_ids,
+      artifact_refs: livePlan.artifact_refs,
+      warnings: livePlan.warnings,
+      validation_errors: livePlan.errors,
+    };
+  }
   if (!plan) return undefined;
   const active = plan.tasks.find((task) => project?.task_statuses.some((status) => status.task_id === task.task_id && status.status === "running")) ?? plan.tasks[0];
   const worktree_path = worktreePath(project);
@@ -82,12 +106,75 @@ function planSummary(project: ProjectRunStatus | undefined): PlanViewSummary | u
     ...(worktree_path ? { worktree_path } : {}),
     dag_lines: plan.tasks.map((task, index) => `${index + 1}. ${task.task_id}: ${task.title}`),
     approval_requirements: approvalSummaries(project?.task_statuses ?? []).map((approval) => `${approval.task_id}: ${approval.requested_risk_level}`),
+    evidence_bundles: artifactSummaries(project, project?.task_statuses[0]).filter((artifact) => artifact.artifact_type === "evidence_bundle").map((artifact) => artifact.artifact_id),
     changed_files: changedFiles(project?.task_statuses[0]).map((file) => file.path),
     patch_artifacts: artifactSummaries(project, project?.task_statuses[0]).filter((artifact) => artifact.artifact_type === "diff").map((artifact) => artifact.artifact_id),
     verification_reports: artifactSummaries(project, project?.task_statuses[0]).filter((artifact) => artifact.artifact_type === "verification").map((artifact) => artifact.artifact_id),
     repair_attempts: repairAttempts(project),
     artifact_refs: artifactSummaries(project, project?.task_statuses[0]).map((artifact) => artifact.artifact_id),
+    warnings: [],
     validation_errors: project?.status?.errors.map((error) => error.message) ?? [],
+  };
+}
+
+function livePlanExecution(project: ProjectRunStatus | undefined): {
+  readonly plan_id: string;
+  readonly status: string;
+  readonly current_node?: string;
+  readonly current_capability?: string;
+  readonly policy_result?: string;
+  readonly final_markdown_artifact?: string;
+  readonly final_patch_artifact?: string;
+  readonly worktree_path?: string;
+  readonly nodes: readonly { readonly node_id: string; readonly status: string; readonly capability?: string }[];
+  readonly evidence_bundle_ids: readonly string[];
+  readonly changed_files: readonly string[];
+  readonly patch_artifact_ids: readonly string[];
+  readonly verification_report_ids: readonly string[];
+  readonly repair_attempt_ids: readonly string[];
+  readonly artifact_refs: readonly string[];
+  readonly warnings: readonly string[];
+  readonly errors: readonly string[];
+} | undefined {
+  const output = project?.output as unknown as { readonly plan_execution?: unknown; readonly repository_plan_status?: unknown } | undefined;
+  const value = output?.plan_execution ?? output?.repository_plan_status;
+  if (!value || typeof value !== "object") return undefined;
+  const record = value as Record<string, unknown>;
+  const nodes = Array.isArray(record.nodes) ? record.nodes.map((node) => {
+    const item = node && typeof node === "object" ? node as Record<string, unknown> : {};
+    const capability = stringField(item.capability);
+    return {
+      node_id: stringField(item.node_id) ?? "node",
+      status: stringField(item.status) ?? "unknown",
+      ...(capability ? { capability } : {}),
+    };
+  }) : [];
+  const currentNode = stringField(record.current_node);
+  const currentCapability = stringField(record.current_capability);
+  const policyResult = stringField(record.policy_result);
+  const finalMarkdownArtifact = stringField(record.final_markdown_artifact);
+  const finalPatchArtifact = stringField(record.final_patch_artifact_id) ?? stringField(record.final_patch_artifact);
+  const worktreePath = typeof record.worktree_session === "object" && record.worktree_session
+    ? stringField((record.worktree_session as Record<string, unknown>).worktree_path)
+    : stringField(record.worktree_path);
+  return {
+    plan_id: stringField(record.plan_id) ?? "unknown",
+    status: stringField(record.status) ?? "unknown",
+    ...(currentNode ? { current_node: currentNode } : {}),
+    ...(currentCapability ? { current_capability: currentCapability } : {}),
+    ...(policyResult ? { policy_result: policyResult } : {}),
+    ...(finalMarkdownArtifact ? { final_markdown_artifact: finalMarkdownArtifact } : {}),
+    ...(finalPatchArtifact ? { final_patch_artifact: finalPatchArtifact } : {}),
+    ...(worktreePath ? { worktree_path: worktreePath } : {}),
+    nodes,
+    evidence_bundle_ids: arrayStrings(record.evidence_bundle_ids),
+    changed_files: arrayStrings(record.changed_files),
+    patch_artifact_ids: arrayStrings(record.patch_artifact_ids),
+    verification_report_ids: arrayStrings(record.verification_report_ids),
+    repair_attempt_ids: arrayStrings(record.repair_attempt_ids),
+    artifact_refs: arrayStrings(record.artifact_refs),
+    warnings: arrayStrings(record.warnings),
+    errors: arrayStrings(record.errors),
   };
 }
 
@@ -197,7 +284,7 @@ function artifactType(value: string): ArtifactSummary["artifact_type"] {
   if (value === "planfile") return "plan";
   if (value === "verification_report") return "verification";
   if (value === "review_report") return "review";
-  if (value === "skill_frame" || value === "workflow_skill" || value === "pack_build_plan" || value === "generated_pack" || value === "pack_manifest" || value === "pack_validation_report" || value === "pack_test_report" || value === "pack_install_report" || value === "patch_plan" || value === "patch_artifact" || value === "source_search_results" || value === "source_snapshot" || value === "source_text" || value === "source_set" || value === "research_brief" || value === "citation_index" || value === "capability_step_result" || value === "approval_request" || value === "execution_timeline" || value === "raw_log") return value;
+  if (value === "skill_frame" || value === "workflow_skill" || value === "pack_build_plan" || value === "generated_pack" || value === "pack_manifest" || value === "pack_validation_report" || value === "pack_test_report" || value === "pack_install_report" || value === "policy_decision_report" || value === "evidence_bundle" || value === "patch_plan" || value === "patch_artifact" || value === "final_patch_artifact" || value === "source_search_results" || value === "source_snapshot" || value === "source_text" || value === "source_set" || value === "research_brief" || value === "citation_index" || value === "capability_step_result" || value === "approval_request" || value === "execution_timeline" || value === "worktree_session" || value === "raw_log") return value;
   return "artifact_json";
 }
 

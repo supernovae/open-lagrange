@@ -1,4 +1,4 @@
-import type { PackExecutionContext, PackRegistry } from "@open-lagrange/capability-sdk";
+import type { CapabilityExecutionResult, PackExecutionContext, PackRegistry } from "@open-lagrange/capability-sdk";
 import { CapabilityStepInput, CapabilityStepResult, type CapabilityStepInput as CapabilityStepInputType, type CapabilityStepResult as CapabilityStepResultType } from "./capability-step-schema.js";
 import { resolveCapabilityForStep, sdkDescriptorToPolicyCapability } from "./capability-step.js";
 import { evaluatePolicyWithReport } from "../policy/policy-gate.js";
@@ -30,18 +30,19 @@ export async function runCapabilityStep(
   options: CapabilityStepRunnerOptions,
 ): Promise<CapabilityStepResultType> {
   const started = Date.now();
+  const startedAt = new Date(started).toISOString();
   const input = CapabilityStepInput.parse(rawInput);
   const registry = options.registry ?? packRegistry;
   const now = options.now ?? new Date().toISOString();
   const resolved = resolveCapabilityForStep(registry, input.capability_ref);
-  if (!resolved) return finishFailure(input, started, now, "UNKNOWN_CAPABILITY", `Unknown capability: ${input.capability_ref}`, options);
+  if (!resolved) return finishFailure(input, started, startedAt, now, "UNKNOWN_CAPABILITY", `Unknown capability: ${input.capability_ref}`, options);
   if (resolved.descriptor.capability_digest !== input.capability_digest) {
-    return finishFailure(input, started, now, "CAPABILITY_DIGEST_MISMATCH", "Capability digest does not match current registry descriptor.", options);
+    return finishFailure(input, started, startedAt, now, "CAPABILITY_DIGEST_MISMATCH", "Capability digest does not match current registry descriptor.", options);
   }
 
   const parsedInput = resolved.definition.input_schema.safeParse(input.input);
   if (!parsedInput.success) {
-    return finishFailure(input, started, now, "SCHEMA_VALIDATION_FAILED", parsedInput.error.message, options);
+    return finishFailure(input, started, startedAt, now, "SCHEMA_VALIDATION_FAILED", parsedInput.error.message, options);
   }
 
   const intent = intentFromStep(input, resolved.descriptor);
@@ -57,7 +58,7 @@ export async function runCapabilityStep(
   });
   if (policy.result.outcome === "deny" || policy.result.outcome === "yield") {
     const status = policy.result.outcome === "yield" ? "yielded" : "failed";
-    return finish(input, started, now, {
+    return finish(input, started, startedAt, now, {
       status,
       policy_report: policy.report,
       structured_errors: [structuredError({
@@ -71,7 +72,7 @@ export async function runCapabilityStep(
     }, options);
   }
   if (policy.result.outcome === "requires_approval") {
-    return finish(input, started, now, {
+    return finish(input, started, startedAt, now, {
       status: "requires_approval",
       policy_report: policy.report,
       structured_errors: [structuredError({ code: "APPROVAL_REQUIRED", message: policy.result.reason, now, task_id: input.node_id, intent_id: intent.intent_id })],
@@ -86,7 +87,7 @@ export async function runCapabilityStep(
     project_id: input.delegation_context.project_id,
     workspace_id: input.delegation_context.workspace_id,
     task_run_id: input.delegation_context.task_run_id ?? input.node_id,
-    trace_id: input.delegation_context.trace_id,
+    trace_id: input.trace_id ?? input.delegation_context.trace_id,
     idempotency_key: input.idempotency_key,
     policy_decision: policy.result,
     execution_bounds: options.bounds ?? DEFAULT_EXECUTION_BOUNDS,
@@ -108,9 +109,30 @@ export async function runCapabilityStep(
     },
   };
 
-  const result = await registry.executeCapability({ capability_id: resolved.descriptor.capability_id }, parsedInput.data, executionContext).catch(() => undefined);
+  if (input.dry_run) {
+    return finish(input, started, startedAt, now, {
+      status: "yielded",
+      policy_report: policy.report,
+      structured_errors: [structuredError({ code: "YIELDED", message: "Capability step dry run did not execute.", now, task_id: input.node_id, intent_id: intent.intent_id })],
+      observations: [observation({ status: "skipped", summary: "Capability step dry run did not execute.", now, task_id: input.node_id, intent_id: intent.intent_id })],
+    }, options);
+  }
+
+  const result: CapabilityExecutionResult = await registry.executeCapability({ capability_id: resolved.descriptor.capability_id }, parsedInput.data, executionContext).catch((error: unknown): CapabilityExecutionResult => ({
+    status: "failed" as const,
+    structured_errors: [{
+      code: errorCodeFromThrown(error),
+      message: error instanceof Error ? error.message : "Capability execution failed.",
+    }],
+    observations: [],
+    artifacts: [],
+    started_at: startedAt,
+    completed_at: new Date().toISOString(),
+    duration_ms: Math.max(0, Date.now() - started),
+    idempotency_key: input.idempotency_key,
+  }));
   if (!result) {
-    return finish(input, started, now, {
+    return finish(input, started, startedAt, now, {
       status: "failed",
       policy_report: policy.report,
       output_artifact_refs: outputArtifactRefs,
@@ -121,7 +143,7 @@ export async function runCapabilityStep(
   outputArtifactRefs.push(...result.artifacts.flatMap(artifactRefs));
   const outputValidation = result.output === undefined ? { success: true as const, data: undefined } : resolved.definition.output_schema.safeParse(result.output);
   if (!outputValidation.success) {
-    return finish(input, started, now, {
+    return finish(input, started, startedAt, now, {
       status: "failed",
       policy_report: policy.report,
       output_artifact_refs: outputArtifactRefs,
@@ -140,8 +162,8 @@ export async function runCapabilityStep(
       intent_id: intent.intent_id,
     });
   });
-  const status = result.status === "success" ? "completed" : result.status === "requires_approval" ? "requires_approval" : result.status === "yielded" ? "yielded" : "failed";
-  return finish(input, started, now, {
+  const status = result.status === "success" ? "success" : result.status === "requires_approval" ? "requires_approval" : result.status === "yielded" ? "yielded" : "failed";
+  return finish(input, started, startedAt, now, {
     status,
     ...(result.output === undefined ? {} : { output: result.output }),
     output_artifact_refs: outputArtifactRefs,
@@ -149,8 +171,8 @@ export async function runCapabilityStep(
     structured_errors: structuredErrors,
     observations: [
       observation({
-        status: status === "completed" ? "recorded" : status === "failed" ? "error" : "skipped",
-        summary: status === "completed" ? "Capability step completed." : `Capability step ${status}.`,
+        status: status === "success" ? "recorded" : status === "failed" ? "error" : "skipped",
+        summary: status === "success" ? "Capability step completed." : `Capability step ${status}.`,
         now,
         task_id: input.node_id,
         intent_id: intent.intent_id,
@@ -188,12 +210,13 @@ function scopedTaskFromStep(input: CapabilityStepInputType, descriptor: { readon
 async function finishFailure(
   input: CapabilityStepInputType,
   started: number,
+  startedAt: string,
   now: string,
   code: Parameters<typeof structuredError>[0]["code"],
   message: string,
   options: CapabilityStepRunnerOptions,
 ): Promise<CapabilityStepResultType> {
-  return finish(input, started, now, {
+  return finish(input, started, startedAt, now, {
     status: "failed",
     structured_errors: [structuredError({ code, message, now, task_id: input.node_id })],
     observations: [observation({ status: "error", summary: message, now, task_id: input.node_id })],
@@ -203,6 +226,7 @@ async function finishFailure(
 async function finish(
   input: CapabilityStepInputType,
   started: number,
+  startedAt: string,
   now: string,
   partial: {
     readonly status: CapabilityStepResultType["status"];
@@ -217,11 +241,13 @@ async function finish(
   const result = CapabilityStepResult.parse({
     status: partial.status,
     ...(partial.output === undefined ? {} : { output: partial.output }),
-    output_artifact_refs: partial.output_artifact_refs ?? [],
+    output_artifact_refs: [...new Set(partial.output_artifact_refs ?? [])],
     ...(partial.policy_report ? { policy_report: partial.policy_report } : {}),
     observations: partial.observations ?? [],
     structured_errors: partial.structured_errors ?? [],
     duration_ms: Math.max(0, Date.now() - started),
+    started_at: startedAt,
+    completed_at: new Date().toISOString(),
   });
   if (options.plan_state && options.plan_state_store) {
     await options.plan_state_store.recordPlanState(updatePlanState(options.plan_state, input, result, now));
@@ -232,7 +258,7 @@ async function finish(
 function updatePlanState(state: PlanState, input: CapabilityStepInputType, result: CapabilityStepResultType, now: string): PlanState {
   const node_states = state.node_states.map((node) => node.node_id === input.node_id ? {
     ...node,
-    status: result.status === "completed" ? "completed" : result.status === "requires_approval" ? "yielded" : result.status,
+    status: result.status === "success" ? "completed" : result.status === "requires_approval" ? "yielded" : result.status,
     completed_at: now,
     artifacts: [...node.artifacts, ...result.output_artifact_refs.map((artifactId) => planArtifactRef(artifactId, now))],
     errors: [...node.errors, ...result.structured_errors.map((error) => error.message)],
@@ -296,4 +322,17 @@ function normalizeErrorCode(code: string): Parameters<typeof structuredError>[0]
     "YIELDED",
   ] as const;
   return allowed.includes(code as typeof allowed[number]) ? code as typeof allowed[number] : "MCP_EXECUTION_FAILED";
+}
+
+function errorCodeFromThrown(error: unknown): string {
+  if (error && typeof error === "object") {
+    const record = error as Record<string, unknown>;
+    if (typeof record.code === "string") return record.code;
+    const details = record.details;
+    if (details && typeof details === "object") {
+      const nested = details as Record<string, unknown>;
+      if (typeof nested.code === "string") return nested.code;
+    }
+  }
+  return "MCP_EXECUTION_FAILED";
 }

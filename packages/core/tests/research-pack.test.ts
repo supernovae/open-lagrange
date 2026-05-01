@@ -68,6 +68,28 @@ describe("research pack", () => {
     })).rejects.toMatchObject({ primitive_code: "PRIMITIVE_RESPONSE_TOO_LARGE" });
   });
 
+  it("uses the SDK HTTP primitive fetch implementation for live fetch", async () => {
+    let calls = 0;
+    const result = await runResearchFetchSource(createTestPackContext({
+      runtime_config: {
+        fetch_impl: async () => {
+          calls += 1;
+          return new Response("<html><title>Example</title><body><p>Hello from SDK HTTP.</p></body></html>", { status: 200, headers: { "content-type": "text/html" } });
+        },
+      },
+    }), {
+      url: "https://example.com",
+      mode: "live",
+      max_bytes: 500_000,
+      timeout_ms: 8_000,
+      accepted_content_types: ["text/html"],
+    });
+
+    expect(calls).toBe(1);
+    expect(result.raw_artifact_id).toMatch(/^source_snapshot_/);
+    expect(result.text_artifact_id).toMatch(/^source_text_/);
+  });
+
   it("does not use raw network or process authority in research pack source", () => {
     const files = ["executor.ts", "fetcher.ts", "search-provider.ts"].map((file) => readFileSync(join(process.cwd(), "packages/core/src/capability-packs/research", file), "utf8"));
     const source = files.join("\n");

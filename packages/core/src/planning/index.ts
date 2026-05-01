@@ -1,5 +1,6 @@
 export * from "./control-plane.js";
 export * from "./goal-frame.js";
+export * from "./local-plan-artifacts.js";
 export * from "./mermaid-renderer.js";
 export * from "./plan-artifacts.js";
 export * from "./plan-cognition.js";

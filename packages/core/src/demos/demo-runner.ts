@@ -124,19 +124,22 @@ function repoDemo(demo: DemoDefinition, runIdValue: string, outputDir: string, n
     }],
     expected_changed_files: ["src/cli.js"],
     verification_command_ids: ["npm_run_typecheck"],
-    preconditions: ["Fixture repository is deterministic."],
+    preconditions: [{ kind: "file_absent", path: "src/cli.js", summary: "Fixture repository preview is deterministic." }],
     risk_level: "write",
     approval_required: true,
   });
   const patchArtifact = RepositoryPatchArtifact.parse({
     patch_artifact_id: `patch_artifact_${stableHash(patchPlan).slice(0, 18)}`,
     patch_plan_id: patchPlan.patch_plan_id,
+    plan_id: patchPlan.plan_id,
+    node_id: patchPlan.node_id,
     changed_files: ["src/cli.js"],
     unified_diff: repoDiffPreview(),
     before_hashes: {},
     after_hashes: {},
     apply_status: "already_applied",
     errors: [],
+    artifact_id: `patch_artifact_${stableHash(patchPlan).slice(0, 18)}`,
     created_at: now,
   });
   const verification = VerificationReport.parse({
@@ -334,7 +337,7 @@ function jsonOutputPatchPlan(planId: string, nodeId: string, objective: string, 
     }],
     expected_changed_files: ["src/cli.js"],
     verification_command_ids: ["demo_fixture_check"],
-    preconditions: [`src/cli.js sha256 is ${target.sha256}`],
+    preconditions: [{ kind: "file_hash", path: "src/cli.js", expected_sha256: target.sha256, summary: `src/cli.js hash matches evidence.` }],
     risk_level: "write",
     approval_required: true,
   });

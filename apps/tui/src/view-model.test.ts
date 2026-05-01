@@ -143,4 +143,81 @@ describe("TUI view model", () => {
     expect(view.artifacts.find((artifact) => artifact.artifact_id === "research-brief-1")?.artifact_type).toBe("research_brief");
     expect(view.artifacts.find((artifact) => artifact.artifact_id === "pack-validation-1")?.artifact_type).toBe("pack_validation_report");
   });
+
+  it("renders live research plan execution status", () => {
+    const project = {
+      project_id: "project-1",
+      project_run_id: "project-run-1",
+      task_statuses: [],
+      output: {
+        plan_execution: {
+          plan_id: "plan_research_url_summary",
+          status: "completed",
+          current_node: "export_markdown",
+          current_capability: "research.export_markdown",
+          policy_result: "allow",
+          final_markdown_artifact: "research_markdown_1",
+          nodes: [
+            { node_id: "fetch_source", status: "completed", capability: "research.fetch_source" },
+            { node_id: "extract_content", status: "completed", capability: "research.extract_content" },
+            { node_id: "export_markdown", status: "completed", capability: "research.export_markdown" },
+          ],
+          artifact_refs: ["source_snapshot_1", "source_text_1", "research_markdown_1"],
+          warnings: [],
+          errors: [],
+        },
+      },
+    } as unknown as ProjectRunStatus;
+
+    const view = buildViewModel({
+      project,
+      selectedPane: "plan",
+      inputMode: "chat",
+      isLoading: false,
+    });
+
+    expect(view.plan?.current_capability).toBe("research.export_markdown");
+    expect(view.plan?.policy_result).toBe("allow");
+    expect(view.plan?.artifact_refs).toContain("research_markdown_1");
+    expect(view.plan?.dag_lines).toContain("fetch_source: completed (research.fetch_source)");
+  });
+
+  it("renders repository plan status from durable output", () => {
+    const project = {
+      project_id: "project-1",
+      project_run_id: "project-run-1",
+      task_statuses: [],
+      output: {
+        repository_plan_status: {
+          plan_id: "repo_plan_1",
+          status: "completed",
+          current_node: "review_repo",
+          worktree_session: { worktree_path: ".open-lagrange/worktrees/repo_plan_1" },
+          changed_files: ["README.md"],
+          evidence_bundle_ids: ["evidence_1"],
+          patch_artifact_ids: ["patch_artifact_1"],
+          verification_report_ids: ["verification_1"],
+          repair_attempt_ids: [],
+          final_patch_artifact_id: "final_patch_1",
+          artifact_refs: ["evidence_1", "patch_artifact_1", "verification_1", "final_patch_1"],
+          warnings: [],
+          errors: [],
+        },
+      },
+    } as unknown as ProjectRunStatus;
+
+    const view = buildViewModel({
+      project,
+      selectedPane: "plan",
+      inputMode: "chat",
+      isLoading: false,
+    });
+
+    expect(view.plan?.worktree_path).toContain("worktrees/repo_plan_1");
+    expect(view.plan?.changed_files).toEqual(["README.md"]);
+    expect(view.plan?.evidence_bundles).toEqual(["evidence_1"]);
+    expect(view.plan?.patch_artifacts).toEqual(["patch_artifact_1"]);
+    expect(view.plan?.verification_reports).toEqual(["verification_1"]);
+    expect(view.plan?.final_patch_artifact).toBe("final_patch_1");
+  });
 });

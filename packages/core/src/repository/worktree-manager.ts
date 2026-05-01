@@ -20,29 +20,48 @@ export function createWorktreeSession(input: CreateWorktreeSessionInput): Worktr
   const baseRef = git(repoRoot, ["rev-parse", "--abbrev-ref", "HEAD"]);
   const worktreePath = join(repoRoot, ".open-lagrange", "worktrees", input.plan_id);
   const branchName = `ol/${input.plan_id}`;
+  const now = input.now ?? new Date().toISOString();
   mkdirSync(dirname(worktreePath), { recursive: true });
   if (!existsSync(worktreePath)) {
     git(repoRoot, ["worktree", "add", "-B", branchName, worktreePath, baseCommit]);
   }
   return WorktreeSession.parse({
+    worktree_id: `worktree_${input.plan_id}`,
     plan_id: input.plan_id,
     repo_root: repoRoot,
     worktree_path: worktreePath,
-    branch_name: branchName,
     base_ref: baseRef,
     base_commit: baseCommit,
+    branch_name: branchName,
+    status: "created",
+    created_at: now,
+    updated_at: now,
     retain_on_failure: input.retain_on_failure ?? true,
-    created_at: input.now ?? new Date().toISOString(),
   });
 }
 
-export function cleanupWorktreeSession(session: WorktreeSessionType): void {
-  if (!existsSync(session.worktree_path)) return;
+export function cleanupWorktreeSession(session: WorktreeSessionType): WorktreeSessionType {
+  const now = new Date().toISOString();
+  if (!existsSync(session.worktree_path)) return WorktreeSession.parse({ ...session, status: "cleaned", updated_at: now });
   try {
     git(session.repo_root, ["worktree", "remove", "--force", session.worktree_path]);
   } catch {
     rmSync(session.worktree_path, { recursive: true, force: true });
   }
+  return WorktreeSession.parse({ ...session, status: "cleaned", updated_at: now });
+}
+
+export function updateWorktreeSessionStatus(
+  session: WorktreeSessionType,
+  status: WorktreeSessionType["status"],
+  extra: { readonly final_patch_artifact_id?: string } = {},
+): WorktreeSessionType {
+  return WorktreeSession.parse({
+    ...session,
+    status,
+    updated_at: new Date().toISOString(),
+    ...(extra.final_patch_artifact_id ? { final_patch_artifact_id: extra.final_patch_artifact_id } : {}),
+  });
 }
 
 export function assertFinalPatchApplies(session: WorktreeSessionType, patchText: string): void {
@@ -76,5 +95,9 @@ function assertSafePlanId(planId: string): void {
 
 function assertCleanBase(repoRoot: string): void {
   const status = git(repoRoot, ["status", "--porcelain"]);
-  if (status.trim()) throw new Error("Repository base has uncommitted changes. Use an explicit allow-dirty flag to proceed.");
+  const dirty = status
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !line.endsWith(" .open-lagrange/") && !line.includes(" .open-lagrange/"));
+  if (dirty.length > 0) throw new Error("Repository base has uncommitted changes. Use an explicit allow-dirty flag to proceed.");
 }

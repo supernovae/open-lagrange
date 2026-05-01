@@ -1,46 +1,51 @@
-# Repository Planfile to Patch
+# Repository Plan-to-Patch
 
-Repository work now uses the generic Planning Primitive as its control-plane entry point. A developer goal becomes a Planfile, the Planfile compiles ready nodes into Work Orders, and repository-specific handlers produce evidence, structured patch plans, patch artifacts, verification reports, review reports, and a final git patch artifact.
+Repository Plan-to-Patch turns a vague repository goal into durable typed artifacts and a final git patch. The model proposes typed work products; the control plane owns git worktrees, path policy, capability execution, patch validation, verification, repair bounds, artifact lineage, and final export.
 
-The generic planner stays repository-neutral. Repository path policy, command policy, git worktree behavior, patch validation, and verification policy live in the Repository Task Pack layer.
+## Commands
+
+```bash
+open-lagrange repo plan --repo . --goal "add json output to my cli" --dry-run
+open-lagrange repo apply .open-lagrange/plans/<plan_id>.plan.md
+open-lagrange repo status <plan_id>
+open-lagrange repo patch <plan_id> --output final.patch
+open-lagrange repo review <plan_id>
+open-lagrange repo cleanup <plan_id>
+```
+
+`repo run --dry-run` is a convenience alias for creating and validating the Planfile. `repo run --apply` creates the Planfile and applies it through the same durable path.
 
 ## Flow
 
 ```text
 developer goal
   -> GoalFrame
-  -> Repository Planfile
+  -> Planfile DAG
+  -> immutable execution copy
+  -> isolated WorktreeSession
   -> WorkOrders
   -> EvidenceBundle
   -> PatchPlan
-  -> PatchArtifact
+  -> validated PatchArtifact
   -> VerificationReport
-  -> bounded RepairWorkOrder
+  -> bounded RepairDecision
   -> ReviewReport
   -> final patch artifact
 ```
 
-Use:
+The CLI does not execute freeform Markdown. It parses and validates the executable Planfile block, computes the canonical digest, stores `.open-lagrange/runs/<plan_id>/plan.execution.json`, and then runs repository nodes through the repository PlanRunner.
 
-```bash
-open-lagrange repo plan --repo . --goal "add json output to my cli" --dry-run
-open-lagrange repo apply .open-lagrange/plans/<plan_id>.md
-open-lagrange repo status <plan_id>
-open-lagrange repo patch <plan_id> --output final.patch
-```
+## What Is Real
 
-`repo run` now defaults to the Planfile path and keeps the prior endpoint behind `--legacy`.
+- Planfile generation writes `.open-lagrange/plans/<plan_id>.plan.md`.
+- Repository apply creates `.open-lagrange/worktrees/<plan_id>/` on branch `ol/<plan_id>`.
+- Evidence collection uses repository capabilities through PackRegistry and CapabilityStepRunner.
+- Patch proposals are validated before writes.
+- Patch application mutates only the isolated worktree.
+- Verification uses allowlisted executable plus args, not arbitrary shell strings.
+- Final patch export validates the diff against the recorded base commit.
+- Evidence, patch, verification, review, status, and final patch artifacts are recorded under `.open-lagrange/runs/<plan_id>/`.
 
-## Execution Rules
+## Still Experimental
 
-Patch nodes must reference acceptance criteria and consume an EvidenceBundle. PatchPlans declare expected changed files, include hash preconditions for existing files, and pass repository patch validation before any worktree mutation.
-
-Verification nodes run only command IDs allowed by repository policy. Repair is bounded, records attempts as artifacts, and yields when scope expansion or stronger model routing is needed.
-
-## Lower Model Support
-
-Implementation work is scoped to a Work Order plus EvidenceBundle, relevant excerpts, constraints, latest failures, and an output schema. The model receives only the data needed for the current node, while the control plane keeps state, policy, approvals, verification, and artifacts.
-
-## Reuse
-
-Repository Task Pack proves the Planning Primitive can drive real work without becoming repository-specific. Future business, research, and Skill-to-Pack workflows can reuse the same Planfile and Work Order contracts while supplying their own handlers.
+The current implementation is intentionally narrow. Patch planning uses a bounded deterministic fallback for small repository tasks. Repair records a bounded decision and yields when broader scope is needed. Parallel DAG execution, broad semantic code editing, and remote distributed repository execution are not part of this phase.

@@ -28,6 +28,7 @@ export interface HttpFetchInput {
   readonly capture_body_as_artifact?: boolean;
   readonly artifact_id?: string;
   readonly artifact_kind?: string;
+  readonly artifact_metadata?: Record<string, unknown>;
   readonly allow_cookies?: boolean;
 }
 
@@ -99,7 +100,7 @@ export async function httpFetch(context: PrimitiveContext, input: HttpFetchInput
       content_type: response.headers.get("content-type") ?? "text/plain",
       validation_status: response.ok ? "pass" : "fail",
       redaction_status: "redacted",
-      metadata: { url: url.toString(), status: response.status, headers: headersToObject(response.headers) },
+      metadata: { ...(input.artifact_metadata ?? {}), url: url.toString(), final_url: response.url || url.toString(), status: response.status, headers: headersToObject(response.headers) },
     });
   }
   const result: HttpFetchResult = {

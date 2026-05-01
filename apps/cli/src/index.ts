@@ -9,8 +9,8 @@ import { exportArtifact, listArtifacts, listRunArtifacts, listRuns, recentArtifa
 import { listDemos, openDemo, runDemo } from "@open-lagrange/core/demos";
 import { runCoreDoctor } from "@open-lagrange/core/doctor";
 import { getPackHealth, inspectPack, listInspectablePacks, runPackSmoke, validateRegisteredPack } from "@open-lagrange/core/packs";
-import { generateGoalFrame, generatePlanfile, parsePlanfileMarkdown, parsePlanfileYaml, renderPlanfileMarkdown, renderPlanMermaid, validatePlanfile, withCanonicalPlanDigest } from "@open-lagrange/core/planning";
-import { createRepositoryPlanfile } from "@open-lagrange/core/repository";
+import { applyPlanfile as applyLocalPlanfile, generateGoalFrame, generatePlanfile, parsePlanfileMarkdown, parsePlanfileYaml, renderPlanfileMarkdown, renderPlanMermaid, validatePlanfile, withCanonicalPlanDigest } from "@open-lagrange/core/planning";
+import { applyRepositoryPlanfile as applyLocalRepositoryPlanfile, cleanupRepositoryPlan as cleanupLocalRepositoryPlan, createRepositoryPlanfile, exportRepositoryPlanPatch as exportLocalRepositoryPlanPatch, getRepositoryPlanStatus as getLocalRepositoryPlanStatus } from "@open-lagrange/core/repository";
 import { runResearchBriefCommand, runResearchExportCommand, runResearchFetchCommand, runResearchSearchCommand } from "@open-lagrange/core/research";
 import { buildGeneratedPackFromMarkdown, generateSkillFrame, generateWorkflowSkill, installGeneratedPack, parseSkillfileMarkdown, parseWorkflowSkillMarkdown, previewWorkflowSkillRun, scaffoldGeneratedPack, validateGeneratedPack, validateWorkflowSkill } from "@open-lagrange/core/skills";
 import { createPlatformClientFromCurrentProfile } from "@open-lagrange/platform-client";
@@ -439,7 +439,11 @@ repo.command("run")
         console.log(JSON.stringify({ plan_id: created.planfile.plan_id, path: created.path, canonical_plan_digest: created.planfile.canonical_plan_digest }, null, 2));
         return;
       }
-      console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).applyRepositoryPlanfile({ planfile: created.planfile }), null, 2));
+      console.log(JSON.stringify(await applyLocalRepositoryPlanfile({
+        planfile: created.planfile,
+        allow_dirty_base: false,
+        retain_on_failure: true,
+      }), null, 2));
       return;
     }
     console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).submitRepositoryGoal({
@@ -470,21 +474,22 @@ repo.command("plan")
 
 repo.command("apply")
   .argument("<planfile>", "Repository Planfile Markdown or YAML path")
+  .option("--retain-worktree", "Retain the isolated worktree after execution", false)
   .option("--allow-dirty-base", "Allow execution when the source worktree has uncommitted changes", false)
   .option("--cleanup-on-success", "Allow cleanup policy to remove retained worktrees later", false)
-  .action(async (path: string, options: { readonly allowDirtyBase: boolean; readonly cleanupOnSuccess: boolean }) => {
+  .action(async (path: string, options: { readonly retainWorktree: boolean; readonly allowDirtyBase: boolean; readonly cleanupOnSuccess: boolean }) => {
     const planfile = withCanonicalPlanDigest(await loadLocalPlanfile(path));
-    console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).applyRepositoryPlanfile({
+    console.log(JSON.stringify(await applyLocalRepositoryPlanfile({
       planfile,
       allow_dirty_base: options.allowDirtyBase,
-      retain_on_failure: !options.cleanupOnSuccess,
+      retain_on_failure: options.retainWorktree || !options.cleanupOnSuccess,
     }), null, 2));
   });
 
 repo.command("status").argument("<planId>", "Plan ID, task ID, or task run ID").action(async (planId: string) => {
-  const client = await createPlatformClientFromCurrentProfile();
-  const status = await client.getRepositoryPlanStatus(planId);
-  if (isMissingStatus(status)) console.log(JSON.stringify(await client.getTaskStatus(planId), null, 2));
+  const client = await createPlatformClientFromCurrentProfile().catch(() => undefined);
+  const status = await getLocalRepositoryPlanStatus(planId) ?? await client?.getRepositoryPlanStatus(planId);
+  if (isMissingStatus(status) && client) console.log(JSON.stringify(await client.getTaskStatus(planId), null, 2));
   else console.log(JSON.stringify(status, null, 2));
 });
 
@@ -496,9 +501,8 @@ repo.command("patch")
   .argument("<planId>", "Repository plan ID")
   .option("--output <path>", "Write final patch to a file")
   .action(async (planId: string, options: { readonly output?: string }) => {
-    const patch = await (await createPlatformClientFromCurrentProfile()).getRepositoryPlanPatch(planId);
+    const patch = await exportLocalRepositoryPlanPatch(planId, options.output);
     if (options.output && isPatchArtifact(patch)) {
-      await writeFile(options.output, patch.unified_diff, "utf8");
       console.log(JSON.stringify({ plan_id: patch.plan_id, output: options.output, changed_files: patch.changed_files }, null, 2));
       return;
     }
@@ -513,7 +517,7 @@ repo.command("review").argument("<planId>", "Plan ID, task ID, or task run ID").
 });
 
 repo.command("cleanup").argument("<planId>", "Repository plan ID").action(async (planId: string) => {
-  console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).cleanupRepositoryPlan(planId), null, 2));
+  console.log(JSON.stringify(await cleanupLocalRepositoryPlan(planId), null, 2));
 });
 
 repo.command("approve").argument("<taskId>", "Task ID or task run ID").requiredOption("--reason <reason>", "Approval reason").requiredOption("--approval-token <approvalToken>", "Approval token").option("--approved-by <approvedBy>", "Approver identifier", "human-local").action(async (taskId: string, options: { readonly reason: string; readonly approvalToken: string; readonly approvedBy: string }) => {
@@ -625,12 +629,16 @@ plan.command("render").argument("<planfile>", "Planfile Markdown or YAML path").
   console.log(markdown);
 });
 
-plan.command("apply").argument("<planfile>", "Planfile Markdown or YAML path").action(async (path: string) => {
+plan.command("apply").argument("<planfile>", "Planfile Markdown or YAML path").option("--live", "Execute through the local runtime path", false).action(async (path: string, options: { readonly live: boolean }) => {
   const planfile = withCanonicalPlanDigest(await loadLocalPlanfile(path));
   const validation = validatePlanfile(planfile);
   if (!validation.ok) {
     console.log(JSON.stringify({ ...validation, plan_id: planfile.plan_id }, null, 2));
     process.exitCode = 1;
+    return;
+  }
+  if (options.live) {
+    console.log(JSON.stringify(await applyLocalPlanfile({ planfile, live: true }), null, 2));
     return;
   }
   console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).applyPlanfile({ planfile }), null, 2));
