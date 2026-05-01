@@ -9,6 +9,7 @@ import { resolveCapabilityForStep } from "../../runtime/capability-step.js";
 import { runCapabilityStep } from "../../runtime/capability-step-runner.js";
 import { stableHash } from "../../util/hash.js";
 import { readFixtureSource } from "./fixtures.js";
+import { RESEARCH_LIMITS } from "./policy.js";
 import { runResearchCreateBrief, runResearchCreateSourceSet, runResearchExportMarkdown, runResearchExtractContent, runResearchSearch } from "./executor.js";
 import type { CreateBriefOutput, ExtractedSource, SourceMode } from "./schemas.js";
 
@@ -57,7 +58,7 @@ export async function runResearchFetchCommand(input: {
     input: {
       url: input.url,
       mode: input.mode,
-      max_bytes: 500_000,
+      max_bytes: RESEARCH_LIMITS.max_fetch_bytes,
       timeout_ms: 8_000,
       accepted_content_types: ["text/html", "text/plain", "text/markdown", "application/xhtml+xml"],
     },

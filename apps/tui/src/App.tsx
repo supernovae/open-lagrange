@@ -90,7 +90,11 @@ export function App(props: AppProps): React.ReactElement {
     onQuit: () => app.exit(),
   });
 
-  useInput((_value, key) => {
+  useInput((value, key) => {
+    if (key.ctrl && value === "e") {
+      toggleExpandedTurn();
+      return;
+    }
     if (key.pageUp || (key.shift && key.upArrow)) {
       setScrollOffset((value) => expandedTurnId ? Math.max(0, value - 8) : Math.min(conversation.length, value + 3));
       return;
@@ -240,6 +244,20 @@ export function App(props: AppProps): React.ReactElement {
     setConversation((turns) => [...turns, turn]);
     setScrollOffset(0);
     setExpandedTurnId(undefined);
+  }
+
+  function toggleExpandedTurn(): void {
+    if (expandedTurnId) {
+      setExpandedTurnId(undefined);
+      setScrollOffset(0);
+      setSelectedPane("chat");
+      return;
+    }
+    const turn = turnToExpand(conversation, scrollOffset);
+    if (!turn) return;
+    setExpandedTurnId(turn.turn_id);
+    setScrollOffset(0);
+    setSelectedPane("chat");
   }
 
   return <Layout model={model} input={input} setInput={handleInputChange} onSubmit={(value) => void onSubmit(value)} />;

@@ -3,6 +3,7 @@ import { artifacts, createPrimitiveContext } from "@open-lagrange/capability-sdk
 import { stableHash } from "../../util/hash.js";
 import { extractReadableContent } from "./extractor.js";
 import { fetchSource } from "./fetcher.js";
+import { RESEARCH_LIMITS } from "./policy.js";
 import { searchSources } from "./search-provider.js";
 import { createResearchBrief, exportResearchMarkdown } from "./research-brief.js";
 import { createSourceSet } from "./source-set.js";
@@ -98,7 +99,7 @@ function primitiveContext(context: PackExecutionContext, capabilityId: string) {
     },
     limits: {
       default_timeout_ms: 8_000,
-      default_max_bytes: 500_000,
+      default_max_bytes: RESEARCH_LIMITS.max_fetch_bytes,
       default_redirect_limit: 3,
       allowed_http_methods: ["GET"],
       allow_private_network: false,

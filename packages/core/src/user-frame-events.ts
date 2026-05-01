@@ -44,7 +44,7 @@ export type UserFrameEventResult =
   | { readonly status: "submitted"; readonly message: string; readonly project_id?: string; readonly task_run_id?: string; readonly hatchet_run_id?: string }
   | { readonly status: "completed"; readonly message: string; readonly output?: unknown }
   | { readonly status: "unsupported"; readonly message: string; readonly event_type: UserFrameEvent["type"] }
-  | { readonly status: "failed"; readonly message: string };
+  | { readonly status: "failed"; readonly message: string; readonly output?: unknown };
 
 export interface SubmitProjectGoalInput {
   readonly goal: string;

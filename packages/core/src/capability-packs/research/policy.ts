@@ -4,7 +4,7 @@ import type { ResearchFetchSourceInput, ResearchSearchInput } from "./schemas.js
 
 export const RESEARCH_LIMITS = {
   max_search_results: 25,
-  max_fetch_bytes: 500_000,
+  max_fetch_bytes: 2_000_000,
   max_extracted_chars: 20_000,
   redirect_limit: 3,
 } as const;

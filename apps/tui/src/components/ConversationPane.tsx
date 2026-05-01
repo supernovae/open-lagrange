@@ -87,7 +87,7 @@ function TurnCard({ turn, maxBodyLines }: { readonly turn: ConversationTurn; rea
       {shown.map((line, index) => (
         <Text key={`${turn.turn_id}:${index}`} wrap="truncate-end">{line}</Text>
       ))}
-      {hidden > 0 ? <Text color={theme.muted}>... {hidden} more line(s) in this card. Type /expand to view.</Text> : null}
+      {hidden > 0 ? <Text color={theme.muted}>... {hidden} more line(s) in this card. Ctrl+e or /expand to view.</Text> : null}
     </Box>
   );
 }
@@ -105,7 +105,7 @@ function ExpandedTurn({ turn, height, lineOffset }: { readonly turn: Conversatio
         {turn.title ? <Text color={theme.muted}> · {turn.title}</Text> : null}
         <Text color={theme.muted}> {start + 1}-{Math.min(lines.length, start + shown.length)} / {lines.length}</Text>
       </Text>
-      <Text color={theme.muted}>PgUp/PgDn scroll output. Type /collapse to return to transcript.</Text>
+      <Text color={theme.muted}>PgUp/PgDn scroll output. Ctrl+e or /collapse returns to transcript.</Text>
       <Box borderStyle={turn.kind === "error" ? "round" : "single"} borderColor={turnColor(turn)} paddingX={1} marginTop={1} flexDirection="column" flexShrink={0}>
         {shown.map((line, index) => (
           <Text key={`${turn.turn_id}:expanded:${start + index}`} wrap="truncate-end">{line}</Text>

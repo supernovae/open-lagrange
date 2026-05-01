@@ -4,7 +4,7 @@ import { explainSystem, getCapabilitiesSummary, routeIntent } from "@open-lagran
 import { listDemos, runDemo } from "@open-lagrange/core/demos";
 import type { DemoRunResult } from "@open-lagrange/core/demos";
 import { inspectPack } from "@open-lagrange/core/packs";
-import { runResearchBriefCommand, runResearchExportCommand, runResearchFetchCommand, runResearchSearchCommand } from "@open-lagrange/core/research";
+import { runResearchBriefCommand, runResearchExportCommand, runResearchFetchCommand, runResearchSearchCommand, type ResearchCommandResult } from "@open-lagrange/core/research";
 import { buildGeneratedPackFromMarkdown, generateSkillFrame, generateWorkflowSkill, parseSkillfileMarkdown } from "@open-lagrange/core/skills";
 import type { TuiUserFrameEvent, UserFrameEvent, UserFrameEventResult } from "@open-lagrange/core/interface";
 import { runDoctor } from "@open-lagrange/runtime-manager";
@@ -97,20 +97,20 @@ async function submitLocalOrRemoteEvent(event: TuiUserFrameEvent): Promise<UserF
   }
   if (event.type === "research.search") {
     const result = await runResearchSearchCommand({ query: event.query, mode: event.mode });
-    return { status: "completed", message: researchMessage("Search", result), output: result };
+    return { status: researchStatus(result), message: researchMessage("Search", result), output: result };
   }
   if (event.type === "research.fetch") {
     if (event.mode !== "live") return { status: "failed", message: "Research URL fetch requires live mode." };
     const result = await runResearchFetchCommand({ url: event.url, mode: "live" });
-    return { status: "completed", message: researchMessage("Fetch", result), output: result };
+    return { status: researchStatus(result), message: researchMessage("Fetch", result), output: result };
   }
   if (event.type === "research.brief") {
     const result = await runResearchBriefCommand({ topic: event.topic, mode: event.mode });
-    return { status: "completed", message: researchMessage("Brief", result), output: result };
+    return { status: researchStatus(result), message: researchMessage("Brief", result), output: result };
   }
   if (event.type === "research.export") {
     const result = await runResearchExportCommand({ brief_id: event.brief_id });
-    return { status: "completed", message: researchMessage("Export", result), output: result };
+    return { status: researchStatus(result), message: researchMessage("Export", result), output: result };
   }
   return (await (await createPlatformClientFromCurrentProfile()).submitUserFrameEvent(event)) as UserFrameEventResult;
 }
@@ -128,8 +128,8 @@ function helpText(): string {
     "- Up/down: command history",
     "- Page up/down or Shift+up/down: journal scroll",
     "- Tab / Shift+tab: cycle panes",
-    "- /expand: open the current transcript card in detail view",
-    "- /collapse: return from detail view to the transcript",
+    "- Ctrl+e or /expand: open the current transcript card in detail view",
+    "- Ctrl+e or /collapse: return from detail view to the transcript",
     "- /copy: journal the current view text",
     "",
     "Useful commands:",
@@ -163,9 +163,16 @@ function helpText(): string {
   ].join("\n");
 }
 
-function researchMessage(title: string, result: { readonly run_id: string; readonly output_dir: string; readonly artifacts: readonly { readonly artifact_id: string; readonly kind: string; readonly title: string }[]; readonly warnings: readonly string[] }): string {
+export function researchStatus(result: ResearchCommandResult): "completed" | "failed" {
+  return resultStatus(result.result) === "failed" ? "failed" : "completed";
+}
+
+export function researchMessage(title: string, result: ResearchCommandResult): string {
+  const status = resultStatus(result.result);
+  const error = firstStructuredError(result.result);
   return [
-    `Research ${title} completed`,
+    `Research ${title} ${status}`,
+    ...(error ? [`Error: ${error.message}`, `Code: ${error.code}`] : []),
     `Run: ${result.run_id}`,
     `Artifacts written to: ${result.output_dir}`,
     result.warnings.length > 0 ? `Warnings: ${result.warnings.join(", ")}` : "Warnings: none",
@@ -173,6 +180,23 @@ function researchMessage(title: string, result: { readonly run_id: string; reado
     "Artifacts:",
     ...result.artifacts.map((artifact) => `- ${artifact.title} [${artifact.kind}] ${artifact.artifact_id}`),
   ].join("\n");
+}
+
+function resultStatus(result: unknown): "completed" | "failed" {
+  if (!result || typeof result !== "object") return "completed";
+  const status = (result as { readonly status?: unknown }).status;
+  if (typeof status !== "string") return "completed";
+  return status === "success" || status === "completed" ? "completed" : "failed";
+}
+
+function firstStructuredError(result: unknown): { readonly code: string; readonly message: string } | undefined {
+  if (!result || typeof result !== "object") return undefined;
+  const errors = (result as { readonly structured_errors?: unknown }).structured_errors;
+  if (!Array.isArray(errors)) return undefined;
+  const first = errors.find((item) => item && typeof item === "object") as Record<string, unknown> | undefined;
+  const code = typeof first?.code === "string" ? first.code : undefined;
+  const message = typeof first?.message === "string" ? first.message : undefined;
+  return code && message ? { code, message } : undefined;
 }
 
 function packsText(summary: ReturnType<typeof getCapabilitiesSummary>): string {
