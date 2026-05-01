@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ExecutionMode } from "../runtime/execution-mode.js";
 
 export const ArtifactKind = z.enum([
   "planfile",
@@ -60,7 +61,12 @@ export const ArtifactSummary = z.object({
   produced_by_node_id: z.string().min(1).optional(),
   input_artifact_refs: z.array(z.string().min(1)).optional(),
   output_artifact_refs: z.array(z.string().min(1)).optional(),
-  source_mode: z.enum(["fixture", "live"]).optional(),
+  source_mode: ExecutionMode.optional(),
+  execution_mode: ExecutionMode.default("live"),
+  fixture_id: z.string().min(1).optional(),
+  fixture_set: z.string().min(1).optional(),
+  live: z.boolean().optional(),
+  mode_warning: z.string().min(1).optional(),
   validation_status: z.string().min(1).optional(),
   redaction_status: z.enum(["redacted", "not_redacted", "unknown"]).optional(),
   redacted: z.boolean(),

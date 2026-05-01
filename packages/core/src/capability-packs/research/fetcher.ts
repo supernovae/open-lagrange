@@ -8,6 +8,15 @@ import type { ResearchFetchSourceInput, ResearchFetchSourceOutput } from "./sche
 
 export async function fetchSource(context: PrimitiveContext, input: ResearchFetchSourceInput): Promise<ResearchFetchSourceOutput> {
   const fetchedAt = new Date().toISOString();
+  if (input.mode === "dry_run") {
+    return {
+      source_id: input.source_id ?? sourceIdForUrl(input.url),
+      url: input.url,
+      fetched_at: fetchedAt,
+      truncated: false,
+      warnings: ["dry_run: validated source fetch input without network access."],
+    };
+  }
   if (input.mode === "fixture") return fetchFixture(context, input, fetchedAt);
   const capabilityPolicy = policy.evaluateCapability(context, { risk_level: "read", side_effect_kind: "network_read", requires_approval: false });
   if (capabilityPolicy.decision === "deny") throw new Error(capabilityPolicy.reason);
@@ -20,7 +29,7 @@ export async function fetchSource(context: PrimitiveContext, input: ResearchFetc
       capture_body_as_artifact: true,
       artifact_id: `source_snapshot_${stableHash({ url: input.url, fetchedAt }).slice(0, 16)}`,
       artifact_kind: "source_snapshot",
-      artifact_metadata: { source_mode: input.mode, original_url: input.url },
+      artifact_metadata: { source_mode: input.mode, execution_mode: input.mode, live: true, original_url: input.url },
     }), {
       max_attempts: 2,
       base_delay_ms: 100,
@@ -42,7 +51,7 @@ export async function fetchSource(context: PrimitiveContext, input: ResearchFetc
     kind: "source_text",
     title: extracted.title ?? result.url,
     summary: `Extracted text from ${result.url}.`,
-    content: { ...extracted, citation, mode: input.mode },
+    content: { ...extracted, artifact_id: textArtifactId, citation, mode: input.mode },
     input_artifact_refs: result.artifact_id ? [result.artifact_id] : [],
     validation_status: "pass",
     redaction_status: "redacted",
@@ -50,10 +59,12 @@ export async function fetchSource(context: PrimitiveContext, input: ResearchFetc
       url: input.url,
       final_url: result.url,
       mode: input.mode,
+      execution_mode: input.mode,
       retry_report: retried.report,
       policy_report: result.policy_report,
       capability_policy: capabilityPolicy,
       source_mode: input.mode,
+      live: true,
       rate_limit: rateLimitInfo,
       redacted_title: redaction.redactText(extracted.title ?? result.url),
     },
@@ -94,7 +105,7 @@ async function fetchFixture(context: PrimitiveContext, input: ResearchFetchSourc
     content: { source: fixture.source, content: fixture.content, mode: "fixture" },
     validation_status: "pass",
     redaction_status: "redacted",
-    metadata: { original_url: fixture.source.url, final_url: fixture.source.url, source_mode: "fixture" },
+    metadata: { original_url: fixture.source.url, final_url: fixture.source.url, source_mode: "fixture", execution_mode: "fixture", fixture_id: fixture.source.source_id, fixture_set: "research-brief-demo", live: false, mode_warning: "Generated from deterministic checked-in sources, not live web results." },
   });
   const extracted = extractReadableContent({ markdown: fixture.content, url: fixture.source.url, max_chars: 20_000 }, fetchedAt);
   const textArtifactId = `source_text_${stableHash({ fixture: fixture.source.source_id, fetchedAt }).slice(0, 16)}`;
@@ -103,11 +114,11 @@ async function fetchFixture(context: PrimitiveContext, input: ResearchFetchSourc
     kind: "source_text",
     title: fixture.source.title,
     summary: `Extracted text from ${fixture.source.title}.`,
-    content: { ...extracted, source_id: fixture.source.source_id, title: fixture.source.title, mode: "fixture" },
+    content: { ...extracted, artifact_id: textArtifactId, source_id: fixture.source.source_id, title: fixture.source.title, mode: "fixture" },
     input_artifact_refs: [rawArtifactId],
     validation_status: "pass",
     redaction_status: "redacted",
-    metadata: { original_url: fixture.source.url, final_url: fixture.source.url, source_mode: "fixture" },
+    metadata: { original_url: fixture.source.url, final_url: fixture.source.url, source_mode: "fixture", execution_mode: "fixture", fixture_id: fixture.source.source_id, fixture_set: "research-brief-demo", live: false, mode_warning: "Generated from deterministic checked-in sources, not live web results." },
   });
   return {
     source_id: fixture.source.source_id,

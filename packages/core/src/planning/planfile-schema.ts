@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { RiskLevel } from "../schemas/capabilities.js";
+import { ExecutionMode } from "../runtime/execution-mode.js";
 import { GoalFrame } from "./goal-frame.js";
 import { PlanArtifactRef } from "./plan-artifacts.js";
 
@@ -29,6 +30,7 @@ export const PlanNode = z.object({
   description: z.string(),
   depends_on: z.array(z.string().min(1)),
   allowed_capability_refs: z.array(z.string().min(1)),
+  execution_mode: ExecutionMode.optional(),
   expected_outputs: z.array(z.string().min(1)),
   acceptance_refs: z.array(z.string().min(1)),
   risk_level: RiskLevel,

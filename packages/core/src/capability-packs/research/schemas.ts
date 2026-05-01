@@ -1,6 +1,8 @@
 import { z } from "zod";
+import { ExecutionMode } from "../../runtime/execution-mode.js";
 
-export const SourceMode = z.enum(["fixture", "live"]);
+export const SourceMode = ExecutionMode;
+export const ResearchSearchProviderMode = z.enum(["live", "fixture"]);
 export const SourceType = z.enum(["official", "documentation", "news", "paper", "blog", "forum", "repo", "unknown"]);
 export const Confidence = z.enum(["low", "medium", "high"]);
 
@@ -34,7 +36,7 @@ export const ResearchSearchInput = z.object({
   preferred_source_types: z.array(SourceType.exclude(["unknown"])).optional(),
   domains_allowlist: z.array(z.string().min(1)).optional(),
   domains_denylist: z.array(z.string().min(1)).optional(),
-  mode: SourceMode.default("fixture"),
+  mode: SourceMode.default("live"),
 }).strict();
 
 export const ResearchSearchOutput = z.object({
@@ -51,7 +53,7 @@ export const ResearchFetchSourceInput = z.object({
   max_bytes: z.number().int().min(1_000).max(2_000_000).default(500_000),
   timeout_ms: z.number().int().min(500).max(30_000).default(8_000),
   accepted_content_types: z.array(z.string().min(1)).default(["text/html", "text/plain", "text/markdown", "application/xhtml+xml"]),
-  mode: SourceMode.default("fixture"),
+  mode: SourceMode.default("live"),
 }).strict();
 
 export const ResearchFetchSourceOutput = z.object({

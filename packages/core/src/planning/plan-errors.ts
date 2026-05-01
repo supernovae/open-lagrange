@@ -3,6 +3,7 @@ export type PlanIssueSeverity = "error" | "warning";
 export interface PlanValidationIssue {
   readonly code:
     | "INVALID_SCHEMA"
+    | "INVALID_PLAN"
     | "INVALID_NODE_ID"
     | "DUPLICATE_NODE_ID"
     | "MISSING_DEPENDENCY"

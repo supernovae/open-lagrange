@@ -4,7 +4,7 @@ import { explainSystem, getCapabilitiesSummary, routeIntent } from "@open-lagran
 import { listDemos, runDemo } from "@open-lagrange/core/demos";
 import type { DemoRunResult } from "@open-lagrange/core/demos";
 import { inspectPack } from "@open-lagrange/core/packs";
-import { runResearchBriefCommand, runResearchExportCommand, runResearchFetchCommand, runResearchSearchCommand, type ResearchCommandResult } from "@open-lagrange/core/research";
+import { runResearchBriefCommand, runResearchExportCommand, runResearchFetchCommand, runResearchSearchCommand, runResearchSummarizeUrlCommand, type ResearchCommandResult } from "@open-lagrange/core/research";
 import { buildGeneratedPackFromMarkdown, generateSkillFrame, generateWorkflowSkill, parseSkillfileMarkdown } from "@open-lagrange/core/skills";
 import type { TuiUserFrameEvent, UserFrameEvent, UserFrameEventResult } from "@open-lagrange/core/interface";
 import { runDoctor } from "@open-lagrange/runtime-manager";
@@ -96,16 +96,19 @@ async function submitLocalOrRemoteEvent(event: TuiUserFrameEvent): Promise<UserF
     return { status: output ? "completed" : "failed", message: output ? `Artifact loaded: ${event.artifact_id}` : `Artifact not found: ${event.artifact_id}`, output };
   }
   if (event.type === "research.search") {
-    const result = await runResearchSearchCommand({ query: event.query, mode: event.mode });
+    const result = await runResearchSearchCommand({ query: event.query, mode: event.mode, dry_run: event.dry_run });
     return { status: researchStatus(result), message: researchMessage("Search", result), output: result };
   }
   if (event.type === "research.fetch") {
-    if (event.mode !== "live") return { status: "failed", message: "Research URL fetch requires live mode." };
-    const result = await runResearchFetchCommand({ url: event.url, mode: "live" });
+    const result = await runResearchFetchCommand({ url: event.url, mode: event.mode, dry_run: event.dry_run });
     return { status: researchStatus(result), message: researchMessage("Fetch", result), output: result };
   }
+  if (event.type === "research.summarize_url") {
+    const result = await runResearchSummarizeUrlCommand({ url: event.url, mode: event.mode, dry_run: event.dry_run });
+    return { status: researchStatus(result), message: researchMessage("Summarize URL", result), output: result };
+  }
   if (event.type === "research.brief") {
-    const result = await runResearchBriefCommand({ topic: event.topic, mode: event.mode });
+    const result = await runResearchBriefCommand({ topic: event.topic, mode: event.mode, urls: event.urls, dry_run: event.dry_run });
     return { status: researchStatus(result), message: researchMessage("Brief", result), output: result };
   }
   if (event.type === "research.export") {

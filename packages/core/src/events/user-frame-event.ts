@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ExecutionMode } from "../runtime/execution-mode.js";
 
 export const TuiUserFrameEvent = z.discriminatedUnion("type", [
   z.object({ type: z.literal("chat.message"), text: z.string().min(1) }).strict(),
@@ -17,9 +18,10 @@ export const TuiUserFrameEvent = z.discriminatedUnion("type", [
   z.object({ type: z.literal("demo.run"), demo_id: z.string().min(1), dry_run: z.boolean().default(true) }).strict(),
   z.object({ type: z.literal("run.show"), run_id: z.string().min(1).default("latest"), outputs_only: z.boolean().default(false) }).strict(),
   z.object({ type: z.literal("artifact.show"), artifact_id: z.string().min(1) }).strict(),
-  z.object({ type: z.literal("research.search"), query: z.string().min(1), mode: z.enum(["fixture", "live"]).default("fixture") }).strict(),
-  z.object({ type: z.literal("research.fetch"), url: z.string().min(1), mode: z.enum(["fixture", "live"]).default("fixture") }).strict(),
-  z.object({ type: z.literal("research.brief"), topic: z.string().min(1), mode: z.enum(["fixture", "live"]).default("fixture") }).strict(),
+  z.object({ type: z.literal("research.search"), query: z.string().min(1), mode: ExecutionMode.default("live"), dry_run: z.boolean().default(false) }).strict(),
+  z.object({ type: z.literal("research.fetch"), url: z.string().min(1), mode: ExecutionMode.default("live"), dry_run: z.boolean().default(false) }).strict(),
+  z.object({ type: z.literal("research.summarize_url"), url: z.string().min(1), mode: ExecutionMode.default("live"), dry_run: z.boolean().default(false) }).strict(),
+  z.object({ type: z.literal("research.brief"), topic: z.string().min(1), mode: ExecutionMode.default("live"), urls: z.array(z.string().min(1)).default([]), dry_run: z.boolean().default(false) }).strict(),
   z.object({ type: z.literal("research.export"), brief_id: z.string().min(1) }).strict(),
   z.object({ type: z.literal("approval.approve"), approval_id: z.string().min(1), task_id: z.string().optional(), reason: z.string().default("Approved from TUI.") }).strict(),
   z.object({ type: z.literal("approval.reject"), approval_id: z.string().min(1), task_id: z.string().optional(), reason: z.string().default("Rejected from TUI.") }).strict(),
@@ -47,6 +49,7 @@ export type FlowId =
   | "artifact_show"
   | "research_search"
   | "research_fetch"
+  | "research_summarize_url"
   | "research_brief"
   | "research_export"
   | "approval";
@@ -61,6 +64,7 @@ export const WorkflowStartingEventTypes = new Set<TuiUserFrameEvent["type"]>([
   "demo.run",
   "research.search",
   "research.fetch",
+  "research.summarize_url",
   "research.brief",
   "research.export",
   "approval.approve",

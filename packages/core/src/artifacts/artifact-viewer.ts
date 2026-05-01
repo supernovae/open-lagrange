@@ -144,16 +144,18 @@ export function reindexArtifacts(input: {
   return registerArtifacts({ artifacts, ...(input.index_path ? { index_path: input.index_path } : {}), now });
 }
 
-export function createArtifactSummary(input: Omit<ArtifactSummaryType, "created_at" | "redacted" | "exportable"> & {
+export function createArtifactSummary(input: Omit<ArtifactSummaryType, "created_at" | "redacted" | "exportable" | "execution_mode"> & {
   readonly created_at?: string;
   readonly redacted?: boolean;
   readonly exportable?: boolean;
+  readonly execution_mode?: ArtifactSummaryType["execution_mode"];
 }): ArtifactSummaryType {
   const path = resolvePath(input.path_or_uri);
   const size = path && existsSync(path) ? statSync(path).size : undefined;
   return ArtifactSummary.parse({
     ...input,
     created_at: input.created_at ?? new Date().toISOString(),
+    execution_mode: input.execution_mode ?? "live",
     redacted: input.redacted ?? true,
     redaction_status: input.redaction_status ?? (input.redacted === false ? "not_redacted" : "redacted"),
     exportable: input.exportable ?? true,

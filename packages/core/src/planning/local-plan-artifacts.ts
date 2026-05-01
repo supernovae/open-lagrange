@@ -1,6 +1,8 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, extname, join } from "node:path";
 import { createArtifactSummary, registerArtifacts, type ArtifactSummary } from "../artifacts/index.js";
+import type { ExecutionMode } from "../runtime/execution-mode.js";
+import { sourceModeWarning } from "../runtime/execution-mode.js";
 import { stableHash } from "../util/hash.js";
 
 export interface LocalPlanArtifactStore {
@@ -55,6 +57,11 @@ export function createLocalPlanArtifactStore(input: {
         ...optionalArray("input_artifact_refs", stringArray(lineage.input_artifact_refs)),
         ...optionalArray("output_artifact_refs", stringArray(lineage.output_artifact_refs)),
         ...optionalSourceMode(sourceMode(record, metadata)),
+        ...optionalExecutionMode(executionMode(record, metadata)),
+        ...optionalString("fixture_id", stringValue(record.fixture_id) ?? stringValue(metadata.fixture_id)),
+        ...optionalString("fixture_set", stringValue(record.fixture_set) ?? stringValue(metadata.fixture_set)),
+        ...optionalBoolean("live", booleanValue(record.live) ?? booleanValue(metadata.live)),
+        ...optionalString("mode_warning", stringValue(record.mode_warning) ?? stringValue(metadata.mode_warning) ?? modeWarning(record, metadata)),
         validation_status: stringValue(record.validation_status) ?? "not_applicable",
         redaction_status: redactionStatus(record.redaction_status),
         ...(input.now ? { created_at: input.now } : {}),
@@ -120,13 +127,39 @@ function optionalArray(key: string, value: string[] | undefined): Record<string,
   return value ? { [key]: value } : {};
 }
 
-function optionalSourceMode(value: "fixture" | "live" | undefined): { readonly source_mode?: "fixture" | "live" } {
+function optionalSourceMode(value: ExecutionMode | undefined): { readonly source_mode?: ExecutionMode } {
   return value ? { source_mode: value } : {};
 }
 
-function sourceMode(record: Record<string, unknown>, metadata: Record<string, unknown>): "fixture" | "live" | undefined {
+function optionalExecutionMode(value: ExecutionMode | undefined): { readonly execution_mode?: ExecutionMode } {
+  return value ? { execution_mode: value } : {};
+}
+
+function optionalBoolean(key: string, value: boolean | undefined): Record<string, boolean> {
+  return typeof value === "boolean" ? { [key]: value } : {};
+}
+
+function sourceMode(record: Record<string, unknown>, metadata: Record<string, unknown>): ExecutionMode | undefined {
   const value = stringValue(record.source_mode) ?? stringValue(metadata.source_mode) ?? stringValue(metadata.mode);
-  return value === "fixture" || value === "live" ? value : undefined;
+  return executionModeValue(value);
+}
+
+function executionMode(record: Record<string, unknown>, metadata: Record<string, unknown>): ExecutionMode | undefined {
+  return executionModeValue(stringValue(record.execution_mode) ?? stringValue(metadata.execution_mode) ?? stringValue(record.source_mode) ?? stringValue(metadata.source_mode) ?? stringValue(metadata.mode));
+}
+
+function executionModeValue(value: string | undefined): ExecutionMode | undefined {
+  if (value === "live" || value === "dry_run" || value === "fixture" || value === "mock" || value === "test") return value;
+  return undefined;
+}
+
+function modeWarning(record: Record<string, unknown>, metadata: Record<string, unknown>): string | undefined {
+  const mode = sourceMode(record, metadata) ?? executionMode(record, metadata);
+  return mode ? sourceModeWarning(mode) : undefined;
+}
+
+function booleanValue(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
 }
 
 function redactionStatus(value: unknown): "redacted" | "not_redacted" | "unknown" {

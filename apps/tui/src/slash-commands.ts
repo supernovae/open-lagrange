@@ -72,13 +72,19 @@ export function parseSlashCommand(input: string, context: SlashCommandContext = 
   }
   if (command === "research") {
     const [subcommand, ...valueParts] = rest;
-    const live = rest.includes("--live") || rest.includes("live");
-    const value = valueParts.filter((part) => part !== "--live" && part !== "--fixture" && part !== "live" && part !== "fixture").join(" ").trim();
-    if (subcommand === "search" && value) return { kind: "event", command, pane: "research", event: { type: "research.search", query: value, mode: live ? "live" : "fixture" } };
-    if (subcommand === "brief" && value) return { kind: "event", command, pane: "research", event: { type: "research.brief", topic: value, mode: live ? "live" : "fixture" } };
-    if (subcommand === "fetch" && value) return { kind: "event", command, pane: "research", event: { type: "research.fetch", url: value, mode: live ? "live" : "fixture" } };
+    const fixture = rest.includes("--fixture") || rest.includes("fixture");
+    const dryRun = rest.includes("--dry-run");
+    const mode = dryRun ? "dry_run" : fixture ? "fixture" : "live";
+    const urls = valuesForFlag(valueParts, "--url");
+    const value = valueParts.filter((part, index) =>
+      part !== "--live" && part !== "--fixture" && part !== "--dry-run" && part !== "live" && part !== "fixture" && part !== "--url" && valueParts[index - 1] !== "--url"
+    ).join(" ").trim();
+    if (subcommand === "search" && value) return { kind: "event", command, pane: "research", event: { type: "research.search", query: value, mode, dry_run: dryRun } };
+    if (subcommand === "brief" && value) return { kind: "event", command, pane: "research", event: { type: "research.brief", topic: value, mode, urls, dry_run: dryRun } };
+    if ((subcommand === "summarize-url" || subcommand === "summarize_url") && value) return { kind: "event", command, pane: "research", event: { type: "research.summarize_url", url: value, mode, dry_run: dryRun } };
+    if (subcommand === "fetch" && value) return { kind: "event", command, pane: "research", event: { type: "research.fetch", url: value, mode, dry_run: dryRun } };
     if (subcommand === "export" && value) return { kind: "event", command, pane: "research", event: { type: "research.export", brief_id: value } };
-    return { kind: "error", command, error: "Usage: /research search <query>, /research brief <topic>, /research fetch <url> --live, or /research export <brief_id>" };
+    return { kind: "error", command, error: "Usage: /research search <query>, /research brief <topic> [--url <url>] [--fixture], /research fetch <url>, /research summarize-url <url>, or /research export <brief_id>" };
   }
   if (command === "run") {
     const [subcommand, value] = rest;
@@ -105,4 +111,13 @@ export function parseSlashCommand(input: string, context: SlashCommandContext = 
     return { kind: "event", command, pane: "approvals", event: { type: "approval.reject", approval_id: approvalId, ...(context.task_id ? { task_id: context.task_id } : {}), reason: rest.slice(1).join(" ") || "Rejected from TUI." } };
   }
   return { kind: "error", command, error: `Unknown command: /${command}` };
+}
+
+function valuesForFlag(parts: readonly string[], flag: string): string[] {
+  const values: string[] = [];
+  for (let index = 0; index < parts.length - 1; index += 1) {
+    const value = parts[index + 1];
+    if (parts[index] === flag && value) values.push(value);
+  }
+  return values;
 }

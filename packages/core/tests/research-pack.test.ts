@@ -9,7 +9,7 @@ import { routeIntent } from "../src/chat-pack/intent-router.js";
 import { matchCapabilitiesForSkill } from "../src/skills/capability-match.js";
 import { deterministicSkillFrame } from "../src/skills/skill-frame.js";
 import { parseSkillfileMarkdown } from "../src/skills/skillfile-parser.js";
-import { researchPack, researchWorkflowCapabilityRefs, researchWorkflowTemplates, runResearchBriefCommand, runResearchFetchSource, runResearchSearch, stripHtml } from "../src/capability-packs/research/index.js";
+import { researchPack, researchWorkflowCapabilityRefs, researchWorkflowTemplates, runResearchBriefCommand, runResearchFetchCommand, runResearchFetchSource, runResearchSearch, runResearchSearchCommand, runResearchSummarizeUrlCommand, stripHtml } from "../src/capability-packs/research/index.js";
 
 const now = "2026-04-29T12:00:00.000Z";
 
@@ -34,6 +34,24 @@ describe("research pack", () => {
     expect(result.mode).toBe("fixture");
     expect(result.results[0]?.source_id).toBe("planning-primitive");
     expect(JSON.stringify(artifacts)).toContain("source_search_results");
+  });
+
+  it("does not silently fall back to fixtures for live search", async () => {
+    const result = await runResearchSearchCommand({ query: "planning primitive" });
+
+    expect((result.result as { readonly status?: string }).status).toBe("yielded");
+    expect(JSON.stringify(result.result)).toContain("SEARCH_PROVIDER_NOT_CONFIGURED");
+    expect(result.artifacts).toEqual([]);
+  });
+
+  it("labels fixture brief artifacts", async () => {
+    const result = await runResearchBriefCommand({ topic: "planning primitive", mode: "fixture", output_dir: join(".open-lagrange", "test-research", "fixture-brief") });
+    const searchArtifact = result.artifacts.find((artifact) => artifact.kind === "source_search_results");
+
+    expect(searchArtifact?.source_mode).toBe("fixture");
+    expect(searchArtifact?.execution_mode).toBe("fixture");
+    expect(searchArtifact?.fixture_set).toBe("research-brief-demo");
+    expect(searchArtifact?.live).toBe(false);
   });
 
   it("rejects unsafe live fetch URLs through the SDK HTTP primitive", async () => {
@@ -90,6 +108,25 @@ describe("research pack", () => {
     expect(result.text_artifact_id).toMatch(/^source_text_/);
   });
 
+  it("dry-run fetch validates without performing live fetch", async () => {
+    const result = await runResearchFetchCommand({ url: "https://example.com", dry_run: true, output_dir: join(".open-lagrange", "test-research", "dry-run-fetch") });
+
+    expect((result.result as { readonly status?: string }).status).toBe("yielded");
+    expect(JSON.stringify(result.result)).toContain("dry run validated");
+    expect(result.artifacts).toEqual([]);
+  });
+
+  it("summarize-url creates explicitly labeled fixture artifacts", async () => {
+    const result = await runResearchSummarizeUrlCommand({
+      url: "https://example.invalid/open-lagrange/planning-primitive",
+      mode: "fixture",
+      output_dir: join(".open-lagrange", "test-research", "summarize-url"),
+    });
+
+    expect(result.artifacts.some((artifact) => artifact.kind === "research_brief")).toBe(true);
+    expect(result.artifacts.some((artifact) => artifact.source_mode === "fixture")).toBe(true);
+  });
+
   it("does not use raw network or process authority in research pack source", () => {
     const files = ["executor.ts", "fetcher.ts", "search-provider.ts"].map((file) => readFileSync(join(process.cwd(), "packages/core/src/capability-packs/research", file), "utf8"));
     const source = files.join("\n");
@@ -111,7 +148,7 @@ describe("research pack", () => {
   });
 
   it("creates cited brief artifacts with lineage", async () => {
-    const result = await runResearchBriefCommand({ topic: "planning primitive", output_dir: join(".open-lagrange", "test-research", "brief") });
+    const result = await runResearchBriefCommand({ topic: "planning primitive", mode: "fixture", output_dir: join(".open-lagrange", "test-research", "brief") });
     const brief = result.result as { readonly brief?: { readonly citations?: readonly unknown[] } };
     const lineageArtifact = result.artifacts.find((artifact) => artifact.kind === "research_brief");
 

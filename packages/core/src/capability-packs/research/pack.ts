@@ -29,7 +29,7 @@ export const researchPack: CapabilityPack = {
   capabilities: [
     researchCapability({
       name: "research.search",
-      description: "Search deterministic fixture sources, or report unsupported live search when requested.",
+      description: "Search live provider results when configured, or deterministic fixture sources only when fixture mode is explicit.",
       input_schema: ResearchSearchInput,
       output_schema: ResearchSearchOutput,
       side_effect_kind: "none",
@@ -37,7 +37,7 @@ export const researchPack: CapabilityPack = {
     }),
     researchCapability({
       name: "research.fetch_source",
-      description: "Fetch a fixture or explicit live URL and record source snapshot artifacts.",
+      description: "Fetch an explicit live URL or an explicitly requested fixture source and record source snapshot artifacts.",
       input_schema: ResearchFetchSourceInput,
       output_schema: ResearchFetchSourceOutput,
       side_effect_kind: "network_read",

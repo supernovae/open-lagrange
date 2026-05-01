@@ -2,6 +2,7 @@ import { z } from "zod";
 import { DelegationContext } from "../schemas/delegation.js";
 import { Observation, StructuredError } from "../schemas/open-cot.js";
 import { RiskLevel } from "../schemas/capabilities.js";
+import { ExecutionMode } from "./execution-mode.js";
 
 export const CapabilityStepPolicyDecisionReport = z.object({
   decision: z.enum(["allow", "deny", "requires_approval", "yield"]),
@@ -33,6 +34,7 @@ export const CapabilityStepInput = z.object({
   delegation_context: DelegationContext,
   idempotency_key: z.string().min(1),
   input_artifact_refs: z.array(z.string().min(1)).default([]),
+  execution_mode: ExecutionMode.optional(),
   dry_run: z.boolean().default(false),
   trace_id: z.string().min(1).optional(),
 }).strict();
@@ -43,6 +45,7 @@ export const CapabilityStepResult = z.object({
   status: CapabilityStepStatus,
   output: z.unknown().optional(),
   output_artifact_refs: z.array(z.string().min(1)),
+  execution_mode: ExecutionMode,
   policy_report: CapabilityStepPolicyDecisionReport.optional(),
   observations: z.array(Observation),
   structured_errors: z.array(StructuredError),

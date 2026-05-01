@@ -1,14 +1,16 @@
 # Research Live Fetch
 
-`research.fetch_source` supports fixture mode and explicit live mode.
+`research.fetch_source` supports live mode by default and fixture mode only when
+explicitly requested.
 
 ```bash
-open-lagrange research fetch https://example.com --live
+open-lagrange research fetch https://example.com
+open-lagrange research summarize-url https://example.com
 ```
 
-Live mode is opt-in. Without `--live`, the CLI refuses arbitrary URL fetches.
-The Research Pack does not use raw `fetch`, shell commands, curl, wget, browser
-automation, JavaScript execution, or OAuth.
+Live fetch runs through the SDK HTTP primitive. The Research Pack does not use
+raw network calls, shell commands, browser automation, JavaScript execution, or
+OAuth.
 
 ## Artifact Flow
 

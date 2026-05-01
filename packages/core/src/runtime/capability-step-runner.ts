@@ -10,6 +10,7 @@ import type { PlanState, PlanStateStore } from "../planning/plan-state.js";
 import { PlanState as PlanStateSchema } from "../planning/plan-state.js";
 import type { PlanArtifactRef } from "../planning/plan-artifacts.js";
 import type { ExecutionIntent } from "../schemas/open-cot.js";
+import { executionModeFromDryRun } from "./execution-mode.js";
 
 export interface CapabilityStepRunnerOptions {
   readonly registry?: PackRegistry;
@@ -32,6 +33,7 @@ export async function runCapabilityStep(
   const started = Date.now();
   const startedAt = new Date(started).toISOString();
   const input = CapabilityStepInput.parse(rawInput);
+  const executionMode = executionModeFromDryRun(input);
   const registry = options.registry ?? packRegistry;
   const now = options.now ?? new Date().toISOString();
   const resolved = resolveCapabilityForStep(registry, input.capability_ref);
@@ -109,12 +111,21 @@ export async function runCapabilityStep(
     },
   };
 
-  if (input.dry_run) {
+  if (executionMode === "mock" && process.env.NODE_ENV !== "test") {
+    return finish(input, started, startedAt, now, {
+      status: "failed",
+      policy_report: policy.report,
+      structured_errors: [structuredError({ code: "POLICY_DENIED", message: "Mock execution mode is only allowed in tests.", now, task_id: input.node_id, intent_id: intent.intent_id })],
+      observations: [observation({ status: "error", summary: "Mock execution mode is only allowed in tests.", now, task_id: input.node_id, intent_id: intent.intent_id })],
+    }, options);
+  }
+
+  if (executionMode === "dry_run") {
     return finish(input, started, startedAt, now, {
       status: "yielded",
       policy_report: policy.report,
-      structured_errors: [structuredError({ code: "YIELDED", message: "Capability step dry run did not execute.", now, task_id: input.node_id, intent_id: intent.intent_id })],
-      observations: [observation({ status: "skipped", summary: "Capability step dry run did not execute.", now, task_id: input.node_id, intent_id: intent.intent_id })],
+      structured_errors: [structuredError({ code: "YIELDED", message: "Capability step dry run validated capability, schema, and policy without execution.", now, task_id: input.node_id, intent_id: intent.intent_id })],
+      observations: [observation({ status: "skipped", summary: "Capability step dry run validated capability, schema, and policy without execution.", now, task_id: input.node_id, intent_id: intent.intent_id })],
     }, options);
   }
 
@@ -242,6 +253,7 @@ async function finish(
     status: partial.status,
     ...(partial.output === undefined ? {} : { output: partial.output }),
     output_artifact_refs: [...new Set(partial.output_artifact_refs ?? [])],
+    execution_mode: executionModeFromDryRun(input),
     ...(partial.policy_report ? { policy_report: partial.policy_report } : {}),
     observations: partial.observations ?? [],
     structured_errors: partial.structured_errors ?? [],
@@ -290,6 +302,8 @@ function withLineage(artifact: unknown, input: CapabilityStepInputType, descript
   const lineage = record.lineage && typeof record.lineage === "object" ? record.lineage as Record<string, unknown> : {};
   return {
     ...record,
+    execution_mode: record.execution_mode ?? executionModeFromDryRun(input),
+    source_mode: record.source_mode ?? executionModeFromDryRun(input),
     lineage: {
       ...lineage,
       produced_by_pack_id: lineage.produced_by_pack_id ?? descriptor.pack_id,

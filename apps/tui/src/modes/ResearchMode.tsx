@@ -8,9 +8,9 @@ export function ResearchMode({ model }: { readonly model: TuiViewModel }): React
   return (
     <Box flexDirection="column">
       <Text color={theme.title}>Research Pack</Text>
-      <Text>Fixture mode works offline. Live URL fetch requires explicit --live.</Text>
-      <Text color={theme.muted}>Try /research brief "MCP security risks" or /research search "planning primitives".</Text>
-      <Text color={theme.muted}>Fetch: /research fetch https://example.com --live</Text>
+      <Text>Live fetch is default. Fixture mode is explicit and labeled.</Text>
+      <Text color={theme.muted}>Try /research summarize-url https://example.com or /research brief "MCP security risks" --url https://example.com.</Text>
+      <Text color={theme.muted}>Fixture demo: /research brief "MCP security risks" --fixture</Text>
       <Box marginTop={1} flexDirection="column">
         <Text color={theme.title}>Latest activity</Text>
         <Text>{latest?.text ?? "No research activity yet."}</Text>

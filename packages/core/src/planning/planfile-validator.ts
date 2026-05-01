@@ -77,7 +77,16 @@ export function validatePlanfile(input: unknown, options: PlanValidationOptions 
   }
 
   const approvalRisks = new Set(plan.approval_policy.require_approval_for_risks);
+  const allowFixtures = plan.execution_context?.allow_fixtures === true || plan.execution_context?.context === "demo" || plan.execution_context?.context === "eval";
+  const allowMock = plan.execution_context?.context === "test";
   for (const node of plan.nodes) {
+    const nodeMode = node.execution_mode ?? "live";
+    if (nodeMode === "fixture" && !allowFixtures) {
+      issues.push({ code: "INVALID_PLAN", message: `${node.id} requests fixture execution outside demo/eval context. Use --allow-fixtures or an explicit demo/eval context.`, severity: "error", path: ["nodes", node.id, "execution_mode"] });
+    }
+    if (nodeMode === "mock" && !allowMock) {
+      issues.push({ code: "INVALID_PLAN", message: `${node.id} requests mock execution outside test context.`, severity: "error", path: ["nodes", node.id, "execution_mode"] });
+    }
     if ((approvalRisks.has(node.risk_level) || WRITE_RISKS.has(node.risk_level)) && !node.approval_required) {
       issues.push({ code: "APPROVAL_REQUIRED", message: `${node.id} requires approval for ${node.risk_level} risk.`, severity: "error", path: ["nodes", node.id, "approval_required"] });
     }

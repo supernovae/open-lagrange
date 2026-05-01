@@ -13,7 +13,7 @@ import { getPackHealth, inspectPack, listInspectablePacks, runPackSmoke, validat
 import { applyPlanfile as applyLocalPlanfile, generateGoalFrame, generatePlanfile, parsePlanfileMarkdown, parsePlanfileYaml, renderPlanfileMarkdown, renderPlanMermaid, validatePlanfile, withCanonicalPlanDigest } from "@open-lagrange/core/planning";
 import { applyRepositoryPlanfile as applyLocalRepositoryPlanfile, approveApprovalRequest, approveRepositoryScopeRequest, cleanupRepositoryPlan as cleanupLocalRepositoryPlan, createRepositoryPlanfile, explainRepositoryPlan, exportRepositoryPlanPatch as exportLocalRepositoryPlanPatch, getRepositoryPlanStatus as getLocalRepositoryPlanStatus, listRepositoryModelCalls, rejectApprovalRequest, rejectRepositoryScopeRequest, resumeRepositoryPlan, runRepositoryDoctor } from "@open-lagrange/core/repository";
 import { compareBenchmarkRun, listBenchmarkScenarios, listModelRouteConfigs, renderBenchmarkReport, runModelRoutingBenchmark } from "@open-lagrange/core/evals";
-import { runResearchBriefCommand, runResearchExportCommand, runResearchFetchCommand, runResearchSearchCommand } from "@open-lagrange/core/research";
+import { runResearchBriefCommand, runResearchExportCommand, runResearchFetchCommand, runResearchSearchCommand, runResearchSummarizeUrlCommand } from "@open-lagrange/core/research";
 import { buildGeneratedPackFromMarkdown, generateSkillFrame, generateWorkflowSkill, installGeneratedPack, parseSkillfileMarkdown, parseWorkflowSkillMarkdown, previewWorkflowSkillRun, scaffoldGeneratedPack, validateGeneratedPack, validateWorkflowSkill } from "@open-lagrange/core/skills";
 import { createPlatformClientFromCurrentProfile } from "@open-lagrange/platform-client";
 import { addLocalProfile, addRemoteProfile, bootstrapLocalRuntime, configureCurrentProfileModelProvider, deleteCurrentProfileSecret, describeCurrentProfileModelProvider, describeCurrentProfileSecret, getCurrentProfile, getProfilePackPaths, initRuntime, listCurrentProfileModelProviders, listCurrentProfileSecrets, listKnownModelProviders, loadConfig, removeProfile, restartLocalRuntime, setCurrentProfile, setCurrentProfileSecret, startLocalRuntime, stopLocalRuntime, tailLogs, getRuntimeStatus } from "@open-lagrange/runtime-manager";
@@ -680,48 +680,63 @@ repo.command("reject").argument("<taskId>", "Task ID or task run ID").requiredOp
   console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).rejectTask(taskId, { decided_by: options.rejectedBy, reason: options.reason, approval_token: options.approvalToken }), null, 2));
 });
 
-const research = program.command("research").description("Run fixture-backed and bounded live research workflows.");
+const research = program.command("research").description("Run live research workflows with explicit fixture mode for demos.");
 
 research.command("search")
   .argument("<query>", "Research query")
-  .option("--fixture", "Use deterministic checked-in fixture sources", true)
-  .option("--live", "Request live search provider if configured", false)
+  .option("--fixture", "Use deterministic checked-in fixture sources", false)
+  .option("--live", "Use live search provider if configured", true)
+  .option("--dry-run", "Validate search provider/input without querying sources", false)
   .option("--output-dir <path>", "Artifact output directory")
-  .action(async (query: string, options: { readonly fixture: boolean; readonly live: boolean; readonly outputDir?: string }) => {
+  .action(async (query: string, options: { readonly fixture: boolean; readonly live: boolean; readonly dryRun: boolean; readonly outputDir?: string }) => {
     console.log(JSON.stringify(await runResearchSearchCommand({
       query,
-      mode: options.live ? "live" : "fixture",
+      mode: options.fixture ? "fixture" : "live",
+      dry_run: options.dryRun,
       ...(options.outputDir ? { output_dir: cliPath(options.outputDir) } : {}),
     }), null, 2));
   });
 
 research.command("fetch")
   .argument("<url>", "Source URL")
-  .option("--live", "Allow explicit live URL fetch through network policy", false)
-  .option("--fixture", "Resolve URL against deterministic fixture sources", true)
+  .option("--fixture", "Resolve URL against deterministic fixture sources", false)
+  .option("--dry-run", "Validate URL/policy/capability without fetching", false)
   .option("--output-dir <path>", "Artifact output directory")
-  .action(async (url: string, options: { readonly live: boolean; readonly fixture: boolean; readonly outputDir?: string }) => {
-    if (!options.live) {
-      console.log(JSON.stringify({ status: "requires_live", message: "Live URL fetch requires --live. Fixture mode can resolve checked-in fixture URLs only." }, null, 2));
-      process.exitCode = 1;
-      return;
-    }
+  .action(async (url: string, options: { readonly fixture: boolean; readonly dryRun: boolean; readonly outputDir?: string }) => {
     console.log(JSON.stringify(await runResearchFetchCommand({
       url,
-      mode: "live",
+      mode: options.fixture ? "fixture" : "live",
+      dry_run: options.dryRun,
+      ...(options.outputDir ? { output_dir: cliPath(options.outputDir) } : {}),
+    }), null, 2));
+  });
+
+research.command("summarize-url")
+  .argument("<url>", "Source URL")
+  .option("--fixture", "Resolve URL against deterministic fixture sources", false)
+  .option("--dry-run", "Validate URL/policy/capability without fetching", false)
+  .option("--output-dir <path>", "Artifact output directory")
+  .action(async (url: string, options: { readonly fixture: boolean; readonly dryRun: boolean; readonly outputDir?: string }) => {
+    console.log(JSON.stringify(await runResearchSummarizeUrlCommand({
+      url,
+      mode: options.fixture ? "fixture" : "live",
+      dry_run: options.dryRun,
       ...(options.outputDir ? { output_dir: cliPath(options.outputDir) } : {}),
     }), null, 2));
   });
 
 research.command("brief")
   .argument("<topic>", "Brief topic")
-  .option("--fixture", "Use deterministic checked-in fixture sources", true)
-  .option("--live", "Reserved for future live search provider use", false)
+  .option("--fixture", "Use deterministic checked-in fixture sources", false)
+  .option("--url <url>", "Use an explicit source URL instead of search provider", collectString, [])
+  .option("--dry-run", "Validate and preview without fetching/searching", false)
   .option("--output-dir <path>", "Artifact output directory")
-  .action(async (topic: string, options: { readonly fixture: boolean; readonly live: boolean; readonly outputDir?: string }) => {
+  .action(async (topic: string, options: { readonly fixture: boolean; readonly url: readonly string[]; readonly dryRun: boolean; readonly outputDir?: string }) => {
     console.log(JSON.stringify(await runResearchBriefCommand({
       topic,
-      mode: options.live ? "live" : "fixture",
+      mode: options.fixture ? "fixture" : "live",
+      urls: options.url,
+      dry_run: options.dryRun,
       ...(options.outputDir ? { output_dir: cliPath(options.outputDir) } : {}),
     }), null, 2));
   });
@@ -884,6 +899,10 @@ function parsePositiveInt(value: string): number {
   const parsed = Number.parseInt(value, 10);
   if (!Number.isInteger(parsed) || parsed < 1) throw new Error("Expected a positive integer.");
   return parsed;
+}
+
+function collectString(value: string, previous: readonly string[]): string[] {
+  return [...previous, value];
 }
 
 function planningModeOption(value: string): "deterministic" | "model" | "model_with_deterministic_fallback" {

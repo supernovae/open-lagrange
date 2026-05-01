@@ -11,7 +11,9 @@ import { stableHash } from "../../util/hash.js";
 import { readFixtureSource } from "./fixtures.js";
 import { RESEARCH_LIMITS } from "./policy.js";
 import { runResearchCreateBrief, runResearchCreateSourceSet, runResearchExportMarkdown, runResearchExtractContent, runResearchSearch } from "./executor.js";
+import { ExtractedSource as ExtractedSourceSchema } from "./schemas.js";
 import type { CreateBriefOutput, ExtractedSource, SourceMode } from "./schemas.js";
+import { SearchProviderNotConfiguredError } from "./providers/search-provider-types.js";
 
 export interface ResearchCommandResult {
   readonly run_id: string;
@@ -24,29 +26,35 @@ export interface ResearchCommandResult {
 export async function runResearchSearchCommand(input: {
   readonly query: string;
   readonly mode?: SourceMode;
+  readonly dry_run?: boolean;
   readonly output_dir?: string;
   readonly index_path?: string;
 }): Promise<ResearchCommandResult> {
   const run = commandRun(input.query, input.output_dir);
   const store = artifactStore(run.output_dir);
+  const mode = input.dry_run ? "dry_run" : input.mode ?? "live";
   const result = await runResearchSearch(createTestPackContext({ recordArtifact: store.recordArtifact }), {
     query: input.query,
-    mode: input.mode ?? "fixture",
+    mode,
     max_results: 5,
     freshness: "any",
-  });
+  }).catch((error: unknown) => yieldedProviderResult(input.query, error));
   const artifacts = store.flush(input.index_path);
-  return { run_id: run.run_id, output_dir: run.output_dir, result, artifacts, warnings: result.warnings };
+  return { run_id: run.run_id, output_dir: run.output_dir, result, artifacts, warnings: warningsFromOutput(result) };
 }
 
 export async function runResearchFetchCommand(input: {
   readonly url: string;
-  readonly mode: SourceMode;
+  readonly mode?: SourceMode;
+  readonly dry_run?: boolean;
   readonly output_dir?: string;
   readonly index_path?: string;
 }): Promise<ResearchCommandResult> {
   const run = commandRun(input.url, input.output_dir);
   const store = createLocalPlanArtifactStore({ plan_id: run.run_id, output_dir: run.output_dir });
+  const mode = input.dry_run ? "dry_run" : input.mode ?? "live";
+  const urlError = validateUrl(input.url);
+  if (urlError) return yieldedCommand(run, input.index_path, "INVALID_URL", urlError);
   const descriptor = resolveCapabilityForStep(packRegistry, "research.fetch_source")?.descriptor;
   if (!descriptor) throw new Error("Research fetch capability is not registered.");
   const result = await runCapabilityStep({
@@ -57,11 +65,12 @@ export async function runResearchFetchCommand(input: {
     capability_digest: descriptor.capability_digest,
     input: {
       url: input.url,
-      mode: input.mode,
+      mode,
       max_bytes: RESEARCH_LIMITS.max_fetch_bytes,
       timeout_ms: 8_000,
       accepted_content_types: ["text/html", "text/plain", "text/markdown", "application/xhtml+xml"],
     },
+    execution_mode: mode,
     delegation_context: {
       ...createMockDelegationContext({
         goal: `Fetch ${input.url}`,
@@ -76,7 +85,7 @@ export async function runResearchFetchCommand(input: {
     },
     idempotency_key: `${run.run_id}:research.fetch_source`,
     input_artifact_refs: [],
-    dry_run: false,
+    dry_run: mode === "dry_run",
     trace_id: `trace_${stableHash({ run: run.run_id }).slice(0, 16)}`,
   }, {
     registry: packRegistry,
@@ -96,18 +105,70 @@ export async function runResearchFetchCommand(input: {
 export async function runResearchBriefCommand(input: {
   readonly topic: string;
   readonly mode?: SourceMode;
+  readonly urls?: readonly string[];
+  readonly dry_run?: boolean;
   readonly output_dir?: string;
   readonly index_path?: string;
 }): Promise<ResearchCommandResult> {
   const run = commandRun(input.topic, input.output_dir);
   const store = artifactStore(run.output_dir);
   const context = createTestPackContext({ recordArtifact: store.recordArtifact });
-  const search = await runResearchSearch(context, { query: input.topic, mode: input.mode ?? "fixture", max_results: 5, freshness: "any" });
+  const mode = input.dry_run ? "dry_run" : input.mode ?? "live";
+  const supportingArtifacts: ArtifactSummary[] = [];
+  if (mode === "dry_run") {
+    const result = {
+      status: "yielded",
+      execution_mode: "dry_run",
+      message: "Dry run validated research brief input without fetching sources.",
+      planned_steps: input.urls && input.urls.length > 0 ? ["fetch_source", "extract_content", "create_brief", "export_markdown"] : ["search", "fetch_source", "extract_content", "create_brief", "export_markdown"],
+      warnings: ["dry_run: no live source work was performed."],
+    };
+    const artifacts = store.flush(input.index_path);
+    return { run_id: run.run_id, output_dir: run.output_dir, result, artifacts, warnings: result.warnings };
+  }
   const extracted: ExtractedSource[] = [];
-  for (const result of search.results.slice(0, 5)) {
-    const fixture = readFixtureSource(result.source_id);
-    if (!fixture) continue;
-    extracted.push(await runResearchExtractContent(context, { markdown: fixture.content, url: fixture.source.url, max_chars: 20_000 }));
+  let search: unknown;
+  if (input.urls && input.urls.length > 0) {
+    for (const url of input.urls.slice(0, 5)) {
+      const urlError = validateUrl(url);
+      if (urlError) return yieldedCommand(run, input.index_path, "INVALID_URL", urlError);
+      const fetched = await runResearchFetchCommand({
+        url,
+        mode,
+        output_dir: run.output_dir,
+        ...(input.index_path ? { index_path: input.index_path } : {}),
+      });
+      supportingArtifacts.push(...fetched.artifacts);
+      if (resultStatus(fetched.result) === "failed") return { ...fetched, run_id: run.run_id, output_dir: run.output_dir };
+      const output = objectValue(fetched.result).output;
+      const textArtifactId = stringValue(objectValue(output).text_artifact_id);
+      const source = textArtifactId ? extractedSourceFromArtifact(showArtifact(textArtifactId, input.index_path)?.content) : undefined;
+      if (source) extracted.push(source);
+    }
+  } else {
+    search = await runResearchSearch(context, { query: input.topic, mode, max_results: 5, freshness: "any" }).catch((error: unknown) => yieldedProviderResult(input.topic, error));
+    if (resultStatus(search) === "yielded") {
+      const artifacts = store.flush(input.index_path);
+      return { run_id: run.run_id, output_dir: run.output_dir, result: search, artifacts, warnings: warningsFromOutput(search) };
+    }
+    const searchOutput = search as Awaited<ReturnType<typeof runResearchSearch>>;
+    for (const result of searchOutput.results.slice(0, 5)) {
+      const fixture = readFixtureSource(result.source_id);
+      if (!fixture) continue;
+      extracted.push(await runResearchExtractContent(context, { markdown: fixture.content, url: fixture.source.url, max_chars: 20_000 }));
+    }
+  }
+  if (extracted.length === 0) {
+    const result = {
+      status: "yielded",
+      execution_mode: mode,
+      message: mode === "live"
+        ? "No live sources were available. Configure a search provider, provide explicit --url sources, or run --fixture for deterministic demo sources."
+        : "No fixture sources matched the topic.",
+      warnings: mode === "fixture" ? ["fixture_mode: deterministic checked-in sources, not live web results."] : ["SEARCH_PROVIDER_NOT_CONFIGURED"],
+    };
+    const artifacts = store.flush(input.index_path);
+    return { run_id: run.run_id, output_dir: run.output_dir, result, artifacts, warnings: result.warnings };
   }
   const sourceSet = extracted.length > 0
     ? await runResearchCreateSourceSet(context, { topic: input.topic, sources: extracted, selection_policy: { max_sources: 5, require_diverse_domains: false } })
@@ -121,7 +182,24 @@ export async function runResearchBriefCommand(input: {
     max_words: 800,
   });
   const artifacts = store.flush(input.index_path);
-  return { run_id: run.run_id, output_dir: run.output_dir, result: { search, source_set: sourceSet, brief }, artifacts, warnings: brief.warnings };
+  return { run_id: run.run_id, output_dir: run.output_dir, result: { search, source_set: sourceSet, brief }, artifacts: [...supportingArtifacts, ...artifacts], warnings: brief.warnings };
+}
+
+export async function runResearchSummarizeUrlCommand(input: {
+  readonly url: string;
+  readonly mode?: SourceMode;
+  readonly dry_run?: boolean;
+  readonly output_dir?: string;
+  readonly index_path?: string;
+}): Promise<ResearchCommandResult> {
+  return runResearchBriefCommand({
+    topic: input.url,
+    urls: [input.url],
+    mode: input.mode ?? "live",
+    ...(input.dry_run === undefined ? {} : { dry_run: input.dry_run }),
+    ...(input.output_dir ? { output_dir: input.output_dir } : {}),
+    ...(input.index_path ? { index_path: input.index_path } : {}),
+  });
 }
 
 export async function runResearchExportCommand(input: {
@@ -185,6 +263,12 @@ function artifactStore(outputDir: string) {
         produced_by_node_id: stringValue(lineage.produced_by_node_id),
         input_artifact_refs: stringArray(lineage.input_artifact_refs),
         output_artifact_refs: stringArray(lineage.output_artifact_refs),
+        source_mode: sourceMode(record),
+        execution_mode: executionMode(record),
+        fixture_id: stringValue(record.fixture_id) ?? stringValue(objectValue(record.metadata).fixture_id),
+        fixture_set: stringValue(record.fixture_set) ?? stringValue(objectValue(record.metadata).fixture_set),
+        live: booleanValue(record.live) ?? booleanValue(objectValue(record.metadata).live),
+        mode_warning: stringValue(record.mode_warning) ?? stringValue(objectValue(record.metadata).mode_warning),
         validation_status: typeof record.validation_status === "string" ? record.validation_status : "not_applicable",
         redaction_status: "redacted",
       }));
@@ -214,4 +298,77 @@ function warningsFromOutput(output: unknown): readonly string[] {
   if (!output || typeof output !== "object") return [];
   const warnings = (output as Record<string, unknown>).warnings;
   return Array.isArray(warnings) ? warnings.filter((item): item is string => typeof item === "string") : [];
+}
+
+function yieldedProviderResult(query: string, error: unknown): unknown {
+  if (error instanceof SearchProviderNotConfiguredError || objectValue(error).code === "SEARCH_PROVIDER_NOT_CONFIGURED") {
+    return {
+      status: "yielded",
+      execution_mode: "live",
+      code: "SEARCH_PROVIDER_NOT_CONFIGURED",
+      message: "Live search provider is not configured. Configure a search provider, provide explicit --url sources, or run --fixture for deterministic demo sources.",
+      query,
+      warnings: ["SEARCH_PROVIDER_NOT_CONFIGURED"],
+    };
+  }
+  throw error;
+}
+
+function yieldedCommand(run: { readonly run_id: string; readonly output_dir: string }, _indexPath: string | undefined, code: string, message: string): ResearchCommandResult {
+  return {
+    run_id: run.run_id,
+    output_dir: run.output_dir,
+    result: { status: "yielded", code, message, warnings: [code] },
+    artifacts: [],
+    warnings: [message],
+  };
+}
+
+function resultStatus(value: unknown): string | undefined {
+  const record = objectValue(value);
+  return stringValue(record.status) ?? stringValue(objectValue(record.result).status);
+}
+
+function validateUrl(value: string): string | undefined {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return "Research URL must be an absolute http or https URL.";
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") return "Research URL must use http or https.";
+  const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (host === "localhost" || host.endsWith(".localhost") || host === "::1") return "Research URL must not target a local host.";
+  return undefined;
+}
+
+function objectValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function extractedSourceFromArtifact(value: unknown): ExtractedSource | undefined {
+  const content = objectValue(value).content ?? value;
+  const record = objectValue(content);
+  const { mode: _mode, ...clean } = record;
+  const parsed = ExtractedSourceSchema.safeParse(Object.keys(record).length > 0 ? clean : content);
+  return parsed.success ? parsed.data : undefined;
+}
+
+function sourceMode(record: Record<string, unknown>): SourceMode | undefined {
+  const metadata = objectValue(record.metadata);
+  return sourceModeValue(stringValue(record.source_mode) ?? stringValue(metadata.source_mode) ?? stringValue(metadata.mode));
+}
+
+function executionMode(record: Record<string, unknown>): SourceMode {
+  const metadata = objectValue(record.metadata);
+  return sourceModeValue(stringValue(record.execution_mode) ?? stringValue(metadata.execution_mode) ?? stringValue(record.source_mode) ?? stringValue(metadata.source_mode) ?? stringValue(metadata.mode)) ?? "live";
+}
+
+function sourceModeValue(value: string | undefined): SourceMode | undefined {
+  if (value === "live" || value === "dry_run" || value === "fixture" || value === "mock" || value === "test") return value;
+  return undefined;
+}
+
+function booleanValue(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
 }
