@@ -35,6 +35,7 @@ import { createPatchPlanWorkOrder, defaultPatchPolicy, generatePatchPlanFromEvid
 import { PatchPlanGenerationError } from "./patch-plan-generation-errors.js";
 import { createScopeExpansionApproval } from "./scope-expansion-approval.js";
 import { normalizeScopeExpansionRequest, type PersistedScopeExpansionRequest } from "./scope-expansion.js";
+import { modelCallArtifactRefsForPlan, summarizeModelCallArtifactsForPlan } from "../models/model-call-indexing.js";
 
 export interface RepositoryPlanRunnerOptions {
   readonly store: PlanStateStore;
@@ -416,7 +417,7 @@ export class RepositoryPlanRunner {
   }
 
   private writeStatus(patch: Partial<Omit<RepositoryPlanStatus, "schema_version" | "plan_id" | "created_at">>): RepositoryPlanStatus {
-    return writeRepositoryPlanStatus(updateRepositoryPlanStatus(this.status, patch));
+    return writeRepositoryPlanStatus(this.withModelCallStatus(updateRepositoryPlanStatus(this.status, patch)));
   }
 
   private async generatePatchPlan(
@@ -448,6 +449,15 @@ export class RepositoryPlanRunner {
       ...(currentDiffSummary ? { current_diff_summary: currentDiffSummary } : {}),
       mode,
       model_role_hint: mode === "repair" ? "repair_small" : "implementer_small",
+      trace_context: {
+        plan_id: this.plan.plan_id,
+        node_id: node.id,
+        work_order_id: workOrder.work_order_id,
+        artifact_dir: join(this.outputDir, "artifacts"),
+        input_artifact_refs: [evidence.artifact_id],
+        output_schema_name: mode === "repair" ? "RepairPatchPlan" : "PatchPlan",
+      },
+      persist_telemetry: true,
     };
     const contextArtifact = this.recordArtifact("patch_plan_context", mode === "repair" ? "Repair PatchPlan Context" : "PatchPlan Context", "Redacted evidence-only PatchPlan generation context.", patchPlanContextSummary(input), "application/json");
     try {
@@ -550,6 +560,16 @@ export class RepositoryPlanRunner {
     const path = join(this.outputDir, "artifacts", `${artifactId}.json`);
     if (!existsSync(path)) return undefined;
     return JSON.parse(readFileSync(path, "utf8")) as T;
+  }
+
+  private withModelCallStatus(status: RepositoryPlanStatus): RepositoryPlanStatus {
+    const refs = modelCallArtifactRefsForPlan(this.plan.plan_id);
+    const summary = summarizeModelCallArtifactsForPlan(this.plan.plan_id);
+    return {
+      ...status,
+      model_call_artifact_refs: [...new Set([...status.model_call_artifact_refs, ...refs])],
+      ...(summary ? { model_calls_summary: summary } : {}),
+    };
   }
 }
 

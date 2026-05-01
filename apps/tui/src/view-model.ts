@@ -95,6 +95,7 @@ function planSummary(project: ProjectRunStatus | undefined): PlanViewSummary | u
       verification_reports: livePlan.verification_report_ids,
       repair_attempts: livePlan.repair_attempt_ids,
       model_usage_lines: livePlan.model_usage_lines,
+      model_call_artifact_refs: livePlan.model_call_artifact_refs,
       artifact_refs: livePlan.artifact_refs,
       warnings: livePlan.warnings,
       validation_errors: livePlan.errors,
@@ -119,6 +120,7 @@ function planSummary(project: ProjectRunStatus | undefined): PlanViewSummary | u
     verification_reports: artifactSummaries(project, project?.task_statuses[0]).filter((artifact) => artifact.artifact_type === "verification").map((artifact) => artifact.artifact_id),
     repair_attempts: repairAttempts(project),
     model_usage_lines: modelUsageLines((project?.output as unknown as Record<string, unknown> | undefined)?.model_usage),
+    model_call_artifact_refs: artifactSummaries(project, project?.task_statuses[0]).filter((artifact) => artifact.artifact_type === "model_call").map((artifact) => artifact.artifact_id),
     artifact_refs: artifactSummaries(project, project?.task_statuses[0]).map((artifact) => artifact.artifact_id),
     warnings: [],
     validation_errors: project?.status?.errors.map((error) => error.message) ?? [],
@@ -144,6 +146,7 @@ function livePlanExecution(project: ProjectRunStatus | undefined): {
   readonly verification_report_ids: readonly string[];
   readonly repair_attempt_ids: readonly string[];
   readonly model_usage_lines: readonly string[];
+  readonly model_call_artifact_refs: readonly string[];
   readonly artifact_refs: readonly string[];
   readonly warnings: readonly string[];
   readonly errors: readonly string[];
@@ -187,7 +190,8 @@ function livePlanExecution(project: ProjectRunStatus | undefined): {
     patch_artifact_ids: arrayStrings(record.patch_artifact_ids),
     verification_report_ids: arrayStrings(record.verification_report_ids),
     repair_attempt_ids: arrayStrings(record.repair_attempt_ids),
-    model_usage_lines: modelUsageLines(record.model_usage),
+    model_usage_lines: modelUsageLines(record.model_calls_summary ?? record.model_usage),
+    model_call_artifact_refs: arrayStrings(record.model_call_artifact_refs),
     artifact_refs: arrayStrings(record.artifact_refs),
     warnings: arrayStrings(record.warnings),
     errors: arrayStrings(record.errors),
@@ -328,7 +332,7 @@ function artifactType(value: string): ArtifactSummary["artifact_type"] {
   if (value === "planfile") return "plan";
   if (value === "verification_report") return "verification";
   if (value === "review_report") return "review";
-  if (value === "skill_frame" || value === "workflow_skill" || value === "pack_build_plan" || value === "generated_pack" || value === "pack_manifest" || value === "pack_validation_report" || value === "pack_test_report" || value === "pack_install_report" || value === "policy_decision_report" || value === "evidence_bundle" || value === "patch_plan_context" || value === "patch_plan" || value === "patch_validation_report" || value === "patch_artifact" || value === "final_patch_artifact" || value === "scope_expansion_request" || value === "repair_patch_plan" || value === "repair_decision" || value === "source_search_results" || value === "source_snapshot" || value === "source_text" || value === "source_set" || value === "research_brief" || value === "citation_index" || value === "capability_step_result" || value === "approval_request" || value === "execution_timeline" || value === "worktree_session" || value === "raw_log") return value;
+  if (value === "skill_frame" || value === "workflow_skill" || value === "pack_build_plan" || value === "generated_pack" || value === "pack_manifest" || value === "pack_validation_report" || value === "pack_test_report" || value === "pack_install_report" || value === "policy_decision_report" || value === "evidence_bundle" || value === "patch_plan_context" || value === "patch_plan" || value === "patch_validation_report" || value === "patch_artifact" || value === "final_patch_artifact" || value === "scope_expansion_request" || value === "repair_patch_plan" || value === "repair_decision" || value === "source_search_results" || value === "source_snapshot" || value === "source_text" || value === "source_set" || value === "research_brief" || value === "citation_index" || value === "capability_step_result" || value === "approval_request" || value === "execution_timeline" || value === "worktree_session" || value === "model_call" || value === "raw_log") return value;
   return "artifact_json";
 }
 

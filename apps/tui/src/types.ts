@@ -42,7 +42,7 @@ export interface ApprovalRequestSummary {
 
 export interface ArtifactSummary {
   readonly artifact_id: string;
-  readonly artifact_type: "diff" | "review" | "verification" | "plan" | "artifact_json" | "skill_frame" | "workflow_skill" | "pack_build_plan" | "generated_pack" | "pack_manifest" | "pack_validation_report" | "pack_test_report" | "pack_install_report" | "pack_smoke_report" | "policy_decision_report" | "evidence_bundle" | "patch_plan_context" | "patch_plan" | "patch_validation_report" | "patch_artifact" | "final_patch_artifact" | "scope_expansion_request" | "repair_patch_plan" | "repair_decision" | "source_search_results" | "source_snapshot" | "source_text" | "source_set" | "research_brief" | "citation_index" | "capability_step_result" | "approval_request" | "execution_timeline" | "worktree_session" | "raw_log";
+  readonly artifact_type: "diff" | "review" | "verification" | "plan" | "artifact_json" | "skill_frame" | "workflow_skill" | "pack_build_plan" | "generated_pack" | "pack_manifest" | "pack_validation_report" | "pack_test_report" | "pack_install_report" | "pack_smoke_report" | "policy_decision_report" | "evidence_bundle" | "patch_plan_context" | "patch_plan" | "patch_validation_report" | "patch_artifact" | "final_patch_artifact" | "scope_expansion_request" | "repair_patch_plan" | "repair_decision" | "source_search_results" | "source_snapshot" | "source_text" | "source_set" | "research_brief" | "citation_index" | "capability_step_result" | "approval_request" | "execution_timeline" | "worktree_session" | "model_call" | "raw_log";
   readonly title: string;
   readonly value: unknown;
 }
@@ -81,6 +81,7 @@ export interface PlanViewSummary {
   readonly verification_reports: readonly string[];
   readonly repair_attempts: readonly string[];
   readonly model_usage_lines: readonly string[];
+  readonly model_call_artifact_refs: readonly string[];
   readonly artifact_refs: readonly string[];
   readonly warnings: readonly string[];
   readonly validation_errors: readonly string[];

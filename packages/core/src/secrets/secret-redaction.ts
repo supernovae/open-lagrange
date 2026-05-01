@@ -29,9 +29,15 @@ export function stripSecretValue(input: unknown): unknown {
   if (Array.isArray(input)) return input.map(stripSecretValue);
   const output: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
-    output[key] = key.toLowerCase().includes("value") || key.toLowerCase().includes("secret") || key.toLowerCase().includes("token")
+    output[key] = shouldStripKey(key)
       ? DEFAULT_REDACTION
       : stripSecretValue(value);
   }
   return output;
+}
+
+function shouldStripKey(key: string): boolean {
+  const normalized = key.toLowerCase();
+  if (normalized === "token_usage" || normalized.endsWith("_tokens") || normalized === "total_tokens") return false;
+  return normalized.includes("value") || normalized.includes("secret") || normalized.includes("token");
 }

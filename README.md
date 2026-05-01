@@ -165,10 +165,11 @@ Apply the generated repository Planfile in an isolated git worktree and export a
 ```bash
 npm run cli -- repo apply .open-lagrange/plans/<plan_id>.plan.md
 npm run cli -- repo status <plan_id>
+npm run cli -- repo model-calls <plan_id>
 npm run cli -- repo patch <plan_id> --output final.patch
 ```
 
-This path is real local runtime execution. The Planfile is validated, repository capabilities are invoked through PackRegistry and CapabilityStepRunner, evidence is recorded, PatchPlans are generated from bounded evidence, file writes happen only in `.open-lagrange/worktrees/<plan_id>/`, verification commands are allowlisted, and the final patch is exported as a reviewable artifact against the original base commit. Authoritative apply yields if no model provider is configured.
+This path is real local runtime execution. The Planfile is validated, repository capabilities are invoked through PackRegistry and CapabilityStepRunner, evidence is recorded, PatchPlans are generated from bounded evidence, model-call telemetry is stored as redacted indexed artifacts, file writes happen only in `.open-lagrange/worktrees/<plan_id>/`, verification commands are allowlisted, and the final patch is exported as a reviewable artifact against the original base commit. Authoritative apply yields if no model provider is configured.
 
 If a PatchPlan requests more scope, approve or reject the exact request and resume:
 

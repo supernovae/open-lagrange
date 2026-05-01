@@ -64,6 +64,7 @@ export function PlanPane({ model }: { readonly model: TuiViewModel }): React.Rea
       <Box marginTop={1} flexDirection="column">
         <Text color={theme.title}>Model Usage</Text>
         {(plan.model_usage_lines.length > 0 ? plan.model_usage_lines : ["none"]).map((line) => <Text key={line}>{line}</Text>)}
+        <Text>Artifacts: {(plan.model_call_artifact_refs.length > 0 ? plan.model_call_artifact_refs.join(", ") : "none")}</Text>
       </Box>
       <Box marginTop={1} flexDirection="column">
         <Text color={theme.title}>Validation Errors</Text>

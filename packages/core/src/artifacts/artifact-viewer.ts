@@ -162,6 +162,7 @@ function kindFromPath(path: string): ArtifactKindType | undefined {
   if (name.includes("citation-index") || name.includes("citation_index")) return "citation_index";
   if (name.includes("capability-step") || name.includes("capability_step")) return "capability_step_result";
   if (name.includes("timeline")) return "execution_timeline";
+  if (name.includes("model-call") || name.includes("model_call")) return "model_call";
   if (name.endsWith(".log")) return "raw_log";
   return undefined;
 }

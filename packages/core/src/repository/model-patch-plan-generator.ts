@@ -1,6 +1,4 @@
-import { generateObject } from "ai";
 import { createCapabilitySnapshotForTask } from "../capability-registry/registry.js";
-import { createConfiguredLanguageModel } from "../model-providers/index.js";
 import { WorkOrder, type WorkOrder as WorkOrderType } from "../planning/work-order.js";
 import type { Planfile, PlanNode } from "../planning/planfile-schema.js";
 import { stableHash } from "../util/hash.js";
@@ -11,6 +9,7 @@ import { chooseModelForRole, type RepositoryModelRole } from "./model-router.js"
 import { modelProviderUnavailable, PatchPlanGenerationError } from "./patch-plan-generation-errors.js";
 import { buildPatchPlanPrompt, patchPlanSystemPrompt, redactedPatchPlanContext } from "./patch-plan-prompt.js";
 import { ModelPatchPlanOutput, normalizeModelPatchPlanOutput } from "./patch-plan-output-schema.js";
+import { executeModelRoleCall, ModelRoleCallError, type ModelRoleTraceContext } from "../models/model-route-executor.js";
 
 export interface GeneratePatchPlanFromEvidenceInput {
   readonly plan_id: string;
@@ -27,23 +26,41 @@ export interface GeneratePatchPlanFromEvidenceInput {
   readonly current_diff_summary?: string;
   readonly mode: "initial_patch" | "repair";
   readonly model_role_hint: Extract<RepositoryModelRole, "implementer_small" | "repair_small" | "escalation_strong">;
+  readonly trace_context?: ModelRoleTraceContext;
+  readonly persist_telemetry?: boolean;
 }
 
 export type PatchPlanGenerator = (input: GeneratePatchPlanFromEvidenceInput) => Promise<RepositoryPatchPlan>;
 
 export async function generatePatchPlanFromEvidence(input: GeneratePatchPlanFromEvidenceInput): Promise<RepositoryPatchPlan> {
-  chooseModelForRole(input.model_role_hint);
-  const model = createConfiguredLanguageModel(input.model_role_hint === "escalation_strong" ? "high" : "coder");
-  if (!model) throw modelProviderUnavailable();
+  const modelChoice = chooseModelForRole(input.model_role_hint);
   try {
-    const { object } = await generateObject({
-      model,
+    const result = await executeModelRoleCall({
+      role: input.mode === "repair" ? "repair" : input.model_role_hint === "escalation_strong" ? "repair" : "implementer",
+      model_ref: {
+        provider: process.env.OPEN_LAGRANGE_MODEL_PROVIDER ?? "openai",
+        model: modelChoice.model,
+        role_label: input.mode === "repair" ? "repair" : "implementer",
+      },
       schema: ModelPatchPlanOutput,
       system: patchPlanSystemPrompt(),
       prompt: buildPatchPlanPrompt(input),
+      trace_context: {
+        ...input.trace_context,
+        plan_id: input.plan_id,
+        node_id: input.node_id,
+        work_order_id: input.work_order.work_order_id,
+        input_artifact_refs: [
+          ...(input.trace_context?.input_artifact_refs ?? []),
+          input.evidence_bundle.artifact_id,
+        ],
+        output_schema_name: "PatchPlan",
+      },
+      persist_telemetry: input.persist_telemetry ?? false,
     });
-    return normalizeModelPatchPlanOutput(object);
+    return normalizeModelPatchPlanOutput(result.object);
   } catch (caught) {
+    if (caught instanceof ModelRoleCallError && caught.code === "MODEL_PROVIDER_UNAVAILABLE") throw modelProviderUnavailable();
     if (caught instanceof PatchPlanGenerationError) throw caught;
     throw new PatchPlanGenerationError("PATCH_PLAN_GENERATION_FAILED", caught instanceof Error ? caught.message : String(caught));
   }

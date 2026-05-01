@@ -4,6 +4,7 @@ import { z } from "zod";
 import { PlanState } from "../planning/plan-state.js";
 import { WorktreeSession } from "./worktree-session.js";
 import { PersistedScopeExpansionRequest } from "./scope-expansion.js";
+import { ModelUsageSummary } from "../evals/provider-usage.js";
 
 export const RepositoryScopeExpansionStatus = z.object({
   request: PersistedScopeExpansionRequest,
@@ -34,6 +35,8 @@ export const RepositoryPlanStatus = z.object({
   scope_expansion_requests: z.array(RepositoryScopeExpansionStatus),
   verification_report_ids: z.array(z.string()),
   repair_attempt_ids: z.array(z.string()),
+  model_call_artifact_refs: z.array(z.string()).default([]),
+  model_calls_summary: ModelUsageSummary.optional(),
   review_report_id: z.string().optional(),
   final_patch_artifact_id: z.string().optional(),
   errors: z.array(z.string()),
@@ -64,6 +67,7 @@ export function createRepositoryPlanStatus(input: {
     scope_expansion_requests: [],
     verification_report_ids: [],
     repair_attempt_ids: [],
+    model_call_artifact_refs: [],
     errors: [],
     warnings: [],
     created_at: now,

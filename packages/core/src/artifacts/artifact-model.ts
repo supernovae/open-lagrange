@@ -33,6 +33,7 @@ export const ArtifactKind = z.enum([
   "approval_request",
   "execution_timeline",
   "worktree_session",
+  "model_call",
   "raw_log",
 ]);
 

@@ -24,3 +24,9 @@ Benchmark metrics aggregate usage by role:
 
 Reports include per-route totals and per-role token/cost breakdowns so route choices can be tuned by measured success, validation failures, repair attempts, and cost.
 
+Runtime repository runs also persist model calls as indexed artifacts. Use:
+
+```bash
+open-lagrange repo model-calls <plan_id>
+open-lagrange artifact show <model_call_artifact_id>
+```

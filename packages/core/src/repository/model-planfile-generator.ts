@@ -1,6 +1,7 @@
 import { Planfile, type Planfile as PlanfileType } from "../planning/planfile-schema.js";
 import { validatePlanfile, withCanonicalPlanDigest } from "../planning/planfile-validator.js";
 import { executeModelRoleCall, ModelRoleCallError } from "../models/model-route-executor.js";
+import type { ModelRoleTraceContext } from "../models/model-route-executor.js";
 import type { GoalFrame } from "../planning/goal-frame.js";
 import type { ModelRouteConfig } from "../evals/model-route-config.js";
 import type { ModelUsageRecord } from "../evals/provider-usage.js";
@@ -20,6 +21,8 @@ export async function generateModelRepositoryPlanfile(input: {
   readonly repo_root: string;
   readonly scenario_id?: string;
   readonly telemetry_records?: ModelUsageRecord[];
+  readonly trace_context?: ModelRoleTraceContext;
+  readonly persist_telemetry?: boolean;
   readonly now: string;
 }): Promise<PlanfileType> {
   const prompt = buildPlanfileGenerationPrompt(input);
@@ -30,10 +33,12 @@ export async function generateModelRepositoryPlanfile(input: {
     system: planfileGenerationSystemPrompt(),
     prompt,
     trace_context: {
+      ...input.trace_context,
       route_id: input.route.route_id,
       ...(input.scenario_id ? { scenario_id: input.scenario_id } : {}),
       plan_id: input.plan_id,
     },
+    persist_telemetry: input.persist_telemetry ?? false,
   });
   input.telemetry_records?.push(result.usage_record);
   const planfile = withCanonicalPlanDigest(Planfile.parse({
@@ -55,4 +60,3 @@ export async function generateModelRepositoryPlanfile(input: {
   }
   return planfile;
 }
-

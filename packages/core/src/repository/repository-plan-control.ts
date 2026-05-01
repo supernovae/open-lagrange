@@ -11,7 +11,7 @@ import { validatePlanfile, withCanonicalPlanDigest } from "../planning/planfile-
 import { createWorktreeSession, cleanupWorktreeSession } from "./worktree-manager.js";
 import { WorktreeSession } from "./worktree-session.js";
 import { RepositoryPlanRunner } from "./repository-plan-runner.js";
-import { readRepositoryPlanStatus, writeRepositoryPlanStatus } from "./repository-status.js";
+import { createRepositoryPlanStatus, readRepositoryPlanStatus, updateRepositoryPlanStatus, writeRepositoryPlanStatus, type RepositoryPlanStatus } from "./repository-status.js";
 import { exportFinalPatch } from "./patch-exporter.js";
 import type { PatchPlanGenerator } from "./model-patch-plan-generator.js";
 import type { ReviewReportGenerator } from "./model-review-report-generator.js";
@@ -21,6 +21,7 @@ import { detectVerificationPolicy, VerificationPolicy, type VerificationCommand 
 import type { ModelRouteConfig } from "../evals/model-route-config.js";
 import type { ModelUsageRecord } from "../evals/provider-usage.js";
 import { ModelRoleCallError } from "../models/model-route-executor.js";
+import { listModelCallArtifactsForPlan, modelCallArtifactRefsForPlan, summarizeModelCallArtifactsForPlan } from "../models/model-call-indexing.js";
 import { loadApprovedScopeExpansionForResume, markScopeExpansionApplied } from "./scope-expansion-resume.js";
 import { markScopeExpansionRequest } from "./scope-expansion.js";
 
@@ -45,10 +46,14 @@ export async function createRepositoryPlanfile(input: CreateRepositoryPlanfileIn
   const now = input.now ?? new Date().toISOString();
   const repoRoot = resolve(input.repo_root);
   const planningMode = input.planning_mode ?? "deterministic";
+  const plan_id = `repo_plan_${stableHash({ repoRoot, goal: input.goal }).slice(0, 18)}`;
+  const artifactDir = join(repoRoot, ".open-lagrange", "runs", plan_id, "artifacts");
   const metadata = collectRepositoryMetadataSummary(repoRoot);
   const goalFrame = await createGoalFrameForMode({
     repo_root: repoRoot,
     goal: input.goal,
+    plan_id,
+    artifact_dir: artifactDir,
     mode: planningMode,
     metadata,
     ...(input.model_route ? { route: input.model_route } : {}),
@@ -56,7 +61,6 @@ export async function createRepositoryPlanfile(input: CreateRepositoryPlanfileIn
     ...(input.scenario_id ? { scenario_id: input.scenario_id } : {}),
     now,
   });
-  const plan_id = `repo_plan_${stableHash({ repoRoot, goal: input.goal }).slice(0, 18)}`;
   const verification_command_ids = [...(input.verification_command_ids ?? ["npm_run_typecheck"])];
   const deterministicPlanfile = () => withCanonicalPlanDigest(Planfile.parse({
     schema_version: "open-lagrange.plan.v1",
@@ -102,6 +106,7 @@ export async function createRepositoryPlanfile(input: CreateRepositoryPlanfileIn
     goal_frame: goalFrame,
     metadata,
     plan_id,
+    artifact_dir: artifactDir,
     planning_mode: planningMode,
     ...(input.model_route ? { route: input.model_route } : {}),
     ...(input.telemetry_records ? { telemetry_records: input.telemetry_records } : {}),
@@ -125,6 +130,15 @@ export async function createRepositoryPlanfile(input: CreateRepositoryPlanfileIn
     created_at: now,
   });
   registerArtifacts({ artifacts: [artifact], now });
+  writeRepositoryPlanStatus(withModelCallStatus(updateRepositoryPlanStatus(createRepositoryPlanStatus({ plan_id, now }), {
+    status: "pending",
+    artifact_refs: [artifact.artifact_id, ...modelCallArtifactRefsForPlan(plan_id)],
+    warnings: planningMode === "deterministic"
+      ? ["Deterministic planning mode used."]
+      : planningMode === "model_with_deterministic_fallback"
+        ? ["Model planning fallback is enabled."]
+        : [],
+  }, now)));
   return { planfile, markdown, path };
 }
 
@@ -178,7 +192,12 @@ export async function applyRepositoryPlanfile(input: {
 }
 
 export async function getRepositoryPlanStatus(planId: string) {
-  return readRepositoryPlanStatus(planId);
+  const status = readRepositoryPlanStatus(planId);
+  return status ? withModelCallStatus(status) : undefined;
+}
+
+export function listRepositoryModelCalls(planId: string) {
+  return listModelCallArtifactsForPlan(planId);
 }
 
 export async function exportRepositoryPlanPatch(planId: string, outputPath?: string) {
@@ -333,9 +352,21 @@ function repositoryRootFromPlan(plan: PlanfileType): string {
   return (repository as { repo_root: string }).repo_root;
 }
 
+function withModelCallStatus(status: RepositoryPlanStatus): RepositoryPlanStatus {
+  const refs = modelCallArtifactRefsForPlan(status.plan_id);
+  const summary = summarizeModelCallArtifactsForPlan(status.plan_id);
+  return {
+    ...status,
+    model_call_artifact_refs: [...new Set([...status.model_call_artifact_refs, ...refs])],
+    ...(summary ? { model_calls_summary: summary } : {}),
+  };
+}
+
 async function createGoalFrameForMode(input: {
   readonly repo_root: string;
   readonly goal: string;
+  readonly plan_id: string;
+  readonly artifact_dir: string;
   readonly mode: PlanningGenerationMode;
   readonly route?: ModelRouteConfig;
   readonly metadata: ReturnType<typeof collectRepositoryMetadataSummary>;
@@ -364,6 +395,12 @@ async function createGoalFrameForMode(input: {
       route: input.route,
       ...(input.telemetry_records ? { telemetry_records: input.telemetry_records } : {}),
       ...(input.scenario_id ? { scenario_id: input.scenario_id } : {}),
+      trace_context: {
+        plan_id: input.plan_id,
+        artifact_dir: input.artifact_dir,
+        output_schema_name: "GoalFrame",
+      },
+      persist_telemetry: true,
       now: input.now,
     });
   } catch (caught) {
@@ -384,6 +421,7 @@ async function createPlanfileForMode(input: {
   readonly goal_frame: PlanfileType["goal_frame"];
   readonly metadata: ReturnType<typeof collectRepositoryMetadataSummary>;
   readonly plan_id: string;
+  readonly artifact_dir: string;
   readonly planning_mode: PlanningGenerationMode;
   readonly route?: ModelRouteConfig;
   readonly telemetry_records?: ModelUsageRecord[];
@@ -420,6 +458,12 @@ async function createPlanfileForMode(input: {
       repo_root: input.repo_root,
       ...(input.scenario_id ? { scenario_id: input.scenario_id } : {}),
       ...(input.telemetry_records ? { telemetry_records: input.telemetry_records } : {}),
+      trace_context: {
+        plan_id: input.plan_id,
+        artifact_dir: input.artifact_dir,
+        output_schema_name: "Planfile",
+      },
+      persist_telemetry: true,
       now: input.now,
     });
   } catch (caught) {

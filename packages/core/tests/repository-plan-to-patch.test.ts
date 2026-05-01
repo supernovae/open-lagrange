@@ -13,7 +13,7 @@ import { cleanupWorktreeSession, createWorktreeSession } from "../src/repository
 import { exportFinalPatch } from "../src/repository/patch-exporter.js";
 import { validateRepositoryPatchPlan } from "../src/repository/patch-validator.js";
 import { nextRepairAttempt } from "../src/repository/repair-loop.js";
-import { createRepositoryPlanfile, applyRepositoryPlanfile, approveRepositoryScopeRequest, resumeRepositoryPlan } from "../src/repository/repository-plan-control.js";
+import { createRepositoryPlanfile, applyRepositoryPlanfile, approveRepositoryScopeRequest, resumeRepositoryPlan, listRepositoryModelCalls } from "../src/repository/repository-plan-control.js";
 import { runVerificationPolicy } from "../src/repository/verification-runner.js";
 import { generatePatchPlanFromEvidence, patchPlanContextSummary } from "../src/repository/model-patch-plan-generator.js";
 import { modelProviderUnavailable } from "../src/repository/patch-plan-generation-errors.js";
@@ -322,6 +322,7 @@ describe("repository Planfile to patch pipeline", () => {
     });
 
     expect(deterministic.planfile.nodes.map((node) => node.id)).toContain("patch_repo");
+    expect(listRepositoryModelCalls(deterministic.planfile.plan_id)).toHaveLength(0);
     await expect(createRepositoryPlanfile({
       repo_root: root,
       goal: "update readme",

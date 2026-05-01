@@ -1,4 +1,5 @@
 import { executeModelRoleCall, ModelRoleCallError } from "../models/model-route-executor.js";
+import type { ModelRoleTraceContext } from "../models/model-route-executor.js";
 import type { ModelRouteConfig } from "../evals/model-route-config.js";
 import type { ModelUsageRecord } from "../evals/provider-usage.js";
 import { RepositoryReviewReport, type RepositoryReviewReport as RepositoryReviewReportType } from "./review-report.js";
@@ -29,6 +30,8 @@ export function createModelReviewReportGenerator(input: {
   readonly route: ModelRouteConfig;
   readonly telemetry_records?: ModelUsageRecord[];
   readonly scenario_id?: string;
+  readonly trace_context?: ModelRoleTraceContext;
+  readonly persist_telemetry?: boolean;
 }): ReviewReportGenerator {
   return async (reviewInput) => {
     const result = await executeModelRoleCall({
@@ -38,11 +41,17 @@ export function createModelReviewReportGenerator(input: {
       system: reviewReportSystemPrompt(),
       prompt: buildReviewReportPrompt(reviewInput),
       trace_context: {
+        ...input.trace_context,
         route_id: input.route.route_id,
         ...(input.scenario_id ? { scenario_id: input.scenario_id } : {}),
         plan_id: reviewInput.planfile.plan_id,
         node_id: "review_repo",
+        output_artifact_refs: [
+          ...(input.trace_context?.output_artifact_refs ?? []),
+          ...(reviewInput.final_patch_artifact_id ? [reviewInput.final_patch_artifact_id] : []),
+        ],
       },
+      persist_telemetry: input.persist_telemetry ?? false,
     });
     input.telemetry_records?.push(result.usage_record);
     const report = RepositoryReviewReport.parse(result.object);
@@ -53,4 +62,3 @@ export function createModelReviewReportGenerator(input: {
     return report;
   };
 }
-

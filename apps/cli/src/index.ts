@@ -10,7 +10,7 @@ import { listDemos, openDemo, runDemo } from "@open-lagrange/core/demos";
 import { runCoreDoctor } from "@open-lagrange/core/doctor";
 import { getPackHealth, inspectPack, listInspectablePacks, runPackSmoke, validateRegisteredPack } from "@open-lagrange/core/packs";
 import { applyPlanfile as applyLocalPlanfile, generateGoalFrame, generatePlanfile, parsePlanfileMarkdown, parsePlanfileYaml, renderPlanfileMarkdown, renderPlanMermaid, validatePlanfile, withCanonicalPlanDigest } from "@open-lagrange/core/planning";
-import { applyRepositoryPlanfile as applyLocalRepositoryPlanfile, approveApprovalRequest, approveRepositoryScopeRequest, cleanupRepositoryPlan as cleanupLocalRepositoryPlan, createRepositoryPlanfile, exportRepositoryPlanPatch as exportLocalRepositoryPlanPatch, getRepositoryPlanStatus as getLocalRepositoryPlanStatus, rejectApprovalRequest, rejectRepositoryScopeRequest, resumeRepositoryPlan } from "@open-lagrange/core/repository";
+import { applyRepositoryPlanfile as applyLocalRepositoryPlanfile, approveApprovalRequest, approveRepositoryScopeRequest, cleanupRepositoryPlan as cleanupLocalRepositoryPlan, createRepositoryPlanfile, exportRepositoryPlanPatch as exportLocalRepositoryPlanPatch, getRepositoryPlanStatus as getLocalRepositoryPlanStatus, listRepositoryModelCalls, rejectApprovalRequest, rejectRepositoryScopeRequest, resumeRepositoryPlan } from "@open-lagrange/core/repository";
 import { compareBenchmarkRun, listBenchmarkScenarios, listModelRouteConfigs, renderBenchmarkReport, runModelRoutingBenchmark } from "@open-lagrange/core/evals";
 import { runResearchBriefCommand, runResearchExportCommand, runResearchFetchCommand, runResearchSearchCommand } from "@open-lagrange/core/research";
 import { buildGeneratedPackFromMarkdown, generateSkillFrame, generateWorkflowSkill, installGeneratedPack, parseSkillfileMarkdown, parseWorkflowSkillMarkdown, previewWorkflowSkillRun, scaffoldGeneratedPack, validateGeneratedPack, validateWorkflowSkill } from "@open-lagrange/core/skills";
@@ -516,6 +516,20 @@ repo.command("status").argument("<planId>", "Plan ID, task ID, or task run ID").
   const status = await getLocalRepositoryPlanStatus(planId) ?? await client?.getRepositoryPlanStatus(planId);
   if (isMissingStatus(status) && client) console.log(JSON.stringify(await client.getTaskStatus(planId), null, 2));
   else console.log(JSON.stringify(status, null, 2));
+});
+
+repo.command("model-calls").argument("<planId>", "Repository plan ID").action((planId: string) => {
+  console.log(JSON.stringify(listRepositoryModelCalls(planId).map((call) => ({
+    artifact_id: call.artifact_id,
+    role: call.role,
+    provider: call.provider,
+    model: call.model,
+    status: call.status,
+    tokens: call.token_usage.total_tokens ?? 0,
+    cost_usd: call.cost.provider_reported_cost_usd ?? call.cost.estimated_cost_usd ?? 0,
+    latency_ms: call.latency_ms ?? 0,
+    output_artifact_refs: call.output_artifact_refs,
+  })), null, 2));
 });
 
 repo.command("resume").argument("<planId>", "Repository plan ID").action(async (planId: string) => {

@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { deterministicGoalFrame, GoalFrame, type GoalFrame as GoalFrameType } from "../planning/goal-frame.js";
 import { stableHash } from "../util/hash.js";
 import { executeModelRoleCall, ModelRoleCallError } from "../models/model-route-executor.js";
+import type { ModelRoleTraceContext } from "../models/model-route-executor.js";
 import type { ModelUsageRecord } from "../evals/provider-usage.js";
 import type { ModelRouteConfig } from "../evals/model-route-config.js";
 import { buildGoalFramePrompt, goalFrameSystemPrompt } from "./goal-frame-prompt.js";
@@ -34,6 +35,8 @@ export interface GenerateModelGoalFrameInput {
   readonly mode: "repo_plan" | "eval";
   readonly route: ModelRouteConfig;
   readonly telemetry_records?: ModelUsageRecord[];
+  readonly trace_context?: ModelRoleTraceContext;
+  readonly persist_telemetry?: boolean;
   readonly now?: string;
 }
 
@@ -48,9 +51,11 @@ export async function generateModelGoalFrame(input: GenerateModelGoalFrameInput)
       system: goalFrameSystemPrompt(),
       prompt,
       trace_context: {
+        ...input.trace_context,
         route_id: input.route.route_id,
         ...(input.scenario_id ? { scenario_id: input.scenario_id } : {}),
       },
+      persist_telemetry: input.persist_telemetry ?? false,
     });
     input.telemetry_records?.push(result.usage_record);
     return GoalFrame.parse(result.object);
