@@ -25,7 +25,7 @@ import { ConversationPane } from "./ConversationPane.js";
 export function DetailPane({ model, height }: { readonly model: TuiViewModel; readonly height: number }): React.ReactElement {
   if (model.selectedPane === "chat") {
     return (
-      <Box flexDirection="column" height={height} borderStyle="single" borderColor={theme.border} paddingX={1} flexGrow={1} flexShrink={1}>
+      <Box flexDirection="column" height={height} overflow="hidden" borderStyle="single" borderColor={theme.border} paddingX={1} flexGrow={1} flexShrink={1}>
         <Text color={theme.title}>{paneTitle(model.selectedPane)}</Text>
         <ConversationPane turns={model.conversation} scrollOffset={model.scrollOffset} height={Math.max(4, height - 2)} />
       </Box>
@@ -34,9 +34,9 @@ export function DetailPane({ model, height }: { readonly model: TuiViewModel; re
   const inspectorHeight = inspectorHeightFor(model.selectedPane, height);
   const journalHeight = Math.max(5, height - inspectorHeight - 4);
   return (
-    <Box flexDirection="column" height={height} borderStyle="single" borderColor={theme.border} paddingX={1} flexGrow={1} flexShrink={1}>
+    <Box flexDirection="column" height={height} overflow="hidden" borderStyle="single" borderColor={theme.border} paddingX={1} flexGrow={1} flexShrink={1}>
       <Text color={theme.title}>{paneTitle(model.selectedPane)}</Text>
-      <Box flexDirection="column" height={inspectorHeight} flexShrink={1}>
+      <Box flexDirection="column" height={inspectorHeight} overflow="hidden" flexShrink={1}>
         {content(model)}
       </Box>
       <Text color={theme.muted}>Journal</Text>

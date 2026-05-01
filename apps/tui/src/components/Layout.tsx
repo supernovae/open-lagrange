@@ -21,7 +21,7 @@ export function Layout({ model, input, setInput, onSubmit }: {
   return (
     <Box flexDirection="column" width={width} height={height}>
       <StatusBar health={model.health} width={width} />
-      <Box flexDirection={compact ? "column" : "row"} width={width} height={mainHeight} flexGrow={1}>
+      <Box flexDirection={compact ? "column" : "row"} width={width} height={mainHeight} overflow="hidden" flexGrow={1}>
         {compact ? null : <Sidebar model={model} width={Math.min(34, Math.max(28, Math.floor(width * 0.34)))} height={mainHeight} />}
         <DetailPane model={model} height={mainHeight} />
       </Box>
