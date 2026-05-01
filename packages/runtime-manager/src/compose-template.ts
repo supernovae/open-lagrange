@@ -1,4 +1,5 @@
 export function localComposeTemplate(input: { readonly sourceRoot: string; readonly searxngSettingsPath?: string }): string {
+  const searxngSettingsMount = `${input.searxngSettingsPath ?? "/tmp/open-lagrange-searxng-settings.yml"}:/etc/searxng/settings.yml:ro`;
   return `name: open-lagrange
 
 services:
@@ -46,7 +47,7 @@ services:
       UWSGI_WORKERS: "1"
       UWSGI_THREADS: "4"
     volumes:
-      - ${yamlString(input.searxngSettingsPath ?? "/tmp/open-lagrange-searxng-settings.yml")}:/etc/searxng/settings.yml:ro
+      - ${yamlString(searxngSettingsMount)}
 
   hatchet-migration:
     image: ghcr.io/hatchet-dev/hatchet/hatchet-migrate:latest

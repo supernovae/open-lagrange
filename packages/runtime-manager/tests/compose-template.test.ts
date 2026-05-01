@@ -2,6 +2,7 @@ import { mkdtempSync } from "node:fs";
 import { mkdir, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import YAML from "yaml";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { podmanComposeCandidatesForConnections, writeComposeTemplate } from "../src/compose.js";
 import { localComposeTemplate, localSearxngSettingsTemplate } from "../src/compose-template.js";
@@ -16,6 +17,7 @@ describe("runtime compose template", () => {
 
   it("uses the resolved source root as the build context", () => {
     const text = localComposeTemplate({ sourceRoot: "/tmp/open-lagrange-source" });
+    const parsed = YAML.parse(text) as { services?: { searxng?: { volumes?: string[] } } };
 
     expect(text).toContain('context: "/tmp/open-lagrange-source"');
     expect(text).toContain("dockerfile: containers/api.Containerfile");
@@ -34,6 +36,7 @@ describe("runtime compose template", () => {
     expect(text).toContain("SEARXNG_SECRET: ${OPEN_LAGRANGE_API_TOKEN:-open-lagrange-local-search}");
     expect(text).toContain("SEARXNG_SETTINGS_PATH: /etc/searxng/settings.yml");
     expect(text).toContain("/etc/searxng/settings.yml:ro");
+    expect(parsed.services?.searxng?.volumes).toContain("/tmp/open-lagrange-searxng-settings.yml:/etc/searxng/settings.yml:ro");
   });
 
   it("enables JSON format in managed SearXNG settings", () => {
