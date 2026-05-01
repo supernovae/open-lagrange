@@ -54,49 +54,49 @@ The repository live demo stores both structured patch metadata and a plain `fina
 Show the latest run's primary outputs:
 
 ```bash
-npm run cli -- run outputs latest
+open-lagrange run outputs latest
 ```
 
 List recent runs:
 
 ```bash
-npm run cli -- run list
+open-lagrange run list
 ```
 
 Show high-signal recent artifacts:
 
 ```bash
-npm run cli -- artifact recent
+open-lagrange artifact recent
 ```
 
 List artifacts for a specific run:
 
 ```bash
-npm run cli -- artifact list --run <run_id>
+open-lagrange artifact list --run <run_id>
 ```
 
 List raw recent artifacts:
 
 ```bash
-npm run cli -- artifact list
+open-lagrange artifact list
 ```
 
 Show a redacted artifact:
 
 ```bash
-npm run cli -- artifact show <artifact_id>
+open-lagrange artifact show <artifact_id>
 ```
 
 Export an artifact:
 
 ```bash
-npm run cli -- artifact export <artifact_id> --output ./final.patch
+open-lagrange artifact export <artifact_id> --output ./final.patch
 ```
 
 Rebuild the local index from known artifact directories:
 
 ```bash
-npm run cli -- artifact reindex
+open-lagrange artifact reindex
 ```
 
 ## Redaction

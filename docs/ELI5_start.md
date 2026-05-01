@@ -36,7 +36,7 @@ side, careful runtime control on the other.
 ### 1. Create A Planfile
 
 ```bash
-npm run cli -- plan create --goal "Make a release checklist for this project" --dry-run
+open-lagrange plan create --goal "Make a release checklist for this project" --dry-run
 ```
 
 You should see Markdown with a Mermaid graph and an executable YAML block. The
@@ -45,7 +45,7 @@ Markdown is for people. The YAML is what validation uses.
 ### 2. Plan A Repository Change
 
 ```bash
-npm run cli -- repo plan \
+open-lagrange repo plan \
   --repo . \
   --goal "Add JSON output to the status command" \
   --dry-run
@@ -57,7 +57,7 @@ your working tree.
 ### 3. Apply A Repository Plan In A Worktree
 
 ```bash
-npm run cli -- repo apply .open-lagrange/plans/<plan_id>.md
+open-lagrange repo apply .open-lagrange/plans/<plan_id>.md
 ```
 
 Open Lagrange creates an isolated worktree under `.open-lagrange/worktrees/`.
@@ -66,7 +66,7 @@ Your normal checkout is not edited directly.
 ### 4. Export The Final Patch
 
 ```bash
-npm run cli -- repo patch <plan_id> --output final.patch
+open-lagrange repo patch <plan_id> --output final.patch
 ```
 
 You can inspect or apply that patch yourself.
@@ -95,7 +95,7 @@ Review repository files and produce a concise report.
 Then run:
 
 ```bash
-npm run cli -- skill plan skills.md
+open-lagrange skill plan skills.md
 ```
 
 Phase 1 only generates a reviewable Workflow Skill artifact. It does not create
@@ -104,8 +104,8 @@ new pack code or run capabilities.
 ### 6. Store A Secret Safely
 
 ```bash
-npm run cli -- secrets set openai
-npm run cli -- secrets status
+open-lagrange secrets set openai
+open-lagrange secrets status
 ```
 
 Config stores a secret reference. The raw value stays in the OS keychain when

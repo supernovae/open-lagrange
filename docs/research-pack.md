@@ -14,7 +14,7 @@ Fixture mode is the default. It uses checked-in sources from
 Live URL fetch is explicit. Use `--live` for one URL at a time:
 
 ```bash
-npm run cli -- research fetch https://example.com --live
+open-lagrange research fetch https://example.com --live
 ```
 
 Live search is not implemented in this phase. If requested, the pack returns a
@@ -23,9 +23,9 @@ structured warning and fixture-backed candidates.
 ## Commands
 
 ```bash
-npm run cli -- research search "planning primitive" --fixture
-npm run cli -- research brief "MCP security risks" --fixture
-npm run cli -- research fetch https://example.com --live
+open-lagrange research search "planning primitive" --fixture
+open-lagrange research brief "MCP security risks" --fixture
+open-lagrange research fetch https://example.com --live
 ```
 
 The commands write indexed artifacts under `.open-lagrange/research/`.

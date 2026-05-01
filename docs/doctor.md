@@ -3,7 +3,7 @@
 `open-lagrange doctor` checks whether the current runtime profile looks ready to run local or remote workflows.
 
 ```bash
-npm run cli -- doctor
+open-lagrange doctor
 ```
 
 Example shape:

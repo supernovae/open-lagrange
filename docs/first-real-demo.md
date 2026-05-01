@@ -23,7 +23,7 @@ Dry-run is the default. The workflow can inspect allowed files, create a patch
 plan, preview touched files, and stop for approval without writing.
 
 ```bash
-npm run cli -- repo run \
+open-lagrange repo run \
   --repo . \
   --goal "Add a short Repository Task Pack note to the README."
 ```
@@ -31,15 +31,15 @@ npm run cli -- repo run \
 Then inspect status:
 
 ```bash
-npm run cli -- repo status <task-run-id>
-npm run cli -- repo review <task-run-id>
+open-lagrange repo status <task-run-id>
+open-lagrange repo review <task-run-id>
 ```
 
 Approve the pending patch:
 
 ```bash
-npm run cli -- repo approve <task-run-id> --reason "Patch is scoped"
-npm run cli -- repo status <task-run-id>
+open-lagrange repo approve <task-run-id> --reason "Patch is scoped"
+open-lagrange repo status <task-run-id>
 ```
 
 Approval starts a repository continuation workflow run. The continuation uses
@@ -52,7 +52,7 @@ policy, expected hashes, command policy, and the task policy gate before any
 write occurs.
 
 ```bash
-npm run cli -- repo run \
+open-lagrange repo run \
   --repo . \
   --goal "Add a short Repository Task Pack note to the README." \
   --apply
@@ -61,8 +61,8 @@ npm run cli -- repo run \
 After completion:
 
 ```bash
-npm run cli -- repo diff <task-run-id>
-npm run cli -- repo review <task-run-id>
+open-lagrange repo diff <task-run-id>
+open-lagrange repo review <task-run-id>
 ```
 
 ## Example Web API Request

@@ -70,3 +70,14 @@ intentionally resetting local runtime state.
 The managed Hatchet setup also writes a local client token into the Hatchet
 config Docker/Podman volume and mounts it read-only into the API and worker
 containers. The token is not written to `~/.open-lagrange/config.yaml`.
+
+That Hatchet client token is separate from the Open Lagrange Control Plane API
+bearer token. Before using the TUI or `/v1` API-backed commands against a
+container runtime, configure the local API token and restart the stack:
+
+```bash
+TOKEN="$(openssl rand -hex 32)"
+printf '%s' "$TOKEN" | open-lagrange auth login --from-stdin
+open-lagrange restart --runtime podman
+open-lagrange tui
+```

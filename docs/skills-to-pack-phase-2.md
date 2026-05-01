@@ -4,9 +4,9 @@ Phase 2 turns a `skills.md` request into a reviewable Capability Pack source
 tree when existing packs cannot satisfy the requested workflow.
 
 ```bash
-npm run cli -- pack build examples/skills/http-json-fetcher.md --dry-run
-npm run cli -- pack inspect .open-lagrange/generated-packs/local.http-json-fetcher
-npm run cli -- pack validate .open-lagrange/generated-packs/local.http-json-fetcher
+open-lagrange pack build examples/skills/http-json-fetcher.md --dry-run
+open-lagrange pack inspect .open-lagrange/generated-packs/local.http-json-fetcher
+open-lagrange pack validate .open-lagrange/generated-packs/local.http-json-fetcher
 ```
 
 The build command does not install the pack. It writes local source under

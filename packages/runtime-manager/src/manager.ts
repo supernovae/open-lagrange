@@ -185,9 +185,11 @@ async function localProfile(runtime?: "docker" | "podman"): Promise<RuntimeProfi
 async function runtimeEnv(profile: RuntimeProfile): Promise<NodeJS.ProcessEnv> {
   const packPaths = getProfilePackPaths(profile.name);
   await mkdir(packPaths.trustedLocalDir, { recursive: true });
+  const authToken = await resolveProfileAuthToken(profile);
   return {
     ...process.env,
     ...await modelProviderRuntimeEnv(profile),
+    ...(authToken ? { OPEN_LAGRANGE_API_TOKEN: authToken } : {}),
     OPEN_LAGRANGE_PROFILE: profile.name,
     OPEN_LAGRANGE_PROFILE_PACKS_DIR: packPaths.packsDir,
   };

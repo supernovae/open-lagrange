@@ -5,19 +5,19 @@ Pack inspection makes capability boundaries visible before a workflow uses them.
 List packs:
 
 ```bash
-npm run cli -- pack list
+open-lagrange pack list
 ```
 
 Inspect a pack:
 
 ```bash
-npm run cli -- pack inspect open-lagrange.repository
+open-lagrange pack inspect open-lagrange.repository
 ```
 
 Validate a pack:
 
 ```bash
-npm run cli -- pack validate open-lagrange.repository
+open-lagrange pack validate open-lagrange.repository
 ```
 
 ## Inspect Output

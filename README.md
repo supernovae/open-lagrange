@@ -37,7 +37,7 @@ Start with the friendly walkthrough: [docs/ELI5_start.md](docs/ELI5_start.md).
 Fastest dry-run demo:
 
 ```bash
-npm run cli -- demo run repo-json-output --dry-run
+open-lagrange demo run repo-json-output --dry-run
 ```
 
 That command writes a Planfile, patch plan, patch artifact preview, verification
@@ -54,24 +54,28 @@ npm install
 npm run build
 ```
 
+The snippets below use the installed or linked `open-lagrange` binary. When
+working from a source checkout without that binary on `PATH`, use
+`npm run cli -- <command>` as the local equivalent.
+
 Bootstrap the local runtime profile, compose stack, Hatchet token, API, worker,
 and web UI in one command:
 
 ```bash
-npm run cli -- bootstrap --runtime podman
+open-lagrange bootstrap --runtime podman
 ```
 
 Docker works too:
 
 ```bash
-npm run cli -- bootstrap --runtime docker
+open-lagrange bootstrap --runtime docker
 ```
 
 Check health:
 
 ```bash
-npm run cli -- status
-npm run cli -- doctor
+open-lagrange status
+open-lagrange doctor
 ```
 
 `init` and `up` still exist for scripting, but `bootstrap` is the smooth local
@@ -79,48 +83,57 @@ path. It creates or reuses the managed `local` profile, writes
 `~/.open-lagrange/docker-compose.yaml`, lets the compose stack create the
 Hatchet client token in its config volume, and reports readiness steps.
 
+Configure the local Control Plane bearer token before using the TUI or any
+`/v1` API-backed commands:
+
+```bash
+TOKEN="$(openssl rand -hex 32)"
+printf '%s' "$TOKEN" | open-lagrange auth login --from-stdin
+open-lagrange restart --runtime podman
+```
+
 ## Demos And Experiments
 
 Run the repository Plan-to-Patch demo:
 
 ```bash
-npm run cli -- demo run repo-json-output --dry-run
-npm run cli -- run outputs latest
-npm run cli -- artifact recent
+open-lagrange demo run repo-json-output --dry-run
+open-lagrange run outputs latest
+open-lagrange artifact recent
 ```
 
 Run the same demo through a live isolated fixture repo and git worktree:
 
 ```bash
-npm run cli -- demo run repo-json-output --live
-npm run cli -- run outputs latest
+open-lagrange demo run repo-json-output --live
+open-lagrange run outputs latest
 ```
 
 Run the Research Brief Workflow Skill demo:
 
 ```bash
-npm run cli -- demo run skills-research-brief --dry-run
-npm run cli -- run outputs latest
+open-lagrange demo run skills-research-brief --dry-run
+open-lagrange run outputs latest
 ```
 
 Try the Research Pack offline with fixture sources:
 
 ```bash
-npm run cli -- research search "planning primitive" --fixture
-npm run cli -- research brief "MCP security risks" --fixture
+open-lagrange research search "planning primitive" --fixture
+open-lagrange research brief "MCP security risks" --fixture
 ```
 
 Fetch one explicit live URL through SDK HTTP policy:
 
 ```bash
-npm run cli -- research fetch https://example.com --live
+open-lagrange research fetch https://example.com --live
 ```
 
 Run the first live Planfile workflow end to end:
 
 ```bash
-npm run cli -- plan apply examples/planfiles/research-url-summary.plan.md --live
-npm run cli -- artifact list
+open-lagrange plan apply examples/planfiles/research-url-summary.plan.md --live
+open-lagrange artifact list
 ```
 
 This executes locally through PlanRunner, PackRegistry, CapabilityStepRunner,
@@ -132,9 +145,9 @@ and model-generated briefs are still out of scope for this path.
 Inspect runtime and packs:
 
 ```bash
-npm run cli -- doctor
-npm run cli -- pack list
-npm run cli -- pack inspect open-lagrange.repository
+open-lagrange doctor
+open-lagrange pack list
+open-lagrange pack inspect open-lagrange.repository
 ```
 
 The current demos use deterministic fixtures. The repository dry-run previews
@@ -147,15 +160,16 @@ checked-in source notes rather than live network search.
 Create a generic Planfile:
 
 ```bash
-npm run cli -- plan create --goal "Draft a safe rollout checklist" --dry-run
+open-lagrange plan create --goal "Draft a safe rollout checklist" --dry-run
 ```
 
 Plan a repository change without touching your working tree:
 
 ```bash
-npm run cli -- repo plan \
-  --repo . \
-  --goal "Add JSON output to the status command" \
+open-lagrange repo doctor --repo examples/evals/repo-plan-to-patch/cli-json-status
+open-lagrange repo plan \
+  --repo examples/evals/repo-plan-to-patch/cli-json-status \
+  --goal "add --json output to my cli status command" \
   --dry-run \
   --planning-mode deterministic
 ```
@@ -163,34 +177,60 @@ npm run cli -- repo plan \
 Apply the generated repository Planfile in an isolated git worktree and export a validated patch:
 
 ```bash
-npm run cli -- repo apply .open-lagrange/plans/<plan_id>.plan.md
-npm run cli -- repo status <plan_id>
-npm run cli -- repo model-calls <plan_id>
-npm run cli -- repo patch <plan_id> --output final.patch
+open-lagrange repo apply .open-lagrange/plans/<plan_id>.plan.md
+open-lagrange repo status <plan_id>
+open-lagrange repo model-calls <plan_id>
+open-lagrange artifact list --plan <plan_id>
+open-lagrange repo explain <plan_id>
+open-lagrange repo patch <plan_id> --output final.patch
+open-lagrange repo cleanup <plan_id>
 ```
 
-This path is real local runtime execution. The Planfile is validated, repository capabilities are invoked through PackRegistry and CapabilityStepRunner, evidence is recorded, PatchPlans are generated from bounded evidence, model-call telemetry is stored as redacted indexed artifacts, file writes happen only in `.open-lagrange/worktrees/<plan_id>/`, verification commands are allowlisted, and the final patch is exported as a reviewable artifact against the original base commit. Authoritative apply yields if no model provider is configured.
+The canonical fixture lives at `examples/evals/repo-plan-to-patch/cli-json-status`.
+It contains a tiny status command, README, package scripts, and a simple
+verification path.
+
+This path is real local runtime execution. The Planfile is validated,
+repository capabilities are invoked through PackRegistry and
+CapabilityStepRunner, evidence is recorded, PatchPlans are generated from
+bounded evidence, model-call telemetry is stored as redacted indexed artifacts,
+file writes happen only in `.open-lagrange/worktrees/<plan_id>/`, verification
+commands are allowlisted, and the final patch is exported as a reviewable
+artifact against the original base commit. `repo status`, `repo explain`,
+`repo model-calls`, and `artifact list --plan` expose the artifact trail.
+
+Current limits: deterministic planning is the default preview path, model-backed
+PatchPlan generation requires configured provider credentials, repair remains
+bounded, no arbitrary shell commands are executed, and the model never mutates
+files directly. If execution yields, status includes a reason, remediation, and
+suggested next command.
+
+Prune old local artifacts without touching source files:
+
+```bash
+open-lagrange artifact prune --older-than 7d
+```
 
 If a PatchPlan requests more scope, approve or reject the exact request and resume:
 
 ```bash
-npm run cli -- repo scope approve <request_id> --reason "needed for the requested file"
-npm run cli -- repo resume <plan_id>
+open-lagrange repo scope approve <request_id> --reason "needed for the requested file"
+open-lagrange repo resume <plan_id>
 ```
 
 Run the model routing benchmark with deterministic fixture outputs:
 
 ```bash
-npm run cli -- eval list
-npm run cli -- eval routes
-npm run cli -- eval run repo-plan-to-patch --mock-models
-npm run cli -- eval report <run_id>
+open-lagrange eval list
+open-lagrange eval routes
+open-lagrange eval run repo-plan-to-patch --mock-models
+open-lagrange eval report <run_id>
 ```
 
 Run provider-backed evals explicitly:
 
 ```bash
-npm run cli -- eval run repo-plan-to-patch --live-models --planning-mode model --yes --max-scenarios 1
+open-lagrange eval run repo-plan-to-patch --live-models --planning-mode model --yes --max-scenarios 1
 ```
 
 Live evals measure planner, implementer, repair, and reviewer route roles. Reports include per-role calls, token counts, and estimated or provider-reported cost.
@@ -198,26 +238,26 @@ Live evals measure planner, implementer, repair, and reviewer route roles. Repor
 Build a Workflow Skill from ordinary Markdown:
 
 ```bash
-npm run cli -- skill plan ./skills.md
+open-lagrange skill plan ./skills.md
 ```
 
 Generate a reviewable Capability Pack scaffold from a skill:
 
 ```bash
-npm run cli -- pack build examples/skills/http-json-fetcher.md --dry-run
-npm run cli -- pack inspect .open-lagrange/generated-packs/local.http-json-fetcher
-npm run cli -- pack validate .open-lagrange/generated-packs/local.http-json-fetcher
+open-lagrange pack build examples/skills/http-json-fetcher.md --dry-run
+open-lagrange pack inspect .open-lagrange/generated-packs/local.http-json-fetcher
+open-lagrange pack validate .open-lagrange/generated-packs/local.http-json-fetcher
 ```
 
 Try the generated pack lifecycle end to end with a safe Markdown Transformer:
 
 ```bash
-npm run cli -- pack build examples/skills-markdown-transformer/skills.md --dry-run
-npm run cli -- pack validate .open-lagrange/generated-packs/local.markdown-transformer
-npm run cli -- pack install .open-lagrange/generated-packs/local.markdown-transformer
-npm run cli -- restart
-npm run cli -- pack health local.markdown-transformer
-npm run cli -- pack smoke local.markdown-transformer
+open-lagrange pack build examples/skills-markdown-transformer/skills.md --dry-run
+open-lagrange pack validate .open-lagrange/generated-packs/local.markdown-transformer
+open-lagrange pack install .open-lagrange/generated-packs/local.markdown-transformer
+open-lagrange restart
+open-lagrange pack health local.markdown-transformer
+open-lagrange pack smoke local.markdown-transformer
 ```
 
 Install writes to the active runtime profile by default:
@@ -227,14 +267,14 @@ want a disposable workspace registry instead.
 Configure a provider key without writing it to config:
 
 ```bash
-npm run cli -- secrets set openai
-npm run cli -- secrets status
+open-lagrange secrets set openai
+open-lagrange secrets status
 ```
 
 Open the terminal cockpit:
 
 ```bash
-npm run cli -- tui
+open-lagrange tui
 ```
 
 The TUI now opens to Home, a chat-guided cockpit. You can type natural language

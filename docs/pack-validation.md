@@ -4,8 +4,8 @@
 pack path.
 
 ```bash
-npm run cli -- pack validate open-lagrange.repository
-npm run cli -- pack validate .open-lagrange/generated-packs/local.http-json-fetcher
+open-lagrange pack validate open-lagrange.repository
+open-lagrange pack validate .open-lagrange/generated-packs/local.http-json-fetcher
 ```
 
 Generated pack validation checks:

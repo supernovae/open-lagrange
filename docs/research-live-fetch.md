@@ -3,7 +3,7 @@
 `research.fetch_source` supports fixture mode and explicit live mode.
 
 ```bash
-npm run cli -- research fetch https://example.com --live
+open-lagrange research fetch https://example.com --live
 ```
 
 Live mode is opt-in. Without `--live`, the CLI refuses arbitrary URL fetches.

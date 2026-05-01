@@ -3,7 +3,7 @@
 This pass adds one real end-to-end workflow before adding more packs:
 
 ```bash
-npm run cli -- plan apply examples/planfiles/research-url-summary.plan.md --live
+open-lagrange plan apply examples/planfiles/research-url-summary.plan.md --live
 ```
 
 The command runs a local runtime execution path. It loads the validated Planfile

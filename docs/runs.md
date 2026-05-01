@@ -23,33 +23,33 @@ Workflow-specific files still live under their output directory, for example:
 Start with the latest run:
 
 ```bash
-npm run cli -- run outputs latest
+open-lagrange run outputs latest
 ```
 
 List runs:
 
 ```bash
-npm run cli -- run list
+open-lagrange run list
 ```
 
 Show one run:
 
 ```bash
-npm run cli -- run show <run_id>
+open-lagrange run show <run_id>
 ```
 
 Show primary and supporting outputs:
 
 ```bash
-npm run cli -- run outputs <run_id> --include-supporting
+open-lagrange run outputs <run_id> --include-supporting
 ```
 
 Use the artifact archive when you need a specific item:
 
 ```bash
-npm run cli -- artifact recent
-npm run cli -- artifact show <artifact_id>
-npm run cli -- artifact export <artifact_id> --output ./output.patch
+open-lagrange artifact recent
+open-lagrange artifact show <artifact_id>
+open-lagrange artifact export <artifact_id> --output ./output.patch
 ```
 
 ## TUI

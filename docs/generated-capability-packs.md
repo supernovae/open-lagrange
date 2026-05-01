@@ -4,9 +4,9 @@ Generated Capability Packs are local source artifacts. They are useful when a
 workflow needs a capability that is not already available from installed packs.
 
 ```bash
-npm run cli -- pack build examples/skills/github-pr-helper.md --dry-run
-npm run cli -- pack inspect .open-lagrange/generated-packs/local.github-pr-helper
-npm run cli -- pack validate .open-lagrange/generated-packs/local.github-pr-helper
+open-lagrange pack build examples/skills/github-pr-helper.md --dry-run
+open-lagrange pack inspect .open-lagrange/generated-packs/local.github-pr-helper
+open-lagrange pack validate .open-lagrange/generated-packs/local.github-pr-helper
 ```
 
 ## Directory Shape
@@ -38,7 +38,7 @@ npm run cli -- pack validate .open-lagrange/generated-packs/local.github-pr-help
 Install is a separate explicit step:
 
 ```bash
-npm run cli -- pack install .open-lagrange/generated-packs/<pack_id>
+open-lagrange pack install .open-lagrange/generated-packs/<pack_id>
 ```
 
 Install refuses failing validation reports. Packs that require manual review

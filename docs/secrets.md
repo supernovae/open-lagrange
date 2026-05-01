@@ -64,9 +64,9 @@ OPENAI_API_KEY=... open-lagrange up --dev
 Model provider secrets follow the provider ID convention:
 
 ```sh
-npm run cli -- model providers
-npm run cli -- model configure openrouter --model openai/gpt-4o --high-model openai/gpt-4o --coder-model anthropic/claude-3.5-sonnet
-npm run cli -- secrets set openrouter
+open-lagrange model providers
+open-lagrange model configure openrouter --model openai/gpt-4o --high-model openai/gpt-4o --coder-model anthropic/claude-3.5-sonnet
+open-lagrange secrets set openrouter
 ```
 
 See [model-providers.md](model-providers.md) for named providers, endpoint overrides, and model slot conventions.

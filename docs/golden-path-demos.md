@@ -5,19 +5,19 @@ Golden path demos are local dry-run walkthroughs that make the current platform 
 Run the fastest demo:
 
 ```bash
-npm run cli -- demo run repo-json-output --dry-run
+open-lagrange demo run repo-json-output --dry-run
 ```
 
 List all demos:
 
 ```bash
-npm run cli -- demo list
+open-lagrange demo list
 ```
 
 Open a demo fixture:
 
 ```bash
-npm run cli -- demo open skills-research-brief
+open-lagrange demo open skills-research-brief
 ```
 
 ## Repository Plan-to-Patch
@@ -40,7 +40,7 @@ The dry-run does not mutate the tracked fixture repository. The patch preview is
 Run the live local version:
 
 ```bash
-npm run cli -- demo run repo-json-output --live
+open-lagrange demo run repo-json-output --live
 ```
 
 Live mode copies the fixture repository into the demo output directory, initializes a local git repository, creates an isolated worktree, executes the Planfile through the generic PlanRunner and repository handlers, runs the allowlisted JSON status verification command, and exports `final.patch`.
@@ -77,21 +77,21 @@ This is a smaller Workflow Skill example for a notes workflow. It is useful when
 By default, demo runs write artifacts, register them in `.open-lagrange/artifacts/index.json`, and add a run summary to `.open-lagrange/runs/index.json`.
 
 ```bash
-npm run cli -- demo run skills-research-brief --dry-run
-npm run cli -- run outputs latest
-npm run cli -- artifact recent
+open-lagrange demo run skills-research-brief --dry-run
+open-lagrange run outputs latest
+open-lagrange artifact recent
 ```
 
 Use a custom directory:
 
 ```bash
-npm run cli -- demo run repo-json-output --dry-run --output-dir /tmp/ol-repo-demo
+open-lagrange demo run repo-json-output --dry-run --output-dir /tmp/ol-repo-demo
 ```
 
 Use stdout-only mode when you want a quick summary and no files:
 
 ```bash
-npm run cli -- demo run skills-research-brief --dry-run --stdout-only
+open-lagrange demo run skills-research-brief --dry-run --stdout-only
 ```
 
 Use `--clean` to remove prior output for the same demo before writing a new run.

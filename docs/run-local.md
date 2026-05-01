@@ -32,8 +32,8 @@
 5. Submit from the CLI:
 
    ```bash
-   npm run cli -- submit "Create a short README summary for this repository."
-   npm run cli -- status <project-id-or-run-id>
+   open-lagrange submit "Create a short README summary for this repository."
+   open-lagrange status <project-id-or-run-id>
    ```
 
 6. Start the web app:
@@ -53,8 +53,8 @@
 8. Approve or reject a task:
 
    ```bash
-   npm run cli -- approve <task-run-id> --reason "Approved for demo"
-   npm run cli -- reject <task-run-id> --reason "Rejected for demo"
+   open-lagrange approve <task-run-id> --reason "Approved for demo"
+   open-lagrange reject <task-run-id> --reason "Rejected for demo"
    ```
 
 Approval starts a deterministic continuation workflow run. Rejection records the
@@ -63,21 +63,21 @@ decision and leaves the task yielded safely.
 9. Run the Repository Task Pack:
 
    ```bash
-   npm run cli -- repo run \
+   open-lagrange repo run \
      --repo . \
      --goal "Add a short Repository Task Pack note to the README."
-   npm run cli -- repo status <task-run-id>
+   open-lagrange repo status <task-run-id>
    ```
 
 10. Apply a repository patch explicitly:
 
    ```bash
-   npm run cli -- repo run \
+   open-lagrange repo run \
      --repo . \
      --goal "Add a short Repository Task Pack note to the README." \
      --apply
-   npm run cli -- repo diff <task-run-id>
-   npm run cli -- repo review <task-run-id>
+   open-lagrange repo diff <task-run-id>
+   open-lagrange repo review <task-run-id>
    ```
 
 ## Known Limits
