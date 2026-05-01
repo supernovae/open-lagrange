@@ -128,6 +128,8 @@ function helpText(): string {
     "- Up/down: command history",
     "- Page up/down or Shift+up/down: journal scroll",
     "- Tab / Shift+tab: cycle panes",
+    "- /expand: open the current transcript card in detail view",
+    "- /collapse: return from detail view to the transcript",
     "- /copy: journal the current view text",
     "",
     "Useful commands:",

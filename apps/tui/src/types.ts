@@ -112,6 +112,7 @@ export interface TuiViewModel {
   readonly pendingFlow?: SuggestedFlow;
   readonly selectedPane: PaneId;
   readonly scrollOffset: number;
+  readonly expandedTurnId?: string | undefined;
   readonly inputMode: InputMode;
   readonly isLoading: boolean;
   readonly health: RuntimeHealth;

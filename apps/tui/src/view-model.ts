@@ -18,6 +18,7 @@ export function buildViewModel(input: {
   readonly project?: ProjectRunStatus;
   readonly selectedPane: PaneId;
   readonly scrollOffset?: number;
+  readonly expandedTurnId?: string;
   readonly inputMode: InputMode;
   readonly isLoading: boolean;
   readonly health?: RuntimeHealth;
@@ -44,6 +45,7 @@ export function buildViewModel(input: {
     ...(input.pendingFlow ? { pendingFlow: input.pendingFlow } : {}),
     selectedPane: input.selectedPane,
     scrollOffset: input.scrollOffset ?? 0,
+    ...(input.expandedTurnId ? { expandedTurnId: input.expandedTurnId } : {}),
     inputMode: input.inputMode,
     isLoading: input.isLoading,
     health: input.health ?? fallbackHealth,

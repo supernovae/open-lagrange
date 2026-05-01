@@ -31,6 +31,7 @@ export function App(props: AppProps): React.ReactElement {
   const [commandHistory, setCommandHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState<number | undefined>();
   const [scrollOffset, setScrollOffset] = useState(0);
+  const [expandedTurnId, setExpandedTurnId] = useState<string | undefined>();
   const [started, setStarted] = useState(false);
   const [seenStatusError, setSeenStatusError] = useState<string | undefined>();
   const [pendingFlow, setPendingFlow] = useState<SuggestedFlow | undefined>();
@@ -50,7 +51,8 @@ export function App(props: AppProps): React.ReactElement {
     ...(status.lastError ? { lastError: status.lastError } : {}),
     conversation,
     ...(pendingFlow ? { pendingFlow } : {}),
-  }), [status.project, selectedPane, scrollOffset, status.isLoading, status.health, status.lastError, conversation, pendingFlow]);
+    ...(expandedTurnId ? { expandedTurnId } : {}),
+  }), [status.project, selectedPane, scrollOffset, status.isLoading, status.health, status.lastError, conversation, pendingFlow, expandedTurnId]);
 
   useEffect(() => {
     if (!status.lastError) {
@@ -90,11 +92,11 @@ export function App(props: AppProps): React.ReactElement {
 
   useInput((_value, key) => {
     if (key.pageUp || (key.shift && key.upArrow)) {
-      setScrollOffset((value) => Math.min(conversation.length, value + 3));
+      setScrollOffset((value) => expandedTurnId ? Math.max(0, value - 8) : Math.min(conversation.length, value + 3));
       return;
     }
     if (key.pageDown || (key.shift && key.downArrow)) {
-      setScrollOffset((value) => Math.max(0, value - 3));
+      setScrollOffset((value) => expandedTurnId ? value + 8 : Math.max(0, value - 3));
       return;
     }
     if (key.upArrow && !key.shift) {
@@ -161,6 +163,25 @@ export function App(props: AppProps): React.ReactElement {
       setSelectedPane("chat");
       return;
     }
+    if (trimmed === "/expand" || trimmed.startsWith("/expand ")) {
+      setInput("");
+      const turn = turnToExpand(conversation, scrollOffset);
+      if (!turn) {
+        appendTurn(errorTurn("No transcript card is available to expand.", projectId, activeTask?.task_run_id, "Expand"));
+        return;
+      }
+      setExpandedTurnId(turn.turn_id);
+      setScrollOffset(0);
+      setSelectedPane("chat");
+      return;
+    }
+    if (trimmed === "/collapse" || trimmed === "/close") {
+      setInput("");
+      setExpandedTurnId(undefined);
+      setScrollOffset(0);
+      setSelectedPane("chat");
+      return;
+    }
     const parsed = parseUserInput(value, {
       ...(projectId ? { project_id: projectId } : {}),
       ...(activeTask ? { task_id: activeTask.task_run_id } : {}),
@@ -218,6 +239,7 @@ export function App(props: AppProps): React.ReactElement {
   function appendTurn(turn: ConversationTurn): void {
     setConversation((turns) => [...turns, turn]);
     setScrollOffset(0);
+    setExpandedTurnId(undefined);
   }
 
   return <Layout model={model} input={input} setInput={handleInputChange} onSubmit={(value) => void onSubmit(value)} />;
@@ -314,6 +336,11 @@ function currentViewText(model: ReturnType<typeof buildViewModel>): string {
     ...model.conversation.map((turn) => `[${turn.kind ?? turn.role}] ${turn.title ? `${turn.title}: ` : ""}${turn.text}`),
   ];
   return lines.join("\n");
+}
+
+function turnToExpand(turns: readonly ConversationTurn[], scrollOffset: number): ConversationTurn | undefined {
+  const end = Math.max(0, turns.length - Math.max(0, scrollOffset));
+  return turns[end - 1] ?? turns.at(-1);
 }
 
 function eventText(event: UserFrameEvent | TuiUserFrameEvent): string {

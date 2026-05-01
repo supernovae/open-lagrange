@@ -9,6 +9,7 @@ export function HelpPane(): React.ReactElement {
       <Text>Plain text suggests a typed flow. Use /confirm before work starts.</Text>
       <Text>Commands start with /. Normal letters are never shortcuts.</Text>
       <Text>up/down: command history   page up/down: transcript scroll</Text>
+      <Text>/expand: open current card   /collapse: return to transcript</Text>
       <Text>shift+up/down: transcript scroll   /copy: render current view text</Text>
       <Text>tab / shift+tab: cycle pane</Text>
       <Text>ctrl+r refresh   ctrl+q quit   esc help</Text>

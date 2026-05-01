@@ -27,7 +27,7 @@ export function DetailPane({ model, height }: { readonly model: TuiViewModel; re
     return (
       <Box flexDirection="column" height={height} overflow="hidden" borderStyle="single" borderColor={theme.border} paddingX={1} flexGrow={1} flexShrink={1}>
         <Text color={theme.title}>{paneTitle(model.selectedPane)}</Text>
-        <ConversationPane turns={model.conversation} scrollOffset={model.scrollOffset} height={Math.max(4, height - 2)} />
+        <ConversationPane turns={model.conversation} scrollOffset={model.scrollOffset} expandedTurnId={model.expandedTurnId} height={Math.max(4, height - 2)} />
       </Box>
     );
   }
@@ -40,7 +40,7 @@ export function DetailPane({ model, height }: { readonly model: TuiViewModel; re
         {content(model)}
       </Box>
       <Text color={theme.muted}>Journal</Text>
-      <ConversationPane turns={model.conversation} scrollOffset={model.scrollOffset} height={journalHeight} />
+      <ConversationPane turns={model.conversation} scrollOffset={model.scrollOffset} expandedTurnId={model.expandedTurnId} height={journalHeight} />
     </Box>
   );
 }

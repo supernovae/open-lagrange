@@ -4,11 +4,14 @@ import type { ConversationTurn } from "../types.js";
 import { truncateText } from "../formatters.js";
 import { theme } from "../theme.js";
 
-export function ConversationPane({ turns, height = 18, scrollOffset = 0 }: {
+export function ConversationPane({ turns, height = 18, scrollOffset = 0, expandedTurnId }: {
   readonly turns: readonly ConversationTurn[];
   readonly height?: number;
   readonly scrollOffset?: number;
+  readonly expandedTurnId?: string | undefined;
 }): React.ReactElement {
+  const expandedTurn = expandedTurnId ? turns.find((turn) => turn.turn_id === expandedTurnId) : undefined;
+  if (expandedTurn) return <ExpandedTurn turn={expandedTurn} height={height} lineOffset={scrollOffset} />;
   const window = transcriptWindow(turns, height, scrollOffset);
   return (
     <Box flexDirection="column" height={height} overflow="hidden">
@@ -82,9 +85,32 @@ function TurnCard({ turn, maxBodyLines }: { readonly turn: ConversationTurn; rea
         {turn.title ? <Text color={theme.muted}> · {turn.title}</Text> : null}
       </Text>
       {shown.map((line, index) => (
-        <Text key={`${turn.turn_id}:${index}`}>{line}</Text>
+        <Text key={`${turn.turn_id}:${index}`} wrap="truncate-end">{line}</Text>
       ))}
-      {hidden > 0 ? <Text color={theme.muted}>... {hidden} more line(s) in this card.</Text> : null}
+      {hidden > 0 ? <Text color={theme.muted}>... {hidden} more line(s) in this card. Type /expand to view.</Text> : null}
+    </Box>
+  );
+}
+
+function ExpandedTurn({ turn, height, lineOffset }: { readonly turn: ConversationTurn; readonly height: number; readonly lineOffset: number }): React.ReactElement {
+  const lines = truncateText(turn.text, 20_000).split("\n");
+  const visibleRows = Math.max(1, height - 5);
+  const maxStart = Math.max(0, lines.length - visibleRows);
+  const start = Math.max(0, Math.min(lineOffset, maxStart));
+  const shown = lines.slice(start, start + visibleRows);
+  return (
+    <Box flexDirection="column" height={height} overflow="hidden">
+      <Text color={turnColor(turn)}>
+        Expanded {turnLabel(turn)}
+        {turn.title ? <Text color={theme.muted}> · {turn.title}</Text> : null}
+        <Text color={theme.muted}> {start + 1}-{Math.min(lines.length, start + shown.length)} / {lines.length}</Text>
+      </Text>
+      <Text color={theme.muted}>PgUp/PgDn scroll output. Type /collapse to return to transcript.</Text>
+      <Box borderStyle={turn.kind === "error" ? "round" : "single"} borderColor={turnColor(turn)} paddingX={1} marginTop={1} flexDirection="column" flexShrink={0}>
+        {shown.map((line, index) => (
+          <Text key={`${turn.turn_id}:expanded:${start + index}`} wrap="truncate-end">{line}</Text>
+        ))}
+      </Box>
     </Box>
   );
 }
