@@ -1,5 +1,5 @@
 import type { SuggestedFlow, TuiUserFrameEvent, UserFrameEvent } from "@open-lagrange/core/interface";
-import { flowForDemoRun, flowForPackBuild, flowForRepositoryPlan, flowForRepositoryRun, flowForSkillPlan } from "@open-lagrange/core/interface";
+import { flowForDemoRun, flowForPackBuild, flowForPlanCompose, flowForRepositoryPlan, flowForRepositoryRun, flowForSkillPlan } from "@open-lagrange/core/interface";
 import type { PaneId } from "./types.js";
 
 export interface SlashCommandContext {
@@ -41,6 +41,7 @@ export function parseSlashCommand(input: string, context: SlashCommandContext = 
   }
   if (command === "plan") {
     const [target, ...goalParts] = rest;
+    if (target === "compose" && goalParts.length > 0) return { kind: "event", command, pane: "chat", event: flowForPlanCompose(goalParts.join(" "), context).event };
     if (target === "repo" && goalParts.length > 0) return { kind: "event", command, pane: "chat", event: flowForRepositoryPlan(goalParts.join(" "), context).event };
     if (text) return { kind: "event", command, pane: "chat", event: { type: "plan.create", target: "generic", goal: text, dry_run: true } };
     return { kind: "error", command, error: "Usage: /plan repo <goal>" };

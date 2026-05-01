@@ -4,13 +4,14 @@ import { explainSystem, getCapabilitiesSummary, routeIntent } from "@open-lagran
 import { listDemos, runDemo } from "@open-lagrange/core/demos";
 import type { DemoRunResult } from "@open-lagrange/core/demos";
 import { inspectPack } from "@open-lagrange/core/packs";
+import { composePlanfileFromIntent } from "@open-lagrange/core/planning";
 import { runResearchBriefCommand, runResearchExportCommand, runResearchFetchCommand, runResearchSearchCommand, runResearchSummarizeUrlCommand, type ResearchCommandResult } from "@open-lagrange/core/research";
 import { buildGeneratedPackFromMarkdown, generateSkillFrame, generateWorkflowSkill, parseSkillfileMarkdown } from "@open-lagrange/core/skills";
 import type { TuiUserFrameEvent, UserFrameEvent, UserFrameEventResult } from "@open-lagrange/core/interface";
 import { runDoctor } from "@open-lagrange/runtime-manager";
 import { getCurrentProfile } from "@open-lagrange/runtime-manager";
-import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
 
 export function useUserFrameEvents(): {
   readonly submitEvent: (event: UserFrameEvent) => Promise<UserFrameEventResult>;
@@ -43,6 +44,25 @@ async function submitLocalOrRemoteEvent(event: TuiUserFrameEvent): Promise<UserF
   if (event.type === "intent.classify") {
     const result = routeIntent({ text: event.text });
     return { status: "completed", message: result.message ?? result.flow?.summary ?? "Intent classified.", output: result };
+  }
+  if (event.type === "plan.compose") {
+    const profile = await getCurrentProfile().catch(() => undefined);
+    const composed = await composePlanfileFromIntent({
+      prompt: event.prompt,
+      ...(profile ? { runtime_profile: profile } : {}),
+      mode: "dry_run",
+      context: {
+        ...(event.repo_path ? { repo_path: localPath(event.repo_path) } : {}),
+        ...(event.provider_id ? { provider_preference: event.provider_id } : {}),
+      },
+    });
+    if (event.write) {
+      const path = join(".open-lagrange", "plans", `${composed.planfile.plan_id}.plan.md`);
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(path, composed.markdown, "utf8");
+      return { status: "completed", message: planComposeMessage(composed, path), output: { ...composed, path } };
+    }
+    return { status: "completed", message: planComposeMessage(composed), output: composed };
   }
   if (event.type === "doctor.run") return { status: "completed", message: "Doctor checks completed.", output: await runDoctor() };
   if (event.type === "status.show") return { status: "completed", message: "Runtime status loaded.", output: await (await createPlatformClientFromCurrentProfile()).getRuntimeStatus() };
@@ -173,6 +193,7 @@ function helpText(): string {
     "- /capabilities",
     "- /packs",
     "- /demos",
+    "- /plan compose <goal>",
     "- /plan repo <goal>",
     "- /repo run <goal>",
     "- /skill plan <file>",
@@ -196,6 +217,39 @@ function helpText(): string {
     "- Ctrl+s start runtime",
     "- Ctrl+q quit",
   ].join("\n");
+}
+
+function planComposeMessage(result: Awaited<ReturnType<typeof composePlanfileFromIntent>>, path?: string): string {
+  const intent = result.intent_frame;
+  const schedule = intent.schedule_intent?.requested
+    ? `Schedule: ${intent.schedule_intent.cadence ?? "requested"}${intent.schedule_intent.time_of_day ? ` at ${intent.schedule_intent.time_of_day}` : " (time needs confirmation)"}`
+    : "Schedule: none";
+  const steps = result.planfile.nodes.map((node) => node.title).join(" -> ");
+  return [
+    "Planfile composed",
+    "",
+    "Interpreted intent:",
+    `Domain: ${intent.domain}`,
+    `Output: ${intent.output_expectation?.kind ?? "unknown"}`,
+    providerLine(result),
+    schedule,
+    "",
+    `Selected template: ${result.selected_template?.template_id ?? "generic"}`,
+    `Plan: ${steps}`,
+    `Side effects: ${intent.side_effect_expectation}`,
+    `Validation: ${result.validation_report.ok ? "passed" : "failed"}`,
+    ...(path ? [`Path: ${path}`] : []),
+    ...(result.warnings.length > 0 ? ["", "Warnings:", ...result.warnings.map((warning) => `- ${warning}`)] : []),
+    "",
+    "Next: validate, edit, run now, save, or create a schedule from the Planfile.",
+  ].join("\n");
+}
+
+function providerLine(result: Awaited<ReturnType<typeof composePlanfileFromIntent>>): string {
+  if (result.intent_frame.domain !== "research") return "Provider: not required";
+  const parameterRecord = result.planfile.execution_context?.parameters;
+  const provider = parameterRecord && typeof parameterRecord === "object" ? (parameterRecord as Record<string, unknown>).provider_id : undefined;
+  return `Provider: ${typeof provider === "string" && provider.length > 0 ? provider : result.warnings.some((warning) => warning.includes("SEARCH_PROVIDER_NOT_CONFIGURED")) ? "not configured" : "configured"}`;
 }
 
 export function researchStatus(result: ResearchCommandResult): "completed" | "failed" {

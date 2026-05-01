@@ -20,6 +20,22 @@ export interface SuggestedFlowContext {
   readonly repo_path?: string;
   readonly approval_id?: string;
   readonly task_id?: string;
+  readonly provider_id?: string;
+}
+
+export function flowForPlanCompose(prompt: string, context: SuggestedFlowContext = {}): SuggestedFlow {
+  return SuggestedFlow.parse({
+    flow_id: "plan_compose",
+    title: "Compose Planfile",
+    summary: "Interpret the request, match installed capabilities, and create a reviewable Planfile.",
+    command: `/plan compose ${quote(prompt)}`,
+    event: { type: "plan.compose", prompt, ...(context.repo_path ? { repo_path: context.repo_path } : {}), ...(context.provider_id ? { provider_id: context.provider_id } : {}), write: false },
+    side_effects: ["No execution until the Planfile is confirmed and applied."],
+    required_packs: ["open-lagrange.chat"],
+    approval: "Write, verification, and schedule actions remain explicit.",
+    confidence: "high",
+    requires_confirmation: true,
+  });
 }
 
 export function flowForRepositoryPlan(goal: string, context: SuggestedFlowContext = {}): SuggestedFlow {

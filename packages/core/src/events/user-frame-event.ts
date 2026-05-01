@@ -6,6 +6,7 @@ export const TuiUserFrameEvent = z.discriminatedUnion("type", [
   z.object({ type: z.literal("chat.help") }).strict(),
   z.object({ type: z.literal("capability.list") }).strict(),
   z.object({ type: z.literal("intent.classify"), text: z.string().min(1) }).strict(),
+  z.object({ type: z.literal("plan.compose"), prompt: z.string().min(1), repo_path: z.string().optional(), provider_id: z.string().min(1).optional(), write: z.boolean().default(false) }).strict(),
   z.object({ type: z.literal("plan.create"), goal: z.string().min(1), target: z.enum(["generic", "repo"]).default("generic"), repo_path: z.string().optional(), dry_run: z.boolean().default(true) }).strict(),
   z.object({ type: z.literal("plan.apply"), planfile: z.string().min(1) }).strict(),
   z.object({ type: z.literal("repo.run"), goal: z.string().min(1), repo_path: z.string().default("."), dry_run: z.boolean().default(true), apply: z.boolean().default(false) }).strict(),
@@ -39,6 +40,7 @@ export type FlowId =
   | "capabilities"
   | "packs"
   | "demos"
+  | "plan_compose"
   | "repository_plan"
   | "repository_run"
   | "skill_frame"
@@ -58,6 +60,7 @@ export type FlowId =
 
 export const WorkflowStartingEventTypes = new Set<TuiUserFrameEvent["type"]>([
   "plan.create",
+  "plan.compose",
   "plan.apply",
   "repo.run",
   "skill.frame",

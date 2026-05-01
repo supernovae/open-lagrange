@@ -12,11 +12,9 @@ describe("TUI input parsing", () => {
     expect(parsed.kind).toBe("suggestion");
     if (parsed.kind !== "suggestion") return;
     expect(parsed.flow.event).toMatchObject({
-      type: "plan.create",
-      target: "repo",
-      goal: "Add JSON output to status",
+      type: "plan.compose",
+      prompt: "Add JSON output to status",
       repo_path: ".",
-      dry_run: true,
     });
   });
 
@@ -151,7 +149,15 @@ describe("TUI input parsing", () => {
 
     expect(parsed.kind).toBe("command");
     if (parsed.kind !== "command") return;
-    expect(parsed.event).toMatchObject({ type: "plan.create" });
+    expect(parsed.event).toMatchObject({ type: "plan.compose" });
+  });
+
+  it("maps research text to a Planfile composition suggestion", () => {
+    const parsed = parseUserInput("research open source container security", {});
+
+    expect(parsed.kind).toBe("suggestion");
+    if (parsed.kind !== "suggestion") return;
+    expect(parsed.flow.event).toMatchObject({ type: "plan.compose", prompt: "research open source container security" });
   });
 
   it("maps demo run to the demo pane with dry-run by default", () => {

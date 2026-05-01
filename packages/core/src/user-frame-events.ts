@@ -151,6 +151,9 @@ export async function submitUserFrameEvent(rawEvent: UserFrameEvent): Promise<Us
   if (event.type === "doctor.run") {
     return { status: "completed", message: "Doctor checks are available from the runtime manager.", output: { command: "open-lagrange doctor" } };
   }
+  if (event.type === "plan.compose") {
+    return { status: "completed", message: "Plan composition is available from the local TUI dispatcher or CLI.", output: event };
+  }
   if (event.type === "plan.create") {
     if (event.target === "repo") {
       return submitRepositoryGoal({ goal: event.goal, repo_path: event.repo_path ?? ".", dry_run: event.dry_run, apply: false });

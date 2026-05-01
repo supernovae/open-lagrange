@@ -179,7 +179,8 @@ describe("research pack", () => {
     })), now);
     const matches = matchCapabilitiesForSkill({ frame, capability_snapshot: snapshot });
 
-    expect(route.flow?.flow_id).toBe("research_brief");
+    expect(route.flow?.flow_id).toBe("plan_compose");
+    expect(route.flow?.event).toMatchObject({ type: "plan.compose" });
     expect(matches.matches.some((match) => match.pack_id === "open-lagrange.research")).toBe(true);
   });
 

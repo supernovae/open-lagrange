@@ -17,7 +17,7 @@ describe("Chat Pack", () => {
     const routed = routeIntent({ text: "add json output to my cli", context: { repo_path: "." } });
 
     expect(routed.kind).toBe("flow");
-    expect(routed.flow?.event).toMatchObject({ type: "plan.create", target: "repo", goal: "add json output to my cli" });
+    expect(routed.flow?.event).toMatchObject({ type: "plan.compose", prompt: "add json output to my cli", repo_path: "." });
     expect(routed.flow?.requires_confirmation).toBe(true);
   });
 

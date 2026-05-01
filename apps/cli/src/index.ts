@@ -10,7 +10,7 @@ import { exportArtifact, listArtifacts, listArtifactsForPlan, listRunArtifacts, 
 import { listDemos, openDemo, runDemo } from "@open-lagrange/core/demos";
 import { runCoreDoctor } from "@open-lagrange/core/doctor";
 import { getPackHealth, inspectPack, listInspectablePacks, runPackSmoke, validateRegisteredPack } from "@open-lagrange/core/packs";
-import { applyPlanfile as applyLocalPlanfile, generateGoalFrame, generatePlanfile, parsePlanfileMarkdown, parsePlanfileYaml, renderPlanfileMarkdown, renderPlanMermaid, validatePlanfile, withCanonicalPlanDigest } from "@open-lagrange/core/planning";
+import { applyPlanfile as applyLocalPlanfile, composePlanfileFromIntent, createScheduleRecord, generateGoalFrame, generatePlanfile, getScheduleRecord, listScheduleRecords, parsePlanfileMarkdown, parsePlanfileYaml, renderPlanfileMarkdown, renderPlanMermaid, validatePlanfile, withCanonicalPlanDigest } from "@open-lagrange/core/planning";
 import { applyRepositoryPlanfile as applyLocalRepositoryPlanfile, approveApprovalRequest, approveRepositoryScopeRequest, cleanupRepositoryPlan as cleanupLocalRepositoryPlan, createRepositoryPlanfile, explainRepositoryPlan, exportRepositoryPlanPatch as exportLocalRepositoryPlanPatch, getRepositoryPlanStatus as getLocalRepositoryPlanStatus, listRepositoryModelCalls, rejectApprovalRequest, rejectRepositoryScopeRequest, resumeRepositoryPlan, runRepositoryDoctor } from "@open-lagrange/core/repository";
 import { compareBenchmarkRun, listBenchmarkScenarios, listModelRouteConfigs, renderBenchmarkReport, runModelRoutingBenchmark } from "@open-lagrange/core/evals";
 import { runResearchBriefCommand, runResearchExportCommand, runResearchFetchCommand, runResearchSearchCommand, runResearchSummarizeUrlCommand } from "@open-lagrange/core/research";
@@ -802,6 +802,57 @@ research.command("export")
 
 const plan = program.command("plan").description("Author and execute Planfiles.");
 
+plan.command("compose")
+  .argument("<prompt>", "Natural language goal to compose into a Planfile")
+  .option("--repo <path>", "Repository path for repository work")
+  .option("--provider <provider>", "Preferred research search provider")
+  .option("--write", "Write Markdown Planfile to .open-lagrange/plans/<plan_id>.plan.md", false)
+  .option("--schedule <cadence>", "Capture a schedule candidate: daily, weekly, or cron")
+  .option("--at <time>", "Schedule time, for example 08:00")
+  .option("--timezone <timezone>", "Schedule timezone", Intl.DateTimeFormat().resolvedOptions().timeZone ?? "local")
+  .option("--yes", "Create the schedule record when --schedule is provided", false)
+  .action(async (prompt: string, options: { readonly repo?: string; readonly provider?: string; readonly write: boolean; readonly schedule?: string; readonly at?: string; readonly timezone?: string; readonly yes: boolean }) => {
+    const currentProfile = await getCurrentProfile().catch(() => undefined);
+    const composed = await composePlanfileFromIntent({
+      prompt,
+      ...(currentProfile ? { runtime_profile: currentProfile } : {}),
+      mode: "dry_run",
+      context: {
+        ...(options.repo ? { repo_path: cliPath(options.repo) } : {}),
+        ...(options.provider ? { provider_preference: options.provider } : {}),
+        ...(options.schedule ? { schedule_preference: { cadence: scheduleCadence(options.schedule), ...(options.at ? { time_of_day: options.at } : {}), ...(options.timezone ? { timezone: options.timezone } : {}) } } : {}),
+      },
+    });
+    if (options.write) {
+      const path = join(".open-lagrange", "plans", `${composed.planfile.plan_id}.plan.md`);
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(path, composed.markdown, "utf8");
+      const schedule = options.schedule && options.yes
+        ? createScheduleRecord({
+          planfile: composed.planfile,
+          planfile_path: path,
+          cadence: scheduleCadence(options.schedule),
+          ...(options.at ? { time_of_day: options.at } : {}),
+          ...(options.timezone ? { timezone: options.timezone } : {}),
+          runtime_profile: currentProfile?.name ?? "local",
+        })
+        : undefined;
+      console.log(JSON.stringify({
+        plan_id: composed.planfile.plan_id,
+        path,
+        canonical_plan_digest: composed.planfile.canonical_plan_digest,
+        intent: composed.intent_frame,
+        selected_template: composed.selected_template?.template_id,
+        validation: composed.validation_report,
+        warnings: composed.warnings,
+        ...(options.schedule && !options.yes ? { schedule_candidate: "Pass --yes with --schedule to create a schedule record." } : {}),
+        ...(schedule ? { schedule } : {}),
+      }, null, 2));
+      return;
+    }
+    console.log(composed.markdown);
+  });
+
 plan.command("create")
   .requiredOption("--goal <goal>", "Goal to frame as a Planfile")
   .option("--dry-run", "Create a dry-run Planfile", true)
@@ -867,6 +918,58 @@ plan.command("resume").argument("<planId>", "Plan ID").action(async (planId: str
 plan.command("status").argument("<planId>", "Plan ID").action(async (planId: string) => {
   console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).getPlanStatus(planId), null, 2));
 });
+
+const schedule = program.command("schedule").description("Create and run explicit schedule records.");
+
+schedule.command("create")
+  .argument("<planfile>", "Planfile Markdown or YAML path")
+  .option("--daily", "Run daily", false)
+  .option("--weekly", "Run weekly", false)
+  .option("--cron <expr>", "Record a cron cadence expression")
+  .option("--at <time>", "Schedule time, for example 08:00")
+  .option("--timezone <timezone>", "Schedule timezone", Intl.DateTimeFormat().resolvedOptions().timeZone ?? "local")
+  .action(async (path: string, options: { readonly daily: boolean; readonly weekly: boolean; readonly cron?: string; readonly at?: string; readonly timezone?: string }) => {
+    const planfile = withCanonicalPlanDigest(await loadLocalPlanfile(path));
+    const validation = validatePlanfile(planfile);
+    if (!validation.ok) {
+      console.log(JSON.stringify({ ...validation, plan_id: planfile.plan_id }, null, 2));
+      process.exitCode = 1;
+      return;
+    }
+    const currentProfile = await getCurrentProfile().catch(() => undefined);
+    const record = createScheduleRecord({
+      planfile,
+      planfile_path: path,
+      cadence: scheduleCadence(options.cron ? "cron" : options.weekly ? "weekly" : "daily"),
+      ...(options.at ? { time_of_day: options.at } : {}),
+      ...(options.timezone ? { timezone: options.timezone } : {}),
+      runtime_profile: currentProfile?.name ?? "local",
+    });
+    console.log(JSON.stringify(record, null, 2));
+  });
+
+schedule.command("list").action(() => {
+  console.log(JSON.stringify({ schedules: listScheduleRecords() }, null, 2));
+});
+
+schedule.command("run")
+  .argument("<scheduleId>", "Schedule ID")
+  .action(async (scheduleId: string) => {
+    const record = getScheduleRecord(scheduleId);
+    if (!record) {
+      console.log(JSON.stringify({ status: "missing", schedule_id: scheduleId }, null, 2));
+      process.exitCode = 1;
+      return;
+    }
+    const planfile = withCanonicalPlanDigest(await loadLocalPlanfile(record.planfile_path));
+    const validation = validatePlanfile(planfile);
+    if (!validation.ok) {
+      console.log(JSON.stringify({ ...validation, schedule_id: scheduleId, plan_id: planfile.plan_id }, null, 2));
+      process.exitCode = 1;
+      return;
+    }
+    console.log(JSON.stringify(await applyLocalPlanfile({ planfile, live: true }), null, 2));
+  });
 
 plan.command("approve").argument("<planId>", "Plan ID").requiredOption("--reason <reason>", "Approval reason").requiredOption("--approval-token <approvalToken>", "Approval token").option("--approved-by <approvedBy>", "Approver identifier", "human-local").action(async (planId: string, options: { readonly reason: string; readonly approvalToken: string; readonly approvedBy: string }) => {
   console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).approvePlan(planId, { decided_by: options.approvedBy, reason: options.reason, approval_token: options.approvalToken }), null, 2));
@@ -952,6 +1055,11 @@ function parsePositiveInt(value: string): number {
 
 function collectString(value: string, previous: readonly string[]): string[] {
   return [...previous, value];
+}
+
+function scheduleCadence(value: string): "daily" | "weekly" | "cron" {
+  if (value === "daily" || value === "weekly" || value === "cron") return value;
+  throw new Error("Schedule cadence must be daily, weekly, or cron.");
 }
 
 async function currentSearchProviderConfigs(): Promise<readonly SearchProviderConfig[]> {

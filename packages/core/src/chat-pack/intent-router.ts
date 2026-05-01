@@ -2,11 +2,11 @@ import type { RuntimeHealth } from "../user-frame-events.js";
 import { getCapabilitiesSummary } from "./capability-discovery.js";
 import {
   flowForDemoRun,
+  flowForPlanCompose,
   flowForPackBuild,
   flowForRepositoryPlan,
   flowForRepositoryRun,
   flowForResearchBrief,
-  flowForResearchFetch,
   flowForSkillPlan,
   informationalFlow,
   type SuggestedFlow,
@@ -69,11 +69,10 @@ export function routeIntent(input: {
     return { kind: "flow", flow: flowForDemoRun(lower.includes("repo") ? "repo-json-output" : "skills-research-brief"), used_model: false };
   }
   if (looksLikeResearchFetch(lower)) {
-    const url = extractUrl(text);
-    return { kind: "flow", flow: url ? flowForResearchFetch(url) : flowForResearchBrief(cleanResearchTopic(text)), used_model: false };
+    return { kind: "flow", flow: flowForPlanCompose(text, input.context), used_model: false };
   }
   if (looksLikeResearchGoal(lower)) {
-    return { kind: "flow", flow: flowForResearchBrief(cleanResearchTopic(text)), used_model: false };
+    return { kind: "flow", flow: flowForPlanCompose(text, input.context), used_model: false };
   }
   if (lower.includes("skill") || lower.includes("skills.md")) {
     const file = extractFile(text) ?? "./skills.md";
@@ -87,10 +86,11 @@ export function routeIntent(input: {
     return { kind: "flow", flow: flowForRepositoryRun(cleanGoal(text), input.context), used_model: false };
   }
   if (looksLikeRepoGoal(lower)) {
-    return { kind: "flow", flow: flowForRepositoryPlan(cleanGoal(text), input.context), used_model: false };
+    return { kind: "flow", flow: flowForPlanCompose(cleanGoal(text), input.context), used_model: false };
   }
 
   const alternatives = [
+    flowForPlanCompose(text, input.context),
     flowForRepositoryPlan(text, input.context),
     flowForPackBuild("./skills.md"),
     flowForResearchBrief(text),
@@ -110,18 +110,6 @@ function looksLikeResearchGoal(lower: string): boolean {
 
 function looksLikeResearchFetch(lower: string): boolean {
   return lower.includes("fetch this") || lower.includes("summarize this url") || lower.includes("fetch http") || lower.includes("summarize http");
-}
-
-function extractUrl(value: string): string | undefined {
-  return value.match(/https?:\/\/\S+/)?.[0]?.replace(/[),.]+$/, "");
-}
-
-function cleanResearchTopic(value: string): string {
-  return value
-    .replace(/^research\s+/i, "")
-    .replace(/^make\s+a\s+cited\s+brief\s+(about|on)\s+/i, "")
-    .replace(/^create\s+a\s+cited\s+brief\s+(about|on)\s+/i, "")
-    .trim();
 }
 
 function isCapabilityQuestion(lower: string): boolean {

@@ -367,6 +367,7 @@ function eventText(event: UserFrameEvent | TuiUserFrameEvent): string {
   if (event.type === "demo.list") return "/demos";
   if (event.type === "capability.list") return "/capabilities";
   if (event.type === "chat.message" || event.type === "intent.classify") return event.text;
+  if (event.type === "plan.compose") return event.prompt;
   if (event.type === "plan.create") return event.goal;
   if (event.type === "repo.run") return event.goal;
   if (event.type === "skill.frame" || event.type === "skill.plan" || event.type === "pack.build") return `${event.type} ${event.file}`;
@@ -405,6 +406,7 @@ function pendingTitle(event: UserFrameEvent | TuiUserFrameEvent): string {
   if (event.type === "artifact.show") return event.artifact_id === "list" ? "Loading artifact index" : "Loading artifact";
   if (event.type === "pack.build") return "Building pack preview";
   if (event.type === "skill.plan" || event.type === "skill.frame") return "Processing skill";
+  if (event.type === "plan.compose") return "Composing Planfile";
   if (event.type === "plan.create") return "Creating Planfile";
   if (event.type === "repo.run") return "Starting repository workflow";
   if (event.type === "status.show") return "Loading status";
@@ -441,6 +443,7 @@ function pendingText(event: UserFrameEvent | TuiUserFrameEvent): string {
   if (event.type === "research.fetch") return `Fetching ${event.url} in ${event.mode} mode.`;
   if (event.type === "research.brief") return `Creating a cited brief for ${event.topic} in ${event.mode} mode.`;
   if (event.type === "research.export") return `Exporting research brief artifact ${event.brief_id}.`;
+  if (event.type === "plan.compose") return `Composing a reviewable Planfile for: ${event.prompt}`;
   return eventText(event);
 }
 
