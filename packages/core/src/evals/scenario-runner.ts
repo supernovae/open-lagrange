@@ -8,10 +8,11 @@ import { WorktreeSession } from "../repository/worktree-session.js";
 import { stableHash } from "../util/hash.js";
 import type { BenchmarkScenario } from "./benchmark-scenarios.js";
 import type { ModelRouteConfig } from "./model-route-config.js";
-import { createLiveProviderPatchPlanGenerator, createPreviewPatchPlanGenerator, hasLiveProviderForRoute } from "./live-provider-runner.js";
+import { createLiveProviderPatchPlanGenerator, createLiveProviderReviewReportGenerator, createPreviewPatchPlanGenerator, hasLiveProviderForRoute } from "./live-provider-runner.js";
 import { ScenarioRunMetrics } from "./live-metrics.js";
-import { summarizeModelUsage } from "./provider-usage.js";
+import { summarizeModelUsage, type ModelUsageRecord } from "./provider-usage.js";
 import { createScenarioWorkspace } from "./scenario-worktree.js";
+import type { PlanningGenerationMode } from "../repository/model-goal-frame-generator.js";
 
 export async function runScenarioRoute(input: {
   readonly eval_run_id: string;
@@ -19,10 +20,12 @@ export async function runScenarioRoute(input: {
   readonly route: ModelRouteConfig;
   readonly output_dir: string;
   readonly retain_worktrees?: boolean;
+  readonly planning_mode?: PlanningGenerationMode;
   readonly now: string;
 }): Promise<ScenarioRunMetrics> {
   const started = performance.now();
-  if (!hasLiveProviderForRoute(input.route)) {
+  const planningMode = input.route.authoritative_apply ? input.planning_mode ?? "model" : "deterministic";
+  if (!hasLiveProviderForRoute(input.route, { planning_mode: planningMode })) {
     return ScenarioRunMetrics.parse({
       run_id: input.eval_run_id,
       scenario_id: input.scenario.scenario_id,
@@ -53,19 +56,26 @@ export async function runScenarioRoute(input: {
     scenario: input.scenario,
     ...(input.retain_worktrees === undefined ? {} : { retain: input.retain_worktrees }),
   });
+  const usageRecords: ModelUsageRecord[] = [];
   try {
     const created = await createRepositoryPlanfile({
       repo_root: workspace.repo_root,
       goal: input.scenario.goal,
       dry_run: true,
       verification_command_ids: input.scenario.verification_command_ids,
+      planning_mode: planningMode,
+      model_route: input.route,
+      telemetry_records: usageRecords,
+      scenario_id: input.scenario.scenario_id,
       now: input.now,
     });
-    const liveGenerator = input.route.authoritative_apply ? createLiveProviderPatchPlanGenerator(input.route) : undefined;
+    const liveGenerator = input.route.authoritative_apply ? createLiveProviderPatchPlanGenerator(input.route, usageRecords) : undefined;
     const patchPlanGenerator = input.route.authoritative_apply ? liveGenerator?.generator : createPreviewPatchPlanGenerator(input.route);
+    const reviewGenerator = input.route.authoritative_apply ? createLiveProviderReviewReportGenerator(input.route, usageRecords, input.scenario.scenario_id) : undefined;
     const status = await applyRepositoryPlanfile({
       planfile: created.planfile,
       ...(patchPlanGenerator ? { patch_plan_generator: patchPlanGenerator } : {}),
+      ...(reviewGenerator ? { review_report_generator: reviewGenerator } : {}),
       retain_on_failure: input.retain_worktrees ?? false,
       now: input.now,
     });
@@ -117,7 +127,7 @@ export async function runScenarioRoute(input: {
       capability_calls_count: status.artifact_refs.filter((ref) => ref.includes("capability_step")).length,
       repeated_action_count: repeatedCount(status.patch_plan_ids),
       wall_clock_ms: Math.round(performance.now() - started),
-      model_usage: summarizeModelUsage(liveGenerator?.usage_records ?? []),
+      model_usage: summarizeModelUsage(usageRecords),
       artifact_refs: status.artifact_refs,
       error_codes: [...new Set(status.errors.map((error) => stableHash(error).slice(0, 12)))],
     });

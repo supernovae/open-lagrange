@@ -33,6 +33,15 @@ export function renderBenchmarkReportMarkdown(report: BenchmarkReport): string {
   const scenarioRows = report.metrics.map((metric) =>
     `| ${metric.scenario_id} | ${metricRoute(metric)} | ${metricSuccess(metric) ? "passed" : "failed"} | ${metricChangedFiles(metric)} | ${metric.repair_attempts} | ${metric.validation_failures_count} |`,
   );
+  const roleRows = report.metrics.flatMap((metric) => {
+    if (!("model_usage" in metric)) return [];
+    return Object.entries(metric.model_usage.model_calls_by_role).map(([role, calls]) => {
+      const tokens = metric.model_usage.tokens_by_role[role]?.total_tokens ?? 0;
+      const cost = metric.model_usage.cost_by_role[role] ?? 0;
+      const models = metric.model_usage.models_used.join(", ") || "none";
+      return `| ${metricRoute(metric)} | ${metric.scenario_id} | ${role} | ${models} | ${calls} | ${tokens} | ${cost > 0 ? `$${cost.toFixed(4)}` : "$0.0000"} |`;
+    });
+  });
   return [
     `# Repository Plan-to-Patch Benchmark ${report.run_id}`,
     "",
@@ -47,6 +56,12 @@ export function renderBenchmarkReportMarkdown(report: BenchmarkReport): string {
     "| Scenario | Route | Result | Changed Files | Repairs | Validation Failures |",
     "| --- | --- | --- | --- | ---: | ---: |",
     ...scenarioRows,
+    "",
+    "## Role Usage",
+    "",
+    "| Route | Scenario | Role | Models | Calls | Tokens | Cost |",
+    "| --- | --- | --- | --- | ---: | ---: | ---: |",
+    ...(roleRows.length > 0 ? roleRows : ["| none | none | none | none | 0 | 0 | $0.0000 |"]),
     "",
     "## Observations",
     ...report.observations.map((item) => `- ${item}`),

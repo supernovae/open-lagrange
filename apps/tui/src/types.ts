@@ -80,6 +80,7 @@ export interface PlanViewSummary {
   readonly patch_artifacts: readonly string[];
   readonly verification_reports: readonly string[];
   readonly repair_attempts: readonly string[];
+  readonly model_usage_lines: readonly string[];
   readonly artifact_refs: readonly string[];
   readonly warnings: readonly string[];
   readonly validation_errors: readonly string[];

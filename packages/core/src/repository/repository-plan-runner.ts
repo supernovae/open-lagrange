@@ -26,6 +26,8 @@ import type { RepositoryVerificationReport } from "./verification-report.js";
 import { nextRepairAttempt, type RepairAttempt } from "./repair-loop.js";
 import { RepositoryReviewReport } from "./review-report.js";
 import type { RepositoryReviewReport as RepositoryReviewReportType } from "./review-report.js";
+import type { RepositoryPatchArtifact as RepositoryPatchArtifactType } from "./patch-artifact.js";
+import type { ReviewReportGenerator } from "./model-review-report-generator.js";
 import type { WorktreeSession } from "./worktree-session.js";
 import { updateWorktreeSessionStatus } from "./worktree-manager.js";
 import { createRepositoryPlanStatus, updateRepositoryPlanStatus, writeRepositoryPlanStatus, type RepositoryPlanStatus } from "./repository-status.js";
@@ -41,6 +43,7 @@ export interface RepositoryPlanRunnerOptions {
   readonly allow_dirty_base?: boolean;
   readonly retain_worktree?: boolean;
   readonly patch_plan_generator?: PatchPlanGenerator;
+  readonly review_report_generator?: ReviewReportGenerator;
   readonly initial_status?: RepositoryPlanStatus;
   readonly resume_from_node_id?: string;
   readonly approved_scope_request?: PersistedScopeExpansionRequest;
@@ -60,7 +63,9 @@ interface RepositoryExecutionMemory {
   evidence?: EvidenceBundle;
   patch_plan?: RepositoryPatchPlanType;
   patch_artifact_id?: string;
+  patch_artifacts: RepositoryPatchArtifactType[];
   verification?: RepositoryVerificationReport;
+  verification_reports: RepositoryVerificationReport[];
   repairs: RepairAttempt[];
   review?: RepositoryReviewReportType;
   changed_files: string[];
@@ -182,6 +187,7 @@ export class RepositoryPlanRunner {
       await this.invokeCapability(workspace, "repo.propose_patch", { patch_plan: legacyPatchPlan(patchPlan, memory.evidence) }, node.id, [memory.evidence.artifact_id]);
       const patchArtifact = applyRepositoryPatchPlan({ workspace, session: this.session, patch_plan: patchPlan, patch_policy: patchPolicy, now: this.now });
       memory.patch_artifact_id = patchArtifact.artifact_id;
+      memory.patch_artifacts.push(patchArtifact);
       memory.changed_files = patchArtifact.changed_files;
       const artifact = this.recordArtifact("patch_artifact", "Patch Artifact", `${patchArtifact.changed_files.length} changed file(s).`, patchArtifact, "application/json");
       return { status: patchArtifact.apply_status === "applied" ? "completed" : "failed", artifactRefs: [this.planArtifactRef(contextArtifact), this.planArtifactRef(planArtifact), this.planArtifactRef(validationArtifact), this.planArtifactRef(artifact)], errors: patchArtifact.errors.map((error) => error.message) };
@@ -191,6 +197,7 @@ export class RepositoryPlanRunner {
       const commandIds = node.verification_command_ids?.length ? node.verification_command_ids : policy.allowed_commands.map((command) => command.command_id).slice(0, 1);
       const report = await runVerificationPolicy({ plan_id: this.plan.plan_id, node_id: node.id, cwd: this.session.worktree_path, commands: policy.allowed_commands, command_ids: commandIds, now: this.now });
       memory.verification = report;
+      memory.verification_reports.push(report);
       const artifact = this.recordArtifact("verification_report", "Verification Report", report.passed ? "Verification passed." : "Verification failed.", report, "application/json");
       return { status: "completed", artifactRefs: [this.planArtifactRef(artifact)], errors: [] };
     }
@@ -227,30 +234,50 @@ export class RepositoryPlanRunner {
       }
       const patchArtifact = applyRepositoryPatchPlan({ workspace, session: this.session, patch_plan: patchPlan, patch_policy: patchPolicy, now: this.now });
       memory.patch_artifact_id = patchArtifact.artifact_id;
+      memory.patch_artifacts.push(patchArtifact);
       memory.changed_files = patchArtifact.changed_files;
       const patchArtifactSummary = this.recordArtifact("patch_artifact", "Repair Patch Artifact", `${patchArtifact.changed_files.length} changed file(s).`, patchArtifact, "application/json");
       const policy = detectVerificationPolicy(this.session.worktree_path);
       const commandIds = patchPlan.verification_command_ids.length > 0 ? patchPlan.verification_command_ids : policy.allowed_commands.map((command) => command.command_id).slice(0, 1);
       const verification = await runVerificationPolicy({ plan_id: this.plan.plan_id, node_id: node.id, cwd: this.session.worktree_path, commands: policy.allowed_commands, command_ids: commandIds, now: this.now });
       memory.verification = verification;
+      memory.verification_reports.push(verification);
       const verifyArtifact = this.recordArtifact("verification_report", "Repair Verification Report", verification.passed ? "Repair verification passed." : "Repair verification failed.", verification, "application/json");
       return { status: "completed", artifactRefs: [this.planArtifactRef(repairArtifact), this.planArtifactRef(contextArtifact), this.planArtifactRef(planArtifact), this.planArtifactRef(validationArtifact), this.planArtifactRef(patchArtifactSummary), this.planArtifactRef(verifyArtifact)], errors: patchArtifact.errors.map((error) => error.message) };
     }
     if (node.kind === "review") {
-      const review = RepositoryReviewReport.parse({
-        review_report_id: `review_${stableHash({ plan: this.plan.plan_id, files: memory.changed_files }).slice(0, 18)}`,
-        plan_id: this.plan.plan_id,
-        status: memory.verification?.passed ? "ready" : "completed_with_warnings",
-        title: this.plan.goal_frame.interpreted_goal.slice(0, 90),
-        summary: `${memory.changed_files.length} file(s) changed.`,
-        changed_files: memory.changed_files,
-        verification_summary: memory.verification?.passed ? "Verification passed." : "Verification did not pass.",
-        risk_notes: memory.verification?.passed ? ["Verification passed."] : ["Review verification output before applying patch."],
-        followups: [],
-        ...(memory.patch_artifact_id ? { final_patch_artifact_id: memory.patch_artifact_id } : {}),
-        artifact_id: `review_${stableHash({ plan: this.plan.plan_id, node: node.id }).slice(0, 18)}`,
-        created_at: this.now,
-      });
+      let review: RepositoryReviewReportType;
+      try {
+        review = RepositoryReviewReport.parse(this.options.review_report_generator
+          ? await this.options.review_report_generator({
+              goal_frame: this.plan.goal_frame,
+              planfile: this.plan,
+              changed_files: memory.changed_files,
+              patch_artifacts: memory.patch_artifacts,
+              verification_reports: memory.verification_reports,
+              repair_attempts: memory.repairs,
+              final_diff_summary: `${memory.changed_files.length} changed file(s): ${memory.changed_files.join(", ")}`,
+              known_limitations: memory.verification?.passed ? [] : ["Verification did not pass or did not run."],
+              ...(memory.patch_artifact_id ? { final_patch_artifact_id: memory.patch_artifact_id } : {}),
+              now: this.now,
+            })
+          : {
+              review_report_id: `review_${stableHash({ plan: this.plan.plan_id, files: memory.changed_files }).slice(0, 18)}`,
+              plan_id: this.plan.plan_id,
+              status: memory.verification?.passed ? "ready" : "completed_with_warnings",
+              title: this.plan.goal_frame.interpreted_goal.slice(0, 90),
+              summary: `${memory.changed_files.length} file(s) changed.`,
+              changed_files: memory.changed_files,
+              verification_summary: memory.verification?.passed ? "Verification passed." : "Verification did not pass.",
+              risk_notes: memory.verification?.passed ? ["Verification passed."] : ["Review verification output before applying patch."],
+              followups: [],
+              ...(memory.patch_artifact_id ? { final_patch_artifact_id: memory.patch_artifact_id } : {}),
+              artifact_id: `review_${stableHash({ plan: this.plan.plan_id, node: node.id }).slice(0, 18)}`,
+              created_at: this.now,
+            });
+      } catch (caught) {
+        return { status: "failed", artifactRefs: [], errors: [caught instanceof Error ? caught.message : String(caught)] };
+      }
       memory.review = review;
       const artifact = this.recordArtifact("review_report", "Review Report", review.summary, review, "application/json");
       return { status: "completed", artifactRefs: [this.planArtifactRef(artifact)], errors: [] };
@@ -306,15 +333,24 @@ export class RepositoryPlanRunner {
     const status = this.options.initial_status;
     const memory: RepositoryExecutionMemory = {
       repairs: [],
+      patch_artifacts: [],
+      verification_reports: [],
       changed_files: status?.changed_files ?? [],
       patch_validation_report_ids: status?.patch_validation_report_ids ?? [],
       scope_expansion_request_ids: status?.scope_expansion_request_ids ?? [],
     };
     const verificationId = status?.verification_report_ids.at(-1);
     const verification = verificationId ? this.readArtifactJson<RepositoryVerificationReport>(verificationId) : undefined;
-    if (verification) memory.verification = verification;
+    if (verification) {
+      memory.verification = verification;
+      memory.verification_reports.push(verification);
+    }
     const patchArtifactId = status?.patch_artifact_ids.at(-1);
-    if (patchArtifactId) memory.patch_artifact_id = patchArtifactId;
+    if (patchArtifactId) {
+      memory.patch_artifact_id = patchArtifactId;
+      const artifact = this.readArtifactJson<RepositoryPatchArtifactType>(patchArtifactId);
+      if (artifact) memory.patch_artifacts.push(artifact);
+    }
     return memory;
   }
 

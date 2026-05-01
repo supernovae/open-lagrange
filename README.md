@@ -156,7 +156,8 @@ Plan a repository change without touching your working tree:
 npm run cli -- repo plan \
   --repo . \
   --goal "Add JSON output to the status command" \
-  --dry-run
+  --dry-run \
+  --planning-mode deterministic
 ```
 
 Apply the generated repository Planfile in an isolated git worktree and export a validated patch:
@@ -188,8 +189,10 @@ npm run cli -- eval report <run_id>
 Run provider-backed evals explicitly:
 
 ```bash
-npm run cli -- eval run repo-plan-to-patch --live-models --yes --max-scenarios 1
+npm run cli -- eval run repo-plan-to-patch --live-models --planning-mode model --yes --max-scenarios 1
 ```
+
+Live evals measure planner, implementer, repair, and reviewer route roles. Reports include per-role calls, token counts, and estimated or provider-reported cost.
 
 Build a Workflow Skill from ordinary Markdown:
 

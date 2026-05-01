@@ -14,6 +14,7 @@ export * from "./demos/index.js";
 export * from "./doctor/index.js";
 export * from "./mcp/mock-client.js";
 export * from "./mcp/mock-registry.js";
+export * from "./models/index.js";
 export * from "./open-cot/adapters.js";
 export * from "./planning/control-plane.js";
 export * from "./planning/goal-frame.js";

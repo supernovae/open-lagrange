@@ -310,6 +310,27 @@ describe("repository Planfile to patch pipeline", () => {
     }
   });
 
+  it("keeps deterministic planning available and yields clearly without a model route", async () => {
+    const root = gitFixture({ package_json: true });
+    const deterministic = await createRepositoryPlanfile({
+      repo_root: root,
+      goal: "update readme",
+      dry_run: true,
+      planning_mode: "deterministic",
+      verification_command_ids: ["npm_run_typecheck"],
+      now: "2026-04-30T12:00:00.000Z",
+    });
+
+    expect(deterministic.planfile.nodes.map((node) => node.id)).toContain("patch_repo");
+    await expect(createRepositoryPlanfile({
+      repo_root: root,
+      goal: "update readme",
+      dry_run: true,
+      planning_mode: "model",
+      verification_command_ids: ["npm_run_typecheck"],
+    })).rejects.toThrow(/model route/i);
+  });
+
   it("rejects PatchPlans with unknown evidence refs during apply", async () => {
     const root = gitFixture({ package_json: true });
     const originalInitCwd = process.env.INIT_CWD;

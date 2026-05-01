@@ -88,7 +88,31 @@ describe("repository eval harness", () => {
 
     expect(summary.total_tokens).toBeGreaterThan(0);
     expect(summary.calls_by_role.implementer).toBe(1);
+    expect(summary.model_calls_by_role.implementer).toBe(1);
+    expect(summary.tokens_by_role.implementer?.total_tokens).toBe(summary.total_tokens);
     expect(summary.estimated).toBe(true);
+  });
+
+  it("aggregates provider usage by role", () => {
+    const planner = createEstimatedUsageRecord({
+      model_ref: { provider: "openai", model: "gpt-4o", role_label: "planner" },
+      prompt: { goal: "plan" },
+      output: { plan: "ok" },
+      latency_ms: 8,
+    });
+    const reviewer = createEstimatedUsageRecord({
+      model_ref: { provider: "openai", model: "gpt-4o-mini", role_label: "reviewer" },
+      prompt: { diff: "summary" },
+      output: { review: "ok" },
+      latency_ms: 6,
+    });
+
+    const summary = summarizeModelUsage([planner, reviewer]);
+
+    expect(summary.model_calls_by_role.planner).toBe(1);
+    expect(summary.model_calls_by_role.reviewer).toBe(1);
+    expect(summary.tokens_by_role.planner?.total_tokens).toBeGreaterThan(0);
+    expect(summary.cost_by_role).toHaveProperty("reviewer");
   });
 
   it("runs mock benchmark and renders reports", async () => {

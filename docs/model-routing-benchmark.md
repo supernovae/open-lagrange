@@ -8,6 +8,7 @@ open-lagrange eval scenarios
 open-lagrange eval routes
 open-lagrange eval run repo-plan-to-patch --mock-models
 open-lagrange eval run repo-plan-to-patch --live-models --yes --max-scenarios 1
+open-lagrange eval run repo-plan-to-patch --live-models --planning-mode model --yes --route strong-plan-small-implement
 open-lagrange eval report <run_id>
 open-lagrange eval compare <run_id>
 ```
@@ -24,4 +25,6 @@ Metrics include success, patch validation, verification pass, validation failure
 
 Mock mode uses fixture outputs and is deterministic. Live mode requires `--live-models`, `--yes`, and configured providers. Unit tests should use mock mode only.
 
-Live mode creates isolated fixture repositories, applies repository Planfiles through `RepositoryPlanRunner`, captures PatchPlan validation, verification, repair, final patch, token, and cost metrics, then writes JSON, Markdown, and CSV reports under `.open-lagrange/evals/<run_id>/`.
+Live mode creates isolated fixture repositories, applies repository Planfiles through `RepositoryPlanRunner`, captures planner, implementer, repair, and reviewer usage, PatchPlan validation, verification, repair, final patch, token, and cost metrics, then writes JSON, Markdown, and CSV reports under `.open-lagrange/evals/<run_id>/`.
+
+Reports include a role usage table with calls, tokens, and cost for each measured role.

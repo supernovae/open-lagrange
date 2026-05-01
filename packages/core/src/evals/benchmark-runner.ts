@@ -8,6 +8,7 @@ import { BenchmarkReport, renderBenchmarkReportMarkdown } from "./benchmark-repo
 import { findModelRouteConfig, listModelRouteConfigs } from "./model-route-config.js";
 import { runScenarioRoute } from "./scenario-runner.js";
 import type { ScenarioRunMetrics } from "./live-metrics.js";
+import type { PlanningGenerationMode } from "../repository/model-goal-frame-generator.js";
 
 export interface RunModelRoutingBenchmarkInput {
   readonly benchmark_id: string;
@@ -16,6 +17,7 @@ export interface RunModelRoutingBenchmarkInput {
   readonly route_id?: string;
   readonly max_scenarios?: number;
   readonly retain_worktrees?: boolean;
+  readonly planning_mode?: PlanningGenerationMode;
   readonly yes?: boolean;
   readonly output_dir?: string;
   readonly now?: string;
@@ -41,6 +43,7 @@ export async function runModelRoutingBenchmark(input: RunModelRoutingBenchmarkIn
         scenarios,
         output_dir: outputDir,
         retain_worktrees: input.retain_worktrees ?? false,
+        planning_mode: input.planning_mode ?? "model",
         now: started,
         ...(input.route_id ? { route_id: input.route_id } : {}),
       })
@@ -61,6 +64,7 @@ export async function runModelRoutingBenchmark(input: RunModelRoutingBenchmarkIn
     observations: [
       input.mode === "mock" ? "Mock mode used deterministic fixture PatchPlan outputs." : "Live mode executed scenario repositories through RepositoryPlanRunner.",
       "Validation and verification metrics are normalized per scenario.",
+      input.mode === "live" ? `Planning mode: ${input.planning_mode ?? "model"}.` : "Planning mode: deterministic mock.",
     ],
     recommended_defaults: recommendedDefaults(input.mode),
     output_dir: outputDir,
@@ -101,6 +105,7 @@ async function runLiveMetrics(input: {
   readonly route_id?: string;
   readonly output_dir: string;
   readonly retain_worktrees: boolean;
+  readonly planning_mode: PlanningGenerationMode;
   readonly now: string;
 }) {
   const routes = input.route_id ? [findModelRouteConfig(input.route_id)].filter((route) => route !== undefined) : listModelRouteConfigs();
@@ -113,6 +118,7 @@ async function runLiveMetrics(input: {
         route,
         output_dir: input.output_dir,
         retain_worktrees: input.retain_worktrees,
+        planning_mode: input.planning_mode,
         now: input.now,
       }));
     }

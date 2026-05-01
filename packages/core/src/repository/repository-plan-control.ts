@@ -4,7 +4,6 @@ import { createArtifactSummary, registerArtifacts } from "../artifacts/index.js"
 import { createRunSummary, registerRun } from "../artifacts/run-index.js";
 import { getStateStore } from "../storage/state-store.js";
 import { stableHash } from "../util/hash.js";
-import { generateGoalFrame } from "../planning/goal-frame.js";
 import { renderPlanfileMarkdown } from "../planning/planfile-markdown.js";
 import { Planfile, type Planfile as PlanfileType } from "../planning/planfile-schema.js";
 import { inMemoryPlanStateStore } from "../planning/plan-state.js";
@@ -15,6 +14,13 @@ import { RepositoryPlanRunner } from "./repository-plan-runner.js";
 import { readRepositoryPlanStatus, writeRepositoryPlanStatus } from "./repository-status.js";
 import { exportFinalPatch } from "./patch-exporter.js";
 import type { PatchPlanGenerator } from "./model-patch-plan-generator.js";
+import type { ReviewReportGenerator } from "./model-review-report-generator.js";
+import { collectRepositoryMetadataSummary, deterministicRepositoryGoalFrame, fallbackPlanningTelemetry, generateModelGoalFrame, type PlanningGenerationMode } from "./model-goal-frame-generator.js";
+import { generateModelRepositoryPlanfile } from "./model-planfile-generator.js";
+import { detectVerificationPolicy, VerificationPolicy, type VerificationCommand } from "./verification-policy.js";
+import type { ModelRouteConfig } from "../evals/model-route-config.js";
+import type { ModelUsageRecord } from "../evals/provider-usage.js";
+import { ModelRoleCallError } from "../models/model-route-executor.js";
 import { loadApprovedScopeExpansionForResume, markScopeExpansionApplied } from "./scope-expansion-resume.js";
 import { markScopeExpansionRequest } from "./scope-expansion.js";
 
@@ -24,6 +30,10 @@ export interface CreateRepositoryPlanfileInput {
   readonly dry_run?: boolean;
   readonly workspace_id?: string;
   readonly verification_command_ids?: readonly string[];
+  readonly planning_mode?: PlanningGenerationMode;
+  readonly model_route?: ModelRouteConfig;
+  readonly telemetry_records?: ModelUsageRecord[];
+  readonly scenario_id?: string;
   readonly now?: string;
 }
 
@@ -34,10 +44,21 @@ export async function createRepositoryPlanfile(input: CreateRepositoryPlanfileIn
 }> {
   const now = input.now ?? new Date().toISOString();
   const repoRoot = resolve(input.repo_root);
-  const goalFrame = await generateGoalFrame({ original_prompt: input.goal, now });
+  const planningMode = input.planning_mode ?? "deterministic";
+  const metadata = collectRepositoryMetadataSummary(repoRoot);
+  const goalFrame = await createGoalFrameForMode({
+    repo_root: repoRoot,
+    goal: input.goal,
+    mode: planningMode,
+    metadata,
+    ...(input.model_route ? { route: input.model_route } : {}),
+    ...(input.telemetry_records ? { telemetry_records: input.telemetry_records } : {}),
+    ...(input.scenario_id ? { scenario_id: input.scenario_id } : {}),
+    now,
+  });
   const plan_id = `repo_plan_${stableHash({ repoRoot, goal: input.goal }).slice(0, 18)}`;
   const verification_command_ids = [...(input.verification_command_ids ?? ["npm_run_typecheck"])];
-  const planfile = withCanonicalPlanDigest(Planfile.parse({
+  const deterministicPlanfile = () => withCanonicalPlanDigest(Planfile.parse({
     schema_version: "open-lagrange.plan.v1",
     plan_id,
     goal_frame: goalFrame,
@@ -75,6 +96,20 @@ export async function createRepositoryPlanfile(input: CreateRepositoryPlanfileIn
     created_at: now,
     updated_at: now,
   }));
+  const planfile = await createPlanfileForMode({
+    deterministic_planfile: deterministicPlanfile,
+    repo_root: repoRoot,
+    goal_frame: goalFrame,
+    metadata,
+    plan_id,
+    planning_mode: planningMode,
+    ...(input.model_route ? { route: input.model_route } : {}),
+    ...(input.telemetry_records ? { telemetry_records: input.telemetry_records } : {}),
+    ...(input.scenario_id ? { scenario_id: input.scenario_id } : {}),
+    verification_command_ids,
+    ...(input.dry_run === undefined ? {} : { dry_run: input.dry_run }),
+    now,
+  });
   const markdown = renderPlanfileMarkdown(planfile);
   const path = join(repoRoot, ".open-lagrange", "plans", `${planfile.plan_id}.plan.md`);
   mkdirSync(dirname(path), { recursive: true });
@@ -98,6 +133,7 @@ export async function applyRepositoryPlanfile(input: {
   readonly allow_dirty_base?: boolean;
   readonly retain_on_failure?: boolean;
   readonly patch_plan_generator?: PatchPlanGenerator;
+  readonly review_report_generator?: ReviewReportGenerator;
   readonly now?: string;
 }) {
   const now = input.now ?? new Date().toISOString();
@@ -117,6 +153,7 @@ export async function applyRepositoryPlanfile(input: {
     session,
     retain_worktree: input.retain_on_failure ?? true,
     ...(input.patch_plan_generator ? { patch_plan_generator: input.patch_plan_generator } : {}),
+    ...(input.review_report_generator ? { review_report_generator: input.review_report_generator } : {}),
     now,
   }).run();
   registerRun({
@@ -208,6 +245,7 @@ export async function rejectRepositoryScopeRequest(input: {
 export async function resumeRepositoryPlan(input: {
   readonly plan_id: string;
   readonly patch_plan_generator?: PatchPlanGenerator;
+  readonly review_report_generator?: ReviewReportGenerator;
   readonly now?: string;
 }) {
   const now = input.now ?? new Date().toISOString();
@@ -226,6 +264,7 @@ export async function resumeRepositoryPlan(input: {
     expanded_verification_commands: context.requested_verification_commands,
     retain_worktree: session.retain_on_failure ?? true,
     ...(input.patch_plan_generator ? { patch_plan_generator: input.patch_plan_generator } : {}),
+    ...(input.review_report_generator ? { review_report_generator: input.review_report_generator } : {}),
     now,
   }).run();
   return markScopeExpansionApplied({ status: result.status, request_id: context.request.request_id, now });
@@ -292,4 +331,124 @@ function repositoryRootFromPlan(plan: PlanfileType): string {
     throw new Error("Repository Planfile is missing execution_context.repository.repo_root.");
   }
   return (repository as { repo_root: string }).repo_root;
+}
+
+async function createGoalFrameForMode(input: {
+  readonly repo_root: string;
+  readonly goal: string;
+  readonly mode: PlanningGenerationMode;
+  readonly route?: ModelRouteConfig;
+  readonly metadata: ReturnType<typeof collectRepositoryMetadataSummary>;
+  readonly telemetry_records?: ModelUsageRecord[];
+  readonly scenario_id?: string;
+  readonly now: string;
+}) {
+  if (input.mode === "deterministic") return deterministicRepositoryGoalFrame({ goal: input.goal, now: input.now });
+  if (!input.route) {
+    if (input.mode === "model_with_deterministic_fallback") {
+      fallbackPlanningTelemetry({
+        mode: input.mode,
+        reason: "route unavailable",
+        ...(input.telemetry_records ? { telemetry_records: input.telemetry_records } : {}),
+      });
+      return deterministicRepositoryGoalFrame({ goal: input.goal, now: input.now });
+    }
+    throw new ModelRoleCallError("MODEL_PROVIDER_UNAVAILABLE", "Model planning requires a model route.");
+  }
+  try {
+    return await generateModelGoalFrame({
+      repo_root: input.repo_root,
+      original_goal: input.goal,
+      repo_metadata: input.metadata,
+      mode: input.scenario_id ? "eval" : "repo_plan",
+      route: input.route,
+      ...(input.telemetry_records ? { telemetry_records: input.telemetry_records } : {}),
+      ...(input.scenario_id ? { scenario_id: input.scenario_id } : {}),
+      now: input.now,
+    });
+  } catch (caught) {
+    if (input.mode !== "model_with_deterministic_fallback") throw caught;
+    fallbackPlanningTelemetry({
+      route: input.route,
+      mode: input.mode,
+      reason: caught instanceof Error ? caught.message : String(caught),
+      ...(input.telemetry_records ? { telemetry_records: input.telemetry_records } : {}),
+    });
+    return deterministicRepositoryGoalFrame({ goal: input.goal, now: input.now });
+  }
+}
+
+async function createPlanfileForMode(input: {
+  readonly deterministic_planfile: () => PlanfileType;
+  readonly repo_root: string;
+  readonly goal_frame: PlanfileType["goal_frame"];
+  readonly metadata: ReturnType<typeof collectRepositoryMetadataSummary>;
+  readonly plan_id: string;
+  readonly planning_mode: PlanningGenerationMode;
+  readonly route?: ModelRouteConfig;
+  readonly telemetry_records?: ModelUsageRecord[];
+  readonly scenario_id?: string;
+  readonly verification_command_ids: readonly string[];
+  readonly dry_run?: boolean;
+  readonly now: string;
+}): Promise<PlanfileType> {
+  if (input.planning_mode === "deterministic") return input.deterministic_planfile();
+  if (!input.route) {
+    if (input.planning_mode === "model_with_deterministic_fallback") {
+      fallbackPlanningTelemetry({
+        mode: input.planning_mode,
+        reason: "route unavailable",
+        ...(input.telemetry_records ? { telemetry_records: input.telemetry_records } : {}),
+      });
+      return input.deterministic_planfile();
+    }
+    throw new ModelRoleCallError("MODEL_PROVIDER_UNAVAILABLE", "Model Planfile generation requires a model route.");
+  }
+  try {
+    return await generateModelRepositoryPlanfile({
+      goal_frame: input.goal_frame,
+      repo_metadata: input.metadata,
+      available_capabilities: { capability_refs: ["repo.list_files", "repo.search_text", "repo.read_file", "repo.propose_patch"] },
+      verification_policy: verificationPolicyForPlanning(input.repo_root, input.verification_command_ids),
+      planning_policy: {
+        mode: input.dry_run === false ? "apply" : "dry_run",
+        require_write_approval: true,
+        allow_destructive_nodes: false,
+      },
+      route: input.route,
+      plan_id: input.plan_id,
+      repo_root: input.repo_root,
+      ...(input.scenario_id ? { scenario_id: input.scenario_id } : {}),
+      ...(input.telemetry_records ? { telemetry_records: input.telemetry_records } : {}),
+      now: input.now,
+    });
+  } catch (caught) {
+    if (input.planning_mode !== "model_with_deterministic_fallback") throw caught;
+    fallbackPlanningTelemetry({
+      route: input.route,
+      mode: input.planning_mode,
+      reason: caught instanceof Error ? caught.message : String(caught),
+      ...(input.telemetry_records ? { telemetry_records: input.telemetry_records } : {}),
+    });
+    return input.deterministic_planfile();
+  }
+}
+
+function verificationPolicyForPlanning(repoRoot: string, commandIds: readonly string[]): VerificationPolicy {
+  const detected = detectVerificationPolicy(repoRoot);
+  const byId = new Map(detected.allowed_commands.map((command) => [command.command_id, command]));
+  const commands: VerificationCommand[] = commandIds.map((commandId) => byId.get(commandId) ?? fallbackVerificationCommand(commandId));
+  return VerificationPolicy.parse({ allowed_commands: commands });
+}
+
+function fallbackVerificationCommand(commandId: string): VerificationCommand {
+  const script = commandId.startsWith("npm_run_") ? commandId.slice("npm_run_".length) : commandId;
+  return {
+    command_id: commandId,
+    display_name: `npm run ${script}`,
+    executable: "npm",
+    args: ["run", script],
+    timeout_ms: 60_000,
+    output_limit_bytes: 40_000,
+  };
 }

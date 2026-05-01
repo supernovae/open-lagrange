@@ -62,6 +62,10 @@ export function PlanPane({ model }: { readonly model: TuiViewModel }): React.Rea
         <Text>Repair attempts: {(plan.repair_attempts.length > 0 ? plan.repair_attempts.length : 0)}</Text>
       </Box>
       <Box marginTop={1} flexDirection="column">
+        <Text color={theme.title}>Model Usage</Text>
+        {(plan.model_usage_lines.length > 0 ? plan.model_usage_lines : ["none"]).map((line) => <Text key={line}>{line}</Text>)}
+      </Box>
+      <Box marginTop={1} flexDirection="column">
         <Text color={theme.title}>Validation Errors</Text>
         {(plan.validation_errors.length > 0 ? plan.validation_errors : ["none"]).map((line) => <Text key={line}>{line}</Text>)}
       </Box>

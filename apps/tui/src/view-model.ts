@@ -94,6 +94,7 @@ function planSummary(project: ProjectRunStatus | undefined): PlanViewSummary | u
       patch_artifacts: livePlan.patch_artifact_ids,
       verification_reports: livePlan.verification_report_ids,
       repair_attempts: livePlan.repair_attempt_ids,
+      model_usage_lines: livePlan.model_usage_lines,
       artifact_refs: livePlan.artifact_refs,
       warnings: livePlan.warnings,
       validation_errors: livePlan.errors,
@@ -117,6 +118,7 @@ function planSummary(project: ProjectRunStatus | undefined): PlanViewSummary | u
     patch_artifacts: artifactSummaries(project, project?.task_statuses[0]).filter((artifact) => artifact.artifact_type === "diff").map((artifact) => artifact.artifact_id),
     verification_reports: artifactSummaries(project, project?.task_statuses[0]).filter((artifact) => artifact.artifact_type === "verification").map((artifact) => artifact.artifact_id),
     repair_attempts: repairAttempts(project),
+    model_usage_lines: modelUsageLines((project?.output as unknown as Record<string, unknown> | undefined)?.model_usage),
     artifact_refs: artifactSummaries(project, project?.task_statuses[0]).map((artifact) => artifact.artifact_id),
     warnings: [],
     validation_errors: project?.status?.errors.map((error) => error.message) ?? [],
@@ -141,6 +143,7 @@ function livePlanExecution(project: ProjectRunStatus | undefined): {
   readonly patch_artifact_ids: readonly string[];
   readonly verification_report_ids: readonly string[];
   readonly repair_attempt_ids: readonly string[];
+  readonly model_usage_lines: readonly string[];
   readonly artifact_refs: readonly string[];
   readonly warnings: readonly string[];
   readonly errors: readonly string[];
@@ -184,10 +187,25 @@ function livePlanExecution(project: ProjectRunStatus | undefined): {
     patch_artifact_ids: arrayStrings(record.patch_artifact_ids),
     verification_report_ids: arrayStrings(record.verification_report_ids),
     repair_attempt_ids: arrayStrings(record.repair_attempt_ids),
+    model_usage_lines: modelUsageLines(record.model_usage),
     artifact_refs: arrayStrings(record.artifact_refs),
     warnings: arrayStrings(record.warnings),
     errors: arrayStrings(record.errors),
   };
+}
+
+function modelUsageLines(value: unknown): readonly string[] {
+  if (!value || typeof value !== "object") return [];
+  const record = value as Record<string, unknown>;
+  const calls = record.model_calls_by_role && typeof record.model_calls_by_role === "object" ? record.model_calls_by_role as Record<string, unknown> : {};
+  const tokens = record.tokens_by_role && typeof record.tokens_by_role === "object" ? record.tokens_by_role as Record<string, unknown> : {};
+  const cost = record.cost_by_role && typeof record.cost_by_role === "object" ? record.cost_by_role as Record<string, unknown> : {};
+  return Object.entries(calls).map(([role, count]) => {
+    const tokenRecord = tokens[role] && typeof tokens[role] === "object" ? tokens[role] as Record<string, unknown> : {};
+    const totalTokens = typeof tokenRecord.total_tokens === "number" ? tokenRecord.total_tokens : 0;
+    const roleCost = typeof cost[role] === "number" ? cost[role] : 0;
+    return `${role}: ${String(count)} call(s), ${totalTokens} token(s), $${roleCost.toFixed(4)}`;
+  });
 }
 
 function scopeExpansionDetails(value: unknown): readonly string[] {

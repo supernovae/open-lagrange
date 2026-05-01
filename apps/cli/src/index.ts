@@ -444,13 +444,16 @@ repo.command("run")
   .option("--dry-run", "Plan and require approval before writes", true)
   .option("--apply", "Apply the approved patch immediately", false)
   .option("--require-approval", "Require approval before applying", false)
+  .option("--planning-mode <mode>", "deterministic, model, or model-with-fallback", "deterministic")
   .option("--legacy", "Use the original repository task endpoint", false)
-  .action(async (options: { readonly repo: string; readonly goal: string; readonly workspaceId?: string; readonly dryRun: boolean; readonly apply: boolean; readonly requireApproval: boolean; readonly legacy: boolean }) => {
+  .action(async (options: { readonly repo: string; readonly goal: string; readonly workspaceId?: string; readonly dryRun: boolean; readonly apply: boolean; readonly requireApproval: boolean; readonly planningMode: string; readonly legacy: boolean }) => {
     if (!options.legacy) {
       const created = await createRepositoryPlanfile({
         repo_root: options.repo,
         goal: options.goal,
         dry_run: options.dryRun && !options.apply,
+        planning_mode: planningModeOption(options.planningMode),
+        ...modelRouteForPlanning(options.planningMode),
         ...(options.workspaceId ? { workspace_id: options.workspaceId } : {}),
       });
       await writeFile(created.path, created.markdown, "utf8");
@@ -480,11 +483,14 @@ repo.command("plan")
   .requiredOption("--goal <goal>", "Repository task goal")
   .option("--workspace-id <workspaceId>", "Repository workspace ID")
   .option("--dry-run", "Create a dry-run Planfile", true)
-  .action(async (options: { readonly repo: string; readonly goal: string; readonly workspaceId?: string; readonly dryRun: boolean }) => {
+  .option("--planning-mode <mode>", "deterministic, model, or model-with-fallback", "deterministic")
+  .action(async (options: { readonly repo: string; readonly goal: string; readonly workspaceId?: string; readonly dryRun: boolean; readonly planningMode: string }) => {
     const created = await createRepositoryPlanfile({
       repo_root: options.repo,
       goal: options.goal,
       dry_run: options.dryRun,
+      planning_mode: planningModeOption(options.planningMode),
+      ...modelRouteForPlanning(options.planningMode),
       ...(options.workspaceId ? { workspace_id: options.workspaceId } : {}),
     });
     await writeFile(created.path, created.markdown, "utf8");
@@ -582,10 +588,11 @@ evalCommand.command("run")
   .option("--scenario <scenarioId>", "Run one scenario")
   .option("--route <routeId>", "Run one model route")
   .option("--max-scenarios <count>", "Limit number of scenarios", parsePositiveInt)
+  .option("--planning-mode <mode>", "deterministic, model, or model-with-fallback")
   .option("--retain-worktrees", "Keep eval fixture workspaces", false)
   .option("--yes", "Acknowledge live provider cost", false)
   .option("--output-dir <path>", "Write benchmark artifacts to a selected directory")
-  .action(async (benchmarkId: string, options: { readonly mockModels: boolean; readonly liveModels: boolean; readonly scenario?: string; readonly route?: string; readonly maxScenarios?: number; readonly retainWorktrees: boolean; readonly yes: boolean; readonly outputDir?: string }) => {
+  .action(async (benchmarkId: string, options: { readonly mockModels: boolean; readonly liveModels: boolean; readonly scenario?: string; readonly route?: string; readonly maxScenarios?: number; readonly planningMode?: string; readonly retainWorktrees: boolean; readonly yes: boolean; readonly outputDir?: string }) => {
     if (benchmarkId !== "repo-plan-to-patch") throw new Error(`Unknown benchmark: ${benchmarkId}`);
     const mode = options.liveModels ? "live" : "mock";
     if (!options.liveModels && !options.mockModels) {
@@ -598,6 +605,7 @@ evalCommand.command("run")
       ...(options.scenario ? { scenario_id: options.scenario } : {}),
       ...(options.route ? { route_id: options.route } : {}),
       ...(options.maxScenarios === undefined ? {} : { max_scenarios: options.maxScenarios }),
+      ...(options.planningMode ? { planning_mode: planningModeOption(options.planningMode) } : {}),
       retain_worktrees: options.retainWorktrees,
       yes: options.yes,
       ...(options.outputDir ? { output_dir: cliPath(options.outputDir) } : {}),
@@ -824,6 +832,19 @@ function parsePositiveInt(value: string): number {
   const parsed = Number.parseInt(value, 10);
   if (!Number.isInteger(parsed) || parsed < 1) throw new Error("Expected a positive integer.");
   return parsed;
+}
+
+function planningModeOption(value: string): "deterministic" | "model" | "model_with_deterministic_fallback" {
+  if (value === "deterministic" || value === "model") return value;
+  if (value === "model-with-fallback" || value === "model_with_deterministic_fallback") return "model_with_deterministic_fallback";
+  throw new Error("--planning-mode must be deterministic, model, or model-with-fallback");
+}
+
+function modelRouteForPlanning(value: string) {
+  const mode = planningModeOption(value);
+  if (mode === "deterministic") return {};
+  const route = listModelRouteConfigs().find((item) => item.route_id === "strong-plan-small-implement") ?? listModelRouteConfigs()[0];
+  return route ? { model_route: route } : {};
 }
 
 function isMissingStatus(value: unknown): boolean {

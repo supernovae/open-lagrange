@@ -1,51 +1,41 @@
-import { performance } from "node:perf_hooks";
-import { generateObject } from "ai";
 import { createConfiguredLanguageModel } from "../model-providers/index.js";
 import { buildPatchPlanPrompt, patchPlanSystemPrompt } from "../repository/patch-plan-prompt.js";
 import { ModelPatchPlanOutput, normalizeModelPatchPlanOutput } from "../repository/patch-plan-output-schema.js";
 import type { GeneratePatchPlanFromEvidenceInput, PatchPlanGenerator } from "../repository/model-patch-plan-generator.js";
 import { PatchPlanGenerationError, modelProviderUnavailable } from "../repository/patch-plan-generation-errors.js";
 import type { RepositoryPatchPlan } from "../repository/patch-plan.js";
+import { createModelReviewReportGenerator, type ReviewReportGenerator } from "../repository/model-review-report-generator.js";
+import { executeModelRoleCall, ModelRoleCallError } from "../models/model-route-executor.js";
 import type { ModelRouteConfig, ModelRef } from "./model-route-config.js";
-import { usageRecordFromProvider, type ModelUsageRecord } from "./provider-usage.js";
+import type { ModelUsageRecord } from "./provider-usage.js";
 
 export interface LiveProviderPatchPlanGenerator {
   readonly generator: PatchPlanGenerator;
   readonly usage_records: readonly ModelUsageRecord[];
 }
 
-export function createLiveProviderPatchPlanGenerator(route: ModelRouteConfig): LiveProviderPatchPlanGenerator {
-  const usageRecords: ModelUsageRecord[] = [];
+export function createLiveProviderPatchPlanGenerator(route: ModelRouteConfig, usageRecords: ModelUsageRecord[] = []): LiveProviderPatchPlanGenerator {
   const generator: PatchPlanGenerator = async (input) => {
     const modelRef = modelRefForPatchPlan(route, input);
-    const model = createConfiguredLanguageModel("default", {
-      provider: modelRef.provider,
-      models: { default: modelRef.model },
-    });
-    if (!model) throw modelProviderUnavailable();
     const prompt = buildPatchPlanPrompt(input);
-    const started = performance.now();
     try {
-      const result = await generateObject({
-        model,
+      const result = await executeModelRoleCall({
+        role: input.mode === "repair" ? "repair" : modelRef.role_label === "escalation" ? "escalation" : "implementer",
+        model_ref: modelRef,
         schema: ModelPatchPlanOutput,
         system: patchPlanSystemPrompt(),
         prompt,
-        ...(modelRef.temperature === undefined ? {} : { temperature: modelRef.temperature }),
-        ...(modelRef.top_p === undefined ? {} : { topP: modelRef.top_p }),
-        ...(modelRef.max_output_tokens === undefined ? {} : { maxOutputTokens: modelRef.max_output_tokens }),
+        trace_context: {
+          route_id: route.route_id,
+          plan_id: input.plan_id,
+          node_id: input.node_id,
+        },
       });
-      const latency = Math.max(0, Math.round(performance.now() - started));
       const patchPlan = normalizeModelPatchPlanOutput(result.object);
-      usageRecords.push(usageRecordFromProvider({
-        model_ref: modelRef,
-        prompt,
-        output: result.object,
-        provider_result: result,
-        latency_ms: latency,
-      }));
+      usageRecords.push(result.usage_record);
       return patchPlan;
     } catch (caught) {
+      if (caught instanceof ModelRoleCallError && caught.code === "MODEL_PROVIDER_UNAVAILABLE") throw modelProviderUnavailable();
       if (caught instanceof PatchPlanGenerationError) throw caught;
       throw new PatchPlanGenerationError("PATCH_PLAN_GENERATION_FAILED", caught instanceof Error ? caught.message : String(caught));
     }
@@ -58,9 +48,18 @@ export function createLiveProviderPatchPlanGenerator(route: ModelRouteConfig): L
   };
 }
 
-export function hasLiveProviderForRoute(route: ModelRouteConfig): boolean {
+export function createLiveProviderReviewReportGenerator(route: ModelRouteConfig, usageRecords: ModelUsageRecord[] = [], scenarioId?: string): ReviewReportGenerator {
+  return createModelReviewReportGenerator({
+    route,
+    telemetry_records: usageRecords,
+    ...(scenarioId ? { scenario_id: scenarioId } : {}),
+  });
+}
+
+export function hasLiveProviderForRoute(route: ModelRouteConfig, options: { readonly planning_mode?: "deterministic" | "model" | "model_with_deterministic_fallback" } = {}): boolean {
   if (!route.authoritative_apply) return true;
-  return [route.roles.implementer, route.roles.repair, route.roles.escalation].filter(Boolean).every((ref) =>
+  const planningRefs = options.planning_mode === "model" ? [route.roles.planner] : [];
+  return [...planningRefs, route.roles.implementer, route.roles.repair, route.roles.reviewer, route.roles.escalation].filter(Boolean).every((ref) =>
     Boolean(createConfiguredLanguageModel("default", {
       provider: (ref as ModelRef).provider,
       models: { default: (ref as ModelRef).model },
