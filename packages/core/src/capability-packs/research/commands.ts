@@ -361,6 +361,17 @@ function yieldedProviderResult(query: string, error: unknown): unknown {
       warnings: ["SEARCH_PROVIDER_NOT_CONFIGURED"],
     };
   }
+  if (error instanceof SearchError && (error.code === "SEARCH_PROVIDER_UNAVAILABLE" || error.code === "SEARCH_EXECUTION_FAILED")) {
+    return {
+      status: "failed",
+      execution_mode: "live",
+      code: error.code,
+      message: error.message,
+      query,
+      details: error.details,
+      warnings: [error.code],
+    };
+  }
   throw error;
 }
 

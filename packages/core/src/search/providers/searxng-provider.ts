@@ -1,6 +1,7 @@
 import type { PrimitiveContext } from "@open-lagrange/capability-sdk/primitives";
 import { http } from "@open-lagrange/capability-sdk/primitives";
 import { stableHash } from "../../util/hash.js";
+import { SearchError } from "../search-errors.js";
 import type { SearchProvider, SearchProviderSearchInput, SearxngSearchProviderConfig } from "../search-provider.js";
 import { domainFromSearchUrl, type SourceCandidate } from "../source-types.js";
 
@@ -30,6 +31,12 @@ async function searchSearxng(
     max_bytes: 500_000,
     redirect_limit: 2,
     accepted_content_types: ["application/json", "text/json"],
+  }).catch((error: unknown) => {
+    throw new SearchError(
+      "SEARCH_PROVIDER_UNAVAILABLE",
+      `SearXNG provider ${config.id} is configured but unreachable at ${config.baseUrl}. Start it with open-lagrange up --with-search.`,
+      { provider_id: config.id, baseUrl: config.baseUrl, cause: error instanceof Error ? error.message : String(error) },
+    );
   });
   const parsed = parseSearxngResponse(response.text);
   const retrieved_at = new Date().toISOString();

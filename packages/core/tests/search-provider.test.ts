@@ -71,6 +71,25 @@ describe("search providers", () => {
     expect(output.candidates[0]?.url).toBe("https://example.com/a");
   });
 
+  it("SearXNG provider reports unreachable separately from unconfigured", async () => {
+    const context = primitiveContext({
+      fetch_impl: async () => {
+        throw new Error("connection refused");
+      },
+    });
+    const provider = createSearxngProvider(context, { id: "local-searxng", kind: "searxng", baseUrl: "http://localhost:8088", enabled: true });
+
+    await expect(provider.search({
+      query: "open lagrange",
+      topic: "open lagrange",
+      max_results: 5,
+      urls: [],
+      domains_allowlist: [],
+      domains_denylist: [],
+      source_type_preferences: [],
+    })).rejects.toMatchObject({ code: "SEARCH_PROVIDER_UNAVAILABLE" });
+  });
+
   it("fixture provider is denied without explicit fixture allowance", async () => {
     const context = primitiveContext();
     const registry = new SearchProviderRegistry({ context, allow_fixture: true });
@@ -112,6 +131,18 @@ describe("search providers", () => {
 
     expect((result.result as { readonly status?: string }).status).toBe("yielded");
     expect(JSON.stringify(result.result)).toContain("SEARCH_PROVIDER_NOT_CONFIGURED");
+  });
+
+  it("research topic with unreachable provider fails with start remediation", async () => {
+    const result = await runResearchSearchCommand({
+      query: "planning primitive",
+      provider_id: "local-searxng",
+      search_provider_configs: [{ id: "local-searxng", kind: "searxng", baseUrl: "http://localhost:8088", enabled: true }],
+    });
+
+    expect((result.result as { readonly status?: string }).status).toBe("failed");
+    expect(JSON.stringify(result.result)).toContain("SEARCH_PROVIDER_UNAVAILABLE");
+    expect(JSON.stringify(result.result)).toContain("open-lagrange up --with-search");
   });
 });
 

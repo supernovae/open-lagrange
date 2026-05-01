@@ -22,6 +22,9 @@ export class SearchCoordinator {
     const started = Date.now();
     const plan = SearchPlan.parse(rawPlan);
     const providers = await this.chooseProviders(plan, input.urls ?? []);
+    if (providers.length === 0) {
+      throw searchProviderNotConfigured("No live search provider is configured. Configure SearXNG, provide explicit URLs, or run fixture mode.");
+    }
     assertSearchPolicy({ plan, providers, allow_fixture: this.options.allow_fixture === true });
     const calls: SearchProviderCall[] = [];
     const warnings: string[] = [];
@@ -58,7 +61,18 @@ export class SearchCoordinator {
       if (plan.stop_conditions.stop_after_first_provider_with_results && candidates.length >= plan.stop_conditions.min_results) break;
     }
     if (candidates.length === 0 && providers.every((provider) => provider.mode === "live")) {
-      throw searchProviderNotConfigured("No configured live search provider returned source candidates. Configure SearXNG, provide explicit URLs, or run fixture mode.");
+      const failedCall = calls.find((call) => call.status === "failed");
+      if (failedCall) {
+        throw new SearchError(
+          failedCall.error_code === "SEARCH_PROVIDER_UNAVAILABLE" ? "SEARCH_PROVIDER_UNAVAILABLE" : "SEARCH_EXECUTION_FAILED",
+          failedCall.message ?? "Configured search provider did not return source candidates.",
+          { provider_calls: calls },
+        );
+      }
+      const skippedCall = calls.find((call) => call.status === "skipped" && call.error_code === "SEARCH_PROVIDER_NOT_CONFIGURED");
+      if (skippedCall) {
+        throw searchProviderNotConfigured(skippedCall.message ?? "Search provider is not configured.");
+      }
     }
     const filtered = filterCandidates(candidates, plan);
     const deduped = dedupeCandidates(filtered);

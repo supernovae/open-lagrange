@@ -463,13 +463,18 @@ search.command("providers").description("List search providers for the current p
   console.log(JSON.stringify({
     providers: [
       { id: "manual-urls", kind: "manual_urls", mode: "live", configured: true, enabled: true },
-      ...providers.map((provider) => ({
-        id: provider.id,
-        kind: provider.kind,
-        mode: "live",
-        configured: provider.enabled !== false,
-        enabled: provider.enabled !== false,
-        ...(provider.kind === "searxng" ? { baseUrl: provider.baseUrl } : {}),
+      ...await Promise.all(providers.map(async (provider) => {
+        const state = provider.kind === "searxng" ? await probeSearchProvider(provider.baseUrl) : "unknown";
+        return {
+          id: provider.id,
+          kind: provider.kind,
+          mode: "live",
+          configured: provider.enabled !== false,
+          enabled: provider.enabled !== false,
+          state,
+          ...(provider.kind === "searxng" && state === "unreachable" ? { remediation: "Run open-lagrange up --with-search to start the local SearXNG container." } : {}),
+          ...(provider.kind === "searxng" ? { baseUrl: provider.baseUrl } : {}),
+        };
       })),
     ],
   }, null, 2));
@@ -952,6 +957,15 @@ function collectString(value: string, previous: readonly string[]): string[] {
 async function currentSearchProviderConfigs(): Promise<readonly SearchProviderConfig[]> {
   const profile = await getCurrentProfile().catch(() => undefined);
   return profile?.searchProviders ?? [];
+}
+
+async function probeSearchProvider(baseUrl: string): Promise<"running" | "unreachable"> {
+  try {
+    const response = await fetch(baseUrl, { method: "GET", signal: AbortSignal.timeout(1500) });
+    return response.ok || response.status < 500 ? "running" : "unreachable";
+  } catch {
+    return "unreachable";
+  }
 }
 
 function planningModeOption(value: string): "deterministic" | "model" | "model_with_deterministic_fallback" {
