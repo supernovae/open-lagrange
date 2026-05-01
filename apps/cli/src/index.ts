@@ -59,9 +59,13 @@ program.command("down").description("Stop the local runtime.").action(async () =
   console.log(JSON.stringify(await stopLocalRuntime(), null, 2));
 });
 
-program.command("restart").description("Restart the local runtime.").option("--dev", "Run API and worker as local Node processes", false).action(async (options: { readonly dev: boolean }) => {
-  console.log(JSON.stringify(await restartLocalRuntime({ dev: options.dev }), null, 2));
-});
+program.command("restart").description("Restart the local runtime.")
+  .option("--runtime <runtime>", "docker or podman")
+  .option("--dev", "Run API and worker as local Node processes", false)
+  .action(async (options: { readonly runtime?: string; readonly dev: boolean }) => {
+    const runtime = runtimeOption(options.runtime);
+    console.log(JSON.stringify(await restartLocalRuntime({ ...(runtime ? { runtime } : {}), dev: options.dev }), null, 2));
+  });
 
 program
   .command("status")
