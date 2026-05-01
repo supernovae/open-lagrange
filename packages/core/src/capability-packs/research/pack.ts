@@ -8,10 +8,16 @@ import {
   ExportMarkdownOutput,
   ExtractContentInput,
   ExtractContentOutput,
+  ResearchPlanSearchInput,
+  ResearchPlanSearchOutput,
   ResearchFetchSourceInput,
   ResearchFetchSourceOutput,
+  ResearchSearchSourcesInput,
+  ResearchSearchSourcesOutput,
   ResearchSearchInput,
   ResearchSearchOutput,
+  ResearchSelectSourcesInput,
+  ResearchSelectSourcesOutput,
 } from "./schemas.js";
 import { researchCapability } from "./descriptors.js";
 import {
@@ -20,7 +26,10 @@ import {
   runResearchExportMarkdown,
   runResearchExtractContent,
   runResearchFetchSource,
+  runResearchPlanSearch,
   runResearchSearch,
+  runResearchSearchSources,
+  runResearchSelectSources,
 } from "./executor.js";
 import { researchManifest } from "./manifest.js";
 
@@ -28,12 +37,36 @@ export const researchPack: CapabilityPack = {
   manifest: researchManifest,
   capabilities: [
     researchCapability({
+      name: "research.plan_search",
+      description: "Create a bounded SearchPlan for provider-backed source discovery.",
+      input_schema: ResearchPlanSearchInput,
+      output_schema: ResearchPlanSearchOutput,
+      side_effect_kind: "none",
+      execute: runResearchPlanSearch,
+    }),
+    researchCapability({
       name: "research.search",
       description: "Search live provider results when configured, or deterministic fixture sources only when fixture mode is explicit.",
       input_schema: ResearchSearchInput,
       output_schema: ResearchSearchOutput,
       side_effect_kind: "none",
       execute: runResearchSearch,
+    }),
+    researchCapability({
+      name: "research.search_sources",
+      description: "Execute a bounded SearchPlan through configured search providers and record source candidates.",
+      input_schema: ResearchSearchSourcesInput,
+      output_schema: ResearchSearchSourcesOutput,
+      side_effect_kind: "network_read",
+      execute: runResearchSearchSources,
+    }),
+    researchCapability({
+      name: "research.select_sources",
+      description: "Select bounded source candidates from a SearchResultSet.",
+      input_schema: ResearchSelectSourcesInput,
+      output_schema: ResearchSelectSourcesOutput,
+      side_effect_kind: "none",
+      execute: runResearchSelectSources,
     }),
     researchCapability({
       name: "research.fetch_source",

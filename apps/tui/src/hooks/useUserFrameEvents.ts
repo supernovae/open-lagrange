@@ -8,6 +8,7 @@ import { runResearchBriefCommand, runResearchExportCommand, runResearchFetchComm
 import { buildGeneratedPackFromMarkdown, generateSkillFrame, generateWorkflowSkill, parseSkillfileMarkdown } from "@open-lagrange/core/skills";
 import type { TuiUserFrameEvent, UserFrameEvent, UserFrameEventResult } from "@open-lagrange/core/interface";
 import { runDoctor } from "@open-lagrange/runtime-manager";
+import { getCurrentProfile } from "@open-lagrange/runtime-manager";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
@@ -95,20 +96,46 @@ async function submitLocalOrRemoteEvent(event: TuiUserFrameEvent): Promise<UserF
     const output = showArtifact(event.artifact_id);
     return { status: output ? "completed" : "failed", message: output ? `Artifact loaded: ${event.artifact_id}` : `Artifact not found: ${event.artifact_id}`, output };
   }
+  if (event.type === "research.providers") {
+    const providers = await currentSearchProviderConfigs();
+    return {
+      status: "completed",
+      message: `Search providers loaded: ${providers.length + 1} provider(s).`,
+      output: {
+        providers: [
+          { id: "manual-urls", kind: "manual_urls", mode: "live", configured: true },
+          ...providers.map((provider) => ({ id: provider.id, kind: provider.kind, mode: "live", configured: provider.enabled !== false })),
+        ],
+      },
+    };
+  }
   if (event.type === "research.search") {
-    const result = await runResearchSearchCommand({ query: event.query, mode: event.mode, dry_run: event.dry_run });
+    const result = await runResearchSearchCommand({
+      query: event.query,
+      mode: event.mode,
+      ...(event.provider_id ? { provider_id: event.provider_id } : {}),
+      search_provider_configs: await currentSearchProviderConfigs(),
+      dry_run: event.dry_run,
+    });
     return { status: researchStatus(result), message: researchMessage("Search", result), output: result };
   }
   if (event.type === "research.fetch") {
-    const result = await runResearchFetchCommand({ url: event.url, mode: event.mode, dry_run: event.dry_run });
+    const result = await runResearchFetchCommand({ url: event.url, mode: event.mode, search_provider_configs: await currentSearchProviderConfigs(), dry_run: event.dry_run });
     return { status: researchStatus(result), message: researchMessage("Fetch", result), output: result };
   }
   if (event.type === "research.summarize_url") {
-    const result = await runResearchSummarizeUrlCommand({ url: event.url, mode: event.mode, dry_run: event.dry_run });
+    const result = await runResearchSummarizeUrlCommand({ url: event.url, mode: event.mode, search_provider_configs: await currentSearchProviderConfigs(), dry_run: event.dry_run });
     return { status: researchStatus(result), message: researchMessage("Summarize URL", result), output: result };
   }
   if (event.type === "research.brief") {
-    const result = await runResearchBriefCommand({ topic: event.topic, mode: event.mode, urls: event.urls, dry_run: event.dry_run });
+    const result = await runResearchBriefCommand({
+      topic: event.topic,
+      mode: event.mode,
+      ...(event.provider_id ? { provider_id: event.provider_id } : {}),
+      search_provider_configs: await currentSearchProviderConfigs(),
+      urls: event.urls,
+      dry_run: event.dry_run,
+    });
     return { status: researchStatus(result), message: researchMessage("Brief", result), output: result };
   }
   if (event.type === "research.export") {
@@ -116,6 +143,11 @@ async function submitLocalOrRemoteEvent(event: TuiUserFrameEvent): Promise<UserF
     return { status: researchStatus(result), message: researchMessage("Export", result), output: result };
   }
   return (await (await createPlatformClientFromCurrentProfile()).submitUserFrameEvent(event)) as UserFrameEventResult;
+}
+
+async function currentSearchProviderConfigs() {
+  const profile = await getCurrentProfile().catch(() => undefined);
+  return profile?.searchProviders ?? [];
 }
 
 function helpText(): string {

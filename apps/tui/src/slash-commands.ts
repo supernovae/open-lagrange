@@ -72,19 +72,21 @@ export function parseSlashCommand(input: string, context: SlashCommandContext = 
   }
   if (command === "research") {
     const [subcommand, ...valueParts] = rest;
+    if (subcommand === "providers") return { kind: "event", command, pane: "research", event: { type: "research.providers" } };
     const fixture = rest.includes("--fixture") || rest.includes("fixture");
     const dryRun = rest.includes("--dry-run");
     const mode = dryRun ? "dry_run" : fixture ? "fixture" : "live";
     const urls = valuesForFlag(valueParts, "--url");
+    const providerId = valuesForFlag(valueParts, "--provider")[0];
     const value = valueParts.filter((part, index) =>
-      part !== "--live" && part !== "--fixture" && part !== "--dry-run" && part !== "live" && part !== "fixture" && part !== "--url" && valueParts[index - 1] !== "--url"
+      part !== "--live" && part !== "--fixture" && part !== "--dry-run" && part !== "live" && part !== "fixture" && part !== "--url" && part !== "--provider" && valueParts[index - 1] !== "--url" && valueParts[index - 1] !== "--provider"
     ).join(" ").trim();
-    if (subcommand === "search" && value) return { kind: "event", command, pane: "research", event: { type: "research.search", query: value, mode, dry_run: dryRun } };
-    if (subcommand === "brief" && value) return { kind: "event", command, pane: "research", event: { type: "research.brief", topic: value, mode, urls, dry_run: dryRun } };
+    if (subcommand === "search" && value) return { kind: "event", command, pane: "research", event: { type: "research.search", query: value, mode, ...(providerId ? { provider_id: providerId } : {}), dry_run: dryRun } };
+    if (subcommand === "brief" && value) return { kind: "event", command, pane: "research", event: { type: "research.brief", topic: value, mode, ...(providerId ? { provider_id: providerId } : {}), urls, dry_run: dryRun } };
     if ((subcommand === "summarize-url" || subcommand === "summarize_url") && value) return { kind: "event", command, pane: "research", event: { type: "research.summarize_url", url: value, mode, dry_run: dryRun } };
     if (subcommand === "fetch" && value) return { kind: "event", command, pane: "research", event: { type: "research.fetch", url: value, mode, dry_run: dryRun } };
     if (subcommand === "export" && value) return { kind: "event", command, pane: "research", event: { type: "research.export", brief_id: value } };
-    return { kind: "error", command, error: "Usage: /research search <query>, /research brief <topic> [--url <url>] [--fixture], /research fetch <url>, /research summarize-url <url>, or /research export <brief_id>" };
+    return { kind: "error", command, error: "Usage: /research providers, /research search <query>, /research brief <topic> [--url <url>] [--fixture], /research fetch <url>, /research summarize-url <url>, or /research export <brief_id>" };
   }
   if (command === "run") {
     const [subcommand, value] = rest;

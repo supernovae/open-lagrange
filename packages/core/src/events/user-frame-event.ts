@@ -18,10 +18,11 @@ export const TuiUserFrameEvent = z.discriminatedUnion("type", [
   z.object({ type: z.literal("demo.run"), demo_id: z.string().min(1), dry_run: z.boolean().default(true) }).strict(),
   z.object({ type: z.literal("run.show"), run_id: z.string().min(1).default("latest"), outputs_only: z.boolean().default(false) }).strict(),
   z.object({ type: z.literal("artifact.show"), artifact_id: z.string().min(1) }).strict(),
-  z.object({ type: z.literal("research.search"), query: z.string().min(1), mode: ExecutionMode.default("live"), dry_run: z.boolean().default(false) }).strict(),
+  z.object({ type: z.literal("research.providers") }).strict(),
+  z.object({ type: z.literal("research.search"), query: z.string().min(1), mode: ExecutionMode.default("live"), provider_id: z.string().min(1).optional(), dry_run: z.boolean().default(false) }).strict(),
   z.object({ type: z.literal("research.fetch"), url: z.string().min(1), mode: ExecutionMode.default("live"), dry_run: z.boolean().default(false) }).strict(),
   z.object({ type: z.literal("research.summarize_url"), url: z.string().min(1), mode: ExecutionMode.default("live"), dry_run: z.boolean().default(false) }).strict(),
-  z.object({ type: z.literal("research.brief"), topic: z.string().min(1), mode: ExecutionMode.default("live"), urls: z.array(z.string().min(1)).default([]), dry_run: z.boolean().default(false) }).strict(),
+  z.object({ type: z.literal("research.brief"), topic: z.string().min(1), mode: ExecutionMode.default("live"), provider_id: z.string().min(1).optional(), urls: z.array(z.string().min(1)).default([]), dry_run: z.boolean().default(false) }).strict(),
   z.object({ type: z.literal("research.export"), brief_id: z.string().min(1) }).strict(),
   z.object({ type: z.literal("approval.approve"), approval_id: z.string().min(1), task_id: z.string().optional(), reason: z.string().default("Approved from TUI.") }).strict(),
   z.object({ type: z.literal("approval.reject"), approval_id: z.string().min(1), task_id: z.string().optional(), reason: z.string().default("Rejected from TUI.") }).strict(),
@@ -48,6 +49,7 @@ export type FlowId =
   | "run_show"
   | "artifact_show"
   | "research_search"
+  | "research_providers"
   | "research_fetch"
   | "research_summarize_url"
   | "research_brief"

@@ -4,7 +4,9 @@ export const researchWorkflowTemplates = [
     title: "Research brief from topic",
     runtime_step_kind: "capability_step",
     nodes: [
-      { node_id: "search", capability_ref: "research.search" },
+      { node_id: "plan-search", capability_ref: "research.plan_search" },
+      { node_id: "search-sources", capability_ref: "research.search_sources" },
+      { node_id: "select-sources", capability_ref: "research.select_sources" },
       { node_id: "fetch-selected-sources", capability_ref: "research.fetch_source" },
       { node_id: "extract-content", capability_ref: "research.extract_content" },
       { node_id: "create-source-set", capability_ref: "research.create_source_set" },

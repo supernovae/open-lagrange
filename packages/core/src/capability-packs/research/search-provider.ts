@@ -1,49 +1,70 @@
 import type { PrimitiveContext } from "@open-lagrange/capability-sdk/primitives";
-import { artifacts } from "@open-lagrange/capability-sdk/primitives";
-import type { ResearchSearchInput, ResearchSearchOutput } from "./schemas.js";
-import { createFixtureSearchProvider } from "./providers/fixture-search-provider.js";
-import { createLiveSearchProvider } from "./providers/live-search-provider.js";
-import { SearchProviderNotConfiguredError } from "./providers/search-provider-types.js";
+import { SearchCoordinator, SearchError, SearchPlan, SearchProviderRegistry, type SearchProviderConfig } from "../../search/index.js";
+import { stableHash } from "../../util/hash.js";
+import type { ResearchSearchInput, ResearchSearchOutput, SourceSearchResult } from "./schemas.js";
 
-export async function searchSources(context: PrimitiveContext, input: ResearchSearchInput): Promise<ResearchSearchOutput> {
+export async function searchSources(
+  context: PrimitiveContext,
+  input: ResearchSearchInput,
+  options: { readonly provider_configs?: readonly SearchProviderConfig[] } = {},
+): Promise<ResearchSearchOutput> {
   if (input.mode === "dry_run") {
-    const output: ResearchSearchOutput = {
+    return {
       query: input.query,
       mode: "dry_run",
       results: [],
       warnings: ["dry_run: validated search input without querying a provider."],
     };
-    await writeSearchArtifact(context, output);
-    return output;
   }
   if (input.mode !== "fixture" && input.mode !== "live") {
-    throw new SearchProviderNotConfiguredError(`${input.mode} search mode is not available for Research Pack search.`);
+    throw new SearchError("SEARCH_PROVIDER_NOT_CONFIGURED", `${input.mode} search mode is not available for Research Pack search.`);
   }
-  const provider = input.mode === "fixture" ? createFixtureSearchProvider() : createLiveSearchProvider();
-  if (!(await provider.isConfigured())) {
-    throw new SearchProviderNotConfiguredError("Live search provider is not configured. Configure a search provider, provide explicit --url sources, or run with --fixture for deterministic demo sources.");
-  }
-  const output = await provider.search(input);
-  await writeSearchArtifact(context, output);
-  return output;
-}
-
-async function writeSearchArtifact(context: PrimitiveContext, output: ResearchSearchOutput): Promise<void> {
-  const artifactId = output.artifact_id ?? `source_search_results_${output.query.replace(/[^a-zA-Z0-9_-]+/g, "_").slice(0, 40)}_${output.mode}`;
-  await artifacts.write(context, {
-    artifact_id: artifactId,
-    kind: "source_search_results",
-    title: `Search results for ${output.query}`,
-    summary: `${output.results.length} source candidates for ${output.query}.`,
-    content: { ...output, artifact_id: artifactId },
-    validation_status: "pass",
-    redaction_status: "redacted",
-    metadata: {
-      source_mode: output.mode,
-      execution_mode: output.mode,
-      live: output.mode === "live",
-      mode_warning: output.mode === "fixture" ? "Generated from deterministic checked-in sources, not live web results." : output.mode === "dry_run" ? "Dry run preview only; no live source work was performed." : undefined,
-      ...(output.mode === "fixture" ? { fixture_set: "research-brief-demo" } : {}),
+  const plan = SearchPlan.parse({
+    search_plan_id: `search_plan_${stableHash(input).slice(0, 16)}`,
+    topic: input.query,
+    objective: `Find source candidates for ${input.query}.`,
+    queries: [input.query],
+    limits: {
+      max_queries: 1,
+      max_results_per_query: input.max_results,
+      max_sources_to_fetch: input.max_results,
+      max_total_fetch_bytes: 2_000_000,
+      max_provider_calls: 1,
+      max_search_duration_ms: 8_000,
     },
+    provider_preferences: input.provider_id ? [{ provider_id: input.provider_id }] : [],
+    domains_allowlist: input.domains_allowlist ?? [],
+    domains_denylist: input.domains_denylist ?? [],
+    source_type_preferences: input.preferred_source_types ?? [],
+    stop_conditions: { min_results: Math.min(3, input.max_results), stop_after_first_provider_with_results: true },
   });
+  const registry = new SearchProviderRegistry({
+    context,
+    configs: options.provider_configs ?? [],
+    allow_fixture: input.mode === "fixture",
+  });
+  const coordinator = new SearchCoordinator({ context, registry, allow_fixture: input.mode === "fixture" });
+  const resultSet = await coordinator.execute(plan).catch((error: unknown) => {
+    if (error && typeof error === "object" && (error as { readonly code?: unknown }).code === "SEARCH_PROVIDER_NOT_CONFIGURED") {
+      throw new SearchError("SEARCH_PROVIDER_NOT_CONFIGURED", error instanceof Error ? error.message : "Live search provider is not configured.");
+    }
+    throw error;
+  });
+  return {
+    query: input.query,
+    mode: input.mode,
+    results: resultSet.selected_candidates.map((candidate) => ({
+      source_id: candidate.source_id,
+      title: candidate.title,
+      url: candidate.url,
+      ...(candidate.snippet ? { snippet: candidate.snippet } : {}),
+      source_type: candidate.source_type,
+      ...(candidate.published_at ? { published_at: candidate.published_at } : {}),
+      retrieved_at: candidate.retrieved_at,
+      domain: candidate.domain,
+      confidence: candidate.confidence,
+    } satisfies SourceSearchResult)),
+    warnings: resultSet.warnings,
+    ...(resultSet.artifact_id ? { artifact_id: resultSet.artifact_id } : {}),
+  };
 }

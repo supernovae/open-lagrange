@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { ModelProviderProfile } from "@open-lagrange/core/model-providers";
+import { SearchProviderConfig } from "@open-lagrange/core/search";
 import { SecretRef } from "@open-lagrange/core/secrets";
 
 export const RuntimeMode = z.enum(["local", "remote"]);
@@ -25,6 +26,7 @@ export const RuntimeProfile = z.object({
   secretRefs: z.record(z.string(), SecretRef).optional(),
   activeModelProvider: z.string().min(1).optional(),
   modelProviders: z.record(z.string(), ModelProviderProfile).optional(),
+  searchProviders: z.array(SearchProviderConfig).optional(),
 }).strict();
 
 export const RuntimeConfig = z.object({

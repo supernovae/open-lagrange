@@ -36,8 +36,10 @@ without fetching network content or pretending source work completed.
 
 ```bash
 open-lagrange research search "planning primitive"
+open-lagrange research search "planning primitive" --provider local-searxng
 open-lagrange research search "planning primitive" --fixture
 open-lagrange research brief "MCP security risks"
+open-lagrange research brief "MCP security risks" --provider local-searxng
 open-lagrange research brief "MCP security risks" --url https://example.com
 open-lagrange research brief "MCP security risks" --fixture
 open-lagrange research fetch https://example.com

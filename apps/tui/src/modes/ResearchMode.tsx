@@ -9,6 +9,7 @@ export function ResearchMode({ model }: { readonly model: TuiViewModel }): React
     <Box flexDirection="column">
       <Text color={theme.title}>Research Pack</Text>
       <Text>Live fetch is default. Fixture mode is explicit and labeled.</Text>
+      <Text color={theme.muted}>Providers: /research providers</Text>
       <Text color={theme.muted}>Try /research summarize-url https://example.com or /research brief "MCP security risks" --url https://example.com.</Text>
       <Text color={theme.muted}>Fixture demo: /research brief "MCP security risks" --fixture</Text>
       <Box marginTop={1} flexDirection="column">

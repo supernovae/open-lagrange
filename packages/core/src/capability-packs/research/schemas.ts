@@ -1,5 +1,8 @@
 import { z } from "zod";
 import { ExecutionMode } from "../../runtime/execution-mode.js";
+import { SearchPlan } from "../../search/search-plan.js";
+import { SearchResultSet } from "../../search/search-result-set.js";
+import { SourceCandidate } from "../../search/source-types.js";
 
 export const SourceMode = ExecutionMode;
 export const ResearchSearchProviderMode = z.enum(["live", "fixture"]);
@@ -36,6 +39,7 @@ export const ResearchSearchInput = z.object({
   preferred_source_types: z.array(SourceType.exclude(["unknown"])).optional(),
   domains_allowlist: z.array(z.string().min(1)).optional(),
   domains_denylist: z.array(z.string().min(1)).optional(),
+  provider_id: z.string().min(1).optional(),
   mode: SourceMode.default("live"),
 }).strict();
 
@@ -45,6 +49,39 @@ export const ResearchSearchOutput = z.object({
   results: z.array(SourceSearchResult),
   warnings: z.array(z.string()),
   artifact_id: z.string().optional(),
+}).strict();
+
+export const ResearchPlanSearchInput = z.object({
+  topic: z.string().min(1),
+  objective: z.string().min(1).optional(),
+  query: z.string().min(1).optional(),
+  provider_id: z.string().min(1).optional(),
+  max_results: z.number().int().min(1).max(25).default(5),
+  max_queries: z.number().int().min(1).max(5).default(1),
+}).strict();
+
+export const ResearchPlanSearchOutput = z.object({
+  search_plan: SearchPlan,
+}).strict();
+
+export const ResearchSearchSourcesInput = z.object({
+  search_plan: SearchPlan,
+  mode: SourceMode.default("live"),
+  urls: z.array(z.string().url()).default([]),
+}).strict();
+
+export const ResearchSearchSourcesOutput = z.object({
+  result_set: SearchResultSet,
+}).strict();
+
+export const ResearchSelectSourcesInput = z.object({
+  result_set: SearchResultSet,
+  max_sources: z.number().int().min(1).max(25).default(5),
+}).strict();
+
+export const ResearchSelectSourcesOutput = z.object({
+  selected_sources: z.array(SourceCandidate),
+  warnings: z.array(z.string()),
 }).strict();
 
 export const ResearchFetchSourceInput = z.object({
@@ -178,6 +215,12 @@ export type SourceMode = z.infer<typeof SourceMode>;
 export type SourceSearchResult = z.infer<typeof SourceSearchResult>;
 export type ResearchSearchInput = z.infer<typeof ResearchSearchInput>;
 export type ResearchSearchOutput = z.infer<typeof ResearchSearchOutput>;
+export type ResearchPlanSearchInput = z.infer<typeof ResearchPlanSearchInput>;
+export type ResearchPlanSearchOutput = z.infer<typeof ResearchPlanSearchOutput>;
+export type ResearchSearchSourcesInput = z.infer<typeof ResearchSearchSourcesInput>;
+export type ResearchSearchSourcesOutput = z.infer<typeof ResearchSearchSourcesOutput>;
+export type ResearchSelectSourcesInput = z.infer<typeof ResearchSelectSourcesInput>;
+export type ResearchSelectSourcesOutput = z.infer<typeof ResearchSelectSourcesOutput>;
 export type ResearchFetchSourceInput = z.infer<typeof ResearchFetchSourceInput>;
 export type ResearchFetchSourceOutput = z.infer<typeof ResearchFetchSourceOutput>;
 export type ExtractContentInput = z.infer<typeof ExtractContentInput>;

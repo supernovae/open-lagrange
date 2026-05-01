@@ -14,6 +14,7 @@ import { applyPlanfile as applyLocalPlanfile, generateGoalFrame, generatePlanfil
 import { applyRepositoryPlanfile as applyLocalRepositoryPlanfile, approveApprovalRequest, approveRepositoryScopeRequest, cleanupRepositoryPlan as cleanupLocalRepositoryPlan, createRepositoryPlanfile, explainRepositoryPlan, exportRepositoryPlanPatch as exportLocalRepositoryPlanPatch, getRepositoryPlanStatus as getLocalRepositoryPlanStatus, listRepositoryModelCalls, rejectApprovalRequest, rejectRepositoryScopeRequest, resumeRepositoryPlan, runRepositoryDoctor } from "@open-lagrange/core/repository";
 import { compareBenchmarkRun, listBenchmarkScenarios, listModelRouteConfigs, renderBenchmarkReport, runModelRoutingBenchmark } from "@open-lagrange/core/evals";
 import { runResearchBriefCommand, runResearchExportCommand, runResearchFetchCommand, runResearchSearchCommand, runResearchSummarizeUrlCommand } from "@open-lagrange/core/research";
+import type { SearchProviderConfig } from "@open-lagrange/core/search";
 import { buildGeneratedPackFromMarkdown, generateSkillFrame, generateWorkflowSkill, installGeneratedPack, parseSkillfileMarkdown, parseWorkflowSkillMarkdown, previewWorkflowSkillRun, scaffoldGeneratedPack, validateGeneratedPack, validateWorkflowSkill } from "@open-lagrange/core/skills";
 import { createPlatformClientFromCurrentProfile } from "@open-lagrange/platform-client";
 import { addLocalProfile, addRemoteProfile, bootstrapLocalRuntime, configureCurrentProfileModelProvider, deleteCurrentProfileSecret, describeCurrentProfileModelProvider, describeCurrentProfileSecret, getCurrentProfile, getProfilePackPaths, initRuntime, listCurrentProfileModelProviders, listCurrentProfileSecrets, listKnownModelProviders, loadConfig, removeProfile, restartLocalRuntime, setCurrentProfile, setCurrentProfileSecret, startLocalRuntime, stopLocalRuntime, tailLogs, getRuntimeStatus } from "@open-lagrange/runtime-manager";
@@ -451,6 +452,37 @@ model.command("status").description("Show the active model provider status.").ac
   console.log(JSON.stringify(await describeCurrentProfileModelProvider(), null, 2));
 });
 
+const search = program.command("search").description("Inspect configured search providers.");
+
+search.command("providers").description("List search providers for the current profile.").action(async () => {
+  const providers = await currentSearchProviderConfigs();
+  console.log(JSON.stringify({
+    providers: [
+      { id: "manual-urls", kind: "manual_urls", mode: "live", configured: true, enabled: true },
+      ...providers.map((provider) => ({
+        id: provider.id,
+        kind: provider.kind,
+        mode: "live",
+        configured: provider.enabled !== false,
+        enabled: provider.enabled !== false,
+        ...(provider.kind === "searxng" ? { baseUrl: provider.baseUrl } : {}),
+      })),
+    ],
+  }, null, 2));
+});
+
+search.command("test-provider")
+  .argument("<providerId>", "Search provider ID")
+  .option("--query <query>", "Test query", "open lagrange")
+  .action(async (providerId: string, options: { readonly query: string }) => {
+    const configs = await currentSearchProviderConfigs();
+    console.log(JSON.stringify(await runResearchSearchCommand({
+      query: options.query,
+      provider_id: providerId,
+      search_provider_configs: configs,
+    }), null, 2));
+  });
+
 const repo = program.command("repo").description("Run repository-scoped workflows.");
 
 repo.command("doctor")
@@ -684,14 +716,17 @@ const research = program.command("research").description("Run live research work
 
 research.command("search")
   .argument("<query>", "Research query")
+  .option("--provider <providerId>", "Search provider ID, such as local-searxng")
   .option("--fixture", "Use deterministic checked-in fixture sources", false)
   .option("--live", "Use live search provider if configured", true)
   .option("--dry-run", "Validate search provider/input without querying sources", false)
   .option("--output-dir <path>", "Artifact output directory")
-  .action(async (query: string, options: { readonly fixture: boolean; readonly live: boolean; readonly dryRun: boolean; readonly outputDir?: string }) => {
+  .action(async (query: string, options: { readonly provider?: string; readonly fixture: boolean; readonly live: boolean; readonly dryRun: boolean; readonly outputDir?: string }) => {
     console.log(JSON.stringify(await runResearchSearchCommand({
       query,
       mode: options.fixture ? "fixture" : "live",
+      ...(options.provider ? { provider_id: options.provider } : {}),
+      search_provider_configs: await currentSearchProviderConfigs(),
       dry_run: options.dryRun,
       ...(options.outputDir ? { output_dir: cliPath(options.outputDir) } : {}),
     }), null, 2));
@@ -706,6 +741,7 @@ research.command("fetch")
     console.log(JSON.stringify(await runResearchFetchCommand({
       url,
       mode: options.fixture ? "fixture" : "live",
+      search_provider_configs: await currentSearchProviderConfigs(),
       dry_run: options.dryRun,
       ...(options.outputDir ? { output_dir: cliPath(options.outputDir) } : {}),
     }), null, 2));
@@ -720,6 +756,7 @@ research.command("summarize-url")
     console.log(JSON.stringify(await runResearchSummarizeUrlCommand({
       url,
       mode: options.fixture ? "fixture" : "live",
+      search_provider_configs: await currentSearchProviderConfigs(),
       dry_run: options.dryRun,
       ...(options.outputDir ? { output_dir: cliPath(options.outputDir) } : {}),
     }), null, 2));
@@ -727,14 +764,17 @@ research.command("summarize-url")
 
 research.command("brief")
   .argument("<topic>", "Brief topic")
+  .option("--provider <providerId>", "Search provider ID, such as local-searxng")
   .option("--fixture", "Use deterministic checked-in fixture sources", false)
   .option("--url <url>", "Use an explicit source URL instead of search provider", collectString, [])
   .option("--dry-run", "Validate and preview without fetching/searching", false)
   .option("--output-dir <path>", "Artifact output directory")
-  .action(async (topic: string, options: { readonly fixture: boolean; readonly url: readonly string[]; readonly dryRun: boolean; readonly outputDir?: string }) => {
+  .action(async (topic: string, options: { readonly provider?: string; readonly fixture: boolean; readonly url: readonly string[]; readonly dryRun: boolean; readonly outputDir?: string }) => {
     console.log(JSON.stringify(await runResearchBriefCommand({
       topic,
       mode: options.fixture ? "fixture" : "live",
+      ...(options.provider ? { provider_id: options.provider } : {}),
+      search_provider_configs: await currentSearchProviderConfigs(),
       urls: options.url,
       dry_run: options.dryRun,
       ...(options.outputDir ? { output_dir: cliPath(options.outputDir) } : {}),
@@ -903,6 +943,11 @@ function parsePositiveInt(value: string): number {
 
 function collectString(value: string, previous: readonly string[]): string[] {
   return [...previous, value];
+}
+
+async function currentSearchProviderConfigs(): Promise<readonly SearchProviderConfig[]> {
+  const profile = await getCurrentProfile().catch(() => undefined);
+  return profile?.searchProviders ?? [];
 }
 
 function planningModeOption(value: string): "deterministic" | "model" | "model_with_deterministic_fallback" {

@@ -10,10 +10,10 @@ import { runCapabilityStep } from "../../runtime/capability-step-runner.js";
 import { stableHash } from "../../util/hash.js";
 import { readFixtureSource } from "./fixtures.js";
 import { RESEARCH_LIMITS } from "./policy.js";
-import { runResearchCreateBrief, runResearchCreateSourceSet, runResearchExportMarkdown, runResearchExtractContent, runResearchSearch } from "./executor.js";
+import { SearchError, type SearchProviderConfig } from "../../search/index.js";
+import { runResearchCreateBrief, runResearchCreateSourceSet, runResearchExportMarkdown, runResearchExtractContent, runResearchPlanSearch, runResearchSearch, runResearchSearchSources } from "./executor.js";
 import { ExtractedSource as ExtractedSourceSchema } from "./schemas.js";
 import type { CreateBriefOutput, ExtractedSource, SourceMode } from "./schemas.js";
-import { SearchProviderNotConfiguredError } from "./providers/search-provider-types.js";
 
 export interface ResearchCommandResult {
   readonly run_id: string;
@@ -26,6 +26,8 @@ export interface ResearchCommandResult {
 export async function runResearchSearchCommand(input: {
   readonly query: string;
   readonly mode?: SourceMode;
+  readonly provider_id?: string;
+  readonly search_provider_configs?: readonly SearchProviderConfig[];
   readonly dry_run?: boolean;
   readonly output_dir?: string;
   readonly index_path?: string;
@@ -33,9 +35,13 @@ export async function runResearchSearchCommand(input: {
   const run = commandRun(input.query, input.output_dir);
   const store = artifactStore(run.output_dir);
   const mode = input.dry_run ? "dry_run" : input.mode ?? "live";
-  const result = await runResearchSearch(createTestPackContext({ recordArtifact: store.recordArtifact }), {
+  const result = await runResearchSearch(createTestPackContext({
+    recordArtifact: store.recordArtifact,
+    runtime_config: { search_providers: input.search_provider_configs ?? [] },
+  }), {
     query: input.query,
     mode,
+    ...(input.provider_id ? { provider_id: input.provider_id } : {}),
     max_results: 5,
     freshness: "any",
   }).catch((error: unknown) => yieldedProviderResult(input.query, error));
@@ -46,6 +52,7 @@ export async function runResearchSearchCommand(input: {
 export async function runResearchFetchCommand(input: {
   readonly url: string;
   readonly mode?: SourceMode;
+  readonly search_provider_configs?: readonly SearchProviderConfig[];
   readonly dry_run?: boolean;
   readonly output_dir?: string;
   readonly index_path?: string;
@@ -105,6 +112,8 @@ export async function runResearchFetchCommand(input: {
 export async function runResearchBriefCommand(input: {
   readonly topic: string;
   readonly mode?: SourceMode;
+  readonly provider_id?: string;
+  readonly search_provider_configs?: readonly SearchProviderConfig[];
   readonly urls?: readonly string[];
   readonly dry_run?: boolean;
   readonly output_dir?: string;
@@ -112,7 +121,10 @@ export async function runResearchBriefCommand(input: {
 }): Promise<ResearchCommandResult> {
   const run = commandRun(input.topic, input.output_dir);
   const store = artifactStore(run.output_dir);
-  const context = createTestPackContext({ recordArtifact: store.recordArtifact });
+  const context = createTestPackContext({
+    recordArtifact: store.recordArtifact,
+    runtime_config: { search_providers: input.search_provider_configs ?? [] },
+  });
   const mode = input.dry_run ? "dry_run" : input.mode ?? "live";
   const supportingArtifacts: ArtifactSummary[] = [];
   if (mode === "dry_run") {
@@ -129,12 +141,26 @@ export async function runResearchBriefCommand(input: {
   const extracted: ExtractedSource[] = [];
   let search: unknown;
   if (input.urls && input.urls.length > 0) {
-    for (const url of input.urls.slice(0, 5)) {
+    const plan = await runResearchPlanSearch(context, {
+      topic: input.topic,
+      objective: `Use provided URLs for ${input.topic}.`,
+      max_results: 5,
+      max_queries: 1,
+    });
+    const resultSet = await runResearchSearchSources(context, {
+      search_plan: plan.search_plan,
+      mode,
+      urls: [...input.urls],
+    });
+    search = resultSet.result_set;
+    for (const candidate of resultSet.result_set.selected_candidates.slice(0, 5)) {
+      const url = candidate.url;
       const urlError = validateUrl(url);
       if (urlError) return yieldedCommand(run, input.index_path, "INVALID_URL", urlError);
       const fetched = await runResearchFetchCommand({
         url,
         mode,
+        ...(input.search_provider_configs ? { search_provider_configs: input.search_provider_configs } : {}),
         output_dir: run.output_dir,
         ...(input.index_path ? { index_path: input.index_path } : {}),
       });
@@ -146,16 +172,38 @@ export async function runResearchBriefCommand(input: {
       if (source) extracted.push(source);
     }
   } else {
-    search = await runResearchSearch(context, { query: input.topic, mode, max_results: 5, freshness: "any" }).catch((error: unknown) => yieldedProviderResult(input.topic, error));
+    search = await runResearchSearch(context, {
+      query: input.topic,
+      mode,
+      ...(input.provider_id ? { provider_id: input.provider_id } : {}),
+      max_results: 5,
+      freshness: "any",
+    }).catch((error: unknown) => yieldedProviderResult(input.topic, error));
     if (resultStatus(search) === "yielded") {
       const artifacts = store.flush(input.index_path);
       return { run_id: run.run_id, output_dir: run.output_dir, result: search, artifacts, warnings: warningsFromOutput(search) };
     }
     const searchOutput = search as Awaited<ReturnType<typeof runResearchSearch>>;
     for (const result of searchOutput.results.slice(0, 5)) {
-      const fixture = readFixtureSource(result.source_id);
-      if (!fixture) continue;
-      extracted.push(await runResearchExtractContent(context, { markdown: fixture.content, url: fixture.source.url, max_chars: 20_000 }));
+      if (mode === "fixture") {
+        const fixture = readFixtureSource(result.source_id);
+        if (!fixture) continue;
+        extracted.push(await runResearchExtractContent(context, { markdown: fixture.content, url: fixture.source.url, max_chars: 20_000 }));
+        continue;
+      }
+      const fetched = await runResearchFetchCommand({
+        url: result.url,
+        mode,
+        ...(input.search_provider_configs ? { search_provider_configs: input.search_provider_configs } : {}),
+        output_dir: run.output_dir,
+        ...(input.index_path ? { index_path: input.index_path } : {}),
+      });
+      supportingArtifacts.push(...fetched.artifacts);
+      if (resultStatus(fetched.result) === "failed") return { ...fetched, run_id: run.run_id, output_dir: run.output_dir };
+      const output = objectValue(fetched.result).output;
+      const textArtifactId = stringValue(objectValue(output).text_artifact_id);
+      const source = textArtifactId ? extractedSourceFromArtifact(showArtifact(textArtifactId, input.index_path)?.content) : undefined;
+      if (source) extracted.push(source);
     }
   }
   if (extracted.length === 0) {
@@ -188,6 +236,7 @@ export async function runResearchBriefCommand(input: {
 export async function runResearchSummarizeUrlCommand(input: {
   readonly url: string;
   readonly mode?: SourceMode;
+  readonly search_provider_configs?: readonly SearchProviderConfig[];
   readonly dry_run?: boolean;
   readonly output_dir?: string;
   readonly index_path?: string;
@@ -196,6 +245,7 @@ export async function runResearchSummarizeUrlCommand(input: {
     topic: input.url,
     urls: [input.url],
     mode: input.mode ?? "live",
+    ...(input.search_provider_configs ? { search_provider_configs: input.search_provider_configs } : {}),
     ...(input.dry_run === undefined ? {} : { dry_run: input.dry_run }),
     ...(input.output_dir ? { output_dir: input.output_dir } : {}),
     ...(input.index_path ? { index_path: input.index_path } : {}),
@@ -301,7 +351,7 @@ function warningsFromOutput(output: unknown): readonly string[] {
 }
 
 function yieldedProviderResult(query: string, error: unknown): unknown {
-  if (error instanceof SearchProviderNotConfiguredError || objectValue(error).code === "SEARCH_PROVIDER_NOT_CONFIGURED") {
+  if (error instanceof SearchError && error.code === "SEARCH_PROVIDER_NOT_CONFIGURED" || objectValue(error).code === "SEARCH_PROVIDER_NOT_CONFIGURED") {
     return {
       status: "yielded",
       execution_mode: "live",

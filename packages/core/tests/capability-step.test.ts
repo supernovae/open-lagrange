@@ -161,7 +161,9 @@ describe("capability execution step wrapper", () => {
   it("marks research templates as capability step templates", () => {
     expect(researchWorkflowTemplates.find((template) => template.template_id === "research_brief_from_topic")?.runtime_step_kind).toBe("capability_step");
     expect(researchWorkflowCapabilityRefs("research_brief_from_topic")).toEqual([
-      "research.search",
+      "research.plan_search",
+      "research.search_sources",
+      "research.select_sources",
       "research.fetch_source",
       "research.extract_content",
       "research.create_source_set",

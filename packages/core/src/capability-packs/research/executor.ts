@@ -1,18 +1,63 @@
 import type { PackExecutionContext } from "@open-lagrange/capability-sdk";
 import { artifacts, createPrimitiveContext } from "@open-lagrange/capability-sdk/primitives";
 import { stableHash } from "../../util/hash.js";
+import { SearchCoordinator, SearchPlan, SearchProviderRegistry, parseSearchProviderConfigs } from "../../search/index.js";
 import { extractReadableContent } from "./extractor.js";
 import { fetchSource } from "./fetcher.js";
 import { RESEARCH_LIMITS } from "./policy.js";
 import { searchSources } from "./search-provider.js";
 import { createResearchBrief, exportResearchMarkdown } from "./research-brief.js";
 import { createSourceSet } from "./source-set.js";
-import type { CreateBriefInput, CreateSourceSetInput, ExportMarkdownInput, ExtractContentInput, ResearchFetchSourceInput, ResearchSearchInput } from "./schemas.js";
+import type { CreateBriefInput, CreateSourceSetInput, ExportMarkdownInput, ExtractContentInput, ResearchFetchSourceInput, ResearchPlanSearchInput, ResearchSearchInput, ResearchSearchSourcesInput, ResearchSelectSourcesInput } from "./schemas.js";
 
 export const RESEARCH_PACK_ID = "open-lagrange.research";
 
 export async function runResearchSearch(context: PackExecutionContext, input: ResearchSearchInput) {
-  return searchSources(primitiveContext(context, "research.search"), input);
+  return searchSources(primitiveContext(context, "research.search"), input, {
+    provider_configs: parseSearchProviderConfigs(context.runtime_config.search_providers),
+  });
+}
+
+export async function runResearchPlanSearch(_context: PackExecutionContext, input: ResearchPlanSearchInput) {
+  return {
+    search_plan: SearchPlan.parse({
+      search_plan_id: `search_plan_${stableHash(input).slice(0, 16)}`,
+      topic: input.topic,
+      objective: input.objective ?? `Find source candidates for ${input.topic}.`,
+      queries: [input.query ?? input.topic],
+      limits: {
+        max_queries: input.max_queries,
+        max_results_per_query: input.max_results,
+        max_sources_to_fetch: input.max_results,
+        max_total_fetch_bytes: RESEARCH_LIMITS.max_fetch_bytes,
+        max_provider_calls: input.max_queries,
+        max_search_duration_ms: 8_000,
+      },
+      provider_preferences: input.provider_id ? [{ provider_id: input.provider_id }] : [],
+      domains_allowlist: [],
+      domains_denylist: [],
+      source_type_preferences: [],
+      stop_conditions: { min_results: Math.min(3, input.max_results), stop_after_first_provider_with_results: true },
+    }),
+  };
+}
+
+export async function runResearchSearchSources(context: PackExecutionContext, input: ResearchSearchSourcesInput) {
+  const primitives = primitiveContext(context, "research.search_sources");
+  const registry = new SearchProviderRegistry({
+    context: primitives,
+    configs: parseSearchProviderConfigs(context.runtime_config.search_providers),
+    allow_fixture: input.mode === "fixture",
+  });
+  const coordinator = new SearchCoordinator({ context: primitives, registry, allow_fixture: input.mode === "fixture" });
+  return { result_set: await coordinator.execute(input.search_plan, { urls: input.urls }) };
+}
+
+export async function runResearchSelectSources(_context: PackExecutionContext, input: ResearchSelectSourcesInput) {
+  return {
+    selected_sources: input.result_set.selected_candidates.slice(0, input.max_sources),
+    warnings: input.result_set.selected_candidates.length === 0 ? ["no_source_candidates_selected"] : [],
+  };
 }
 
 export async function runResearchFetchSource(context: PackExecutionContext, input: ResearchFetchSourceInput) {
