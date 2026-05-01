@@ -6,6 +6,16 @@ engines directly.
 
 ## Config
 
+For local users:
+
+```bash
+open-lagrange init --runtime podman --with-search
+open-lagrange up --with-search
+```
+
+The generated compose file includes SearXNG as an optional `search` profile and
+exposes it at `http://localhost:8088`.
+
 Add a provider to the current profile config:
 
 ```yaml
@@ -19,8 +29,8 @@ searchProviders:
       - general
 ```
 
-SearXNG is optional. `open-lagrange up --with-search` is reserved for a future
-local runtime flow; current local runtime startup does not require SearXNG.
+SearXNG is optional. Local runtime startup does not require it unless the
+profile has a configured local SearXNG provider or `--with-search` is used.
 
 ## Test
 

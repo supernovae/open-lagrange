@@ -41,7 +41,7 @@ export async function composeUp(profile: RuntimeProfile, dev = false, env: NodeJ
   if (!runtime) throw new Error("Docker or Podman compose was not found.");
   const composeFile = profile.composeFile ?? getRuntimePaths().composePath;
   if (profile.ownership === "managed-by-cli") await writeComposeTemplate(composeFile);
-  const services = dev ? ["postgres", "rabbitmq", "hatchet-migration", "hatchet-config", "hatchet-engine", "hatchet-dashboard"] : [];
+  const services = dev ? ["postgres", "rabbitmq", "hatchet-migration", "hatchet-config", "hatchet-engine", "hatchet-dashboard", ...(env.COMPOSE_PROFILES?.split(",").includes("search") ? ["searxng"] : [])] : [];
   try {
     if (!dev && profile.ownership === "managed-by-cli") {
       for (const service of ["open-lagrange-api", "open-lagrange-worker", "open-lagrange-web"]) {

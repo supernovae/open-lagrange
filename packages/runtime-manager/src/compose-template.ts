@@ -33,6 +33,20 @@ services:
       timeout: 10s
       retries: 5
 
+  searxng:
+    image: searxng/searxng:latest
+    profiles:
+      - search
+    ports:
+      - "8088:8080"
+    environment:
+      SEARXNG_BASE_URL: http://localhost:8088/
+      SEARXNG_SECRET: \${OPEN_LAGRANGE_API_TOKEN:-open-lagrange-local-search}
+      UWSGI_WORKERS: "1"
+      UWSGI_THREADS: "4"
+    volumes:
+      - searxng_config:/etc/searxng
+
   hatchet-migration:
     image: ghcr.io/hatchet-dev/hatchet/hatchet-migrate:latest
     command: /hatchet/hatchet-migrate
@@ -198,6 +212,7 @@ volumes:
   hatchet_config:
   hatchet_certs:
   open_lagrange_data:
+  searxng_config:
 `;
 }
 

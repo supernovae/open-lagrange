@@ -23,6 +23,16 @@ the same `SearchProvider` interface.
 
 ## Profile Config
 
+For a managed local profile, the easiest setup is:
+
+```bash
+open-lagrange init --runtime podman --with-search
+open-lagrange up --with-search
+```
+
+That configures `local-searxng` and starts the SearXNG container through the
+optional Compose `search` profile.
+
 ```yaml
 searchProviders:
   - id: local-searxng

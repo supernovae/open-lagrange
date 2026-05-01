@@ -56,6 +56,7 @@ export const RuntimeStatus = z.object({
   hatchet: ServiceStatus.optional(),
   worker: ServiceStatus.optional(),
   web: ServiceStatus.optional(),
+  search: ServiceStatus.optional(),
   registeredPacks: z.array(z.string()).optional(),
   packHealth: z.array(z.unknown()).optional(),
   modelProvider: ServiceStatus.optional(),

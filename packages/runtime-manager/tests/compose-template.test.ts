@@ -27,6 +27,11 @@ describe("runtime compose template", () => {
     expect(text).toContain("OPEN_LAGRANGE_MODEL_PROVIDER");
     expect(text).toContain("OPEN_LAGRANGE_MODEL_HIGH");
     expect(text).toContain("OPENAI_BASE_URL");
+    expect(text).toContain("searxng:");
+    expect(text).toContain("profiles:");
+    expect(text).toContain("- search");
+    expect(text).toContain('"8088:8080"');
+    expect(text).toContain("SEARXNG_SECRET: ${OPEN_LAGRANGE_API_TOKEN:-open-lagrange-local-search}");
   });
 
   it("keeps RabbitMQ ephemeral while preserving durable runtime volumes", () => {
@@ -54,6 +59,24 @@ describe("runtime compose template", () => {
     const text = await readFile(getRuntimePaths().composePath, "utf8");
     expect(text).toContain("containers/api.Containerfile");
     expect(text).not.toContain(`context: "${home}"`);
+  });
+
+  it("init can configure local SearXNG search", async () => {
+    const home = mkdtempSync(join(tmpdir(), "open-lagrange-compose-"));
+    vi.stubEnv("OPEN_LAGRANGE_HOME", home);
+
+    const config = await initRuntime({ runtime: "podman", withSearch: true });
+
+    expect(config.profiles.local?.searchProviders).toEqual([
+      {
+        id: "local-searxng",
+        kind: "searxng",
+        baseUrl: "http://localhost:8088",
+        enabled: true,
+        language: "en",
+        categories: ["general"],
+      },
+    ]);
   });
 
   it("reports a clear error when the source root is invalid", async () => {

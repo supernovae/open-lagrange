@@ -17,9 +17,9 @@ export async function setCurrentProfile(name: string): Promise<RuntimeConfigType
   return next;
 }
 
-export async function addLocalProfile(name: string, runtime: "docker" | "podman"): Promise<RuntimeConfigType> {
+export async function addLocalProfile(name: string, runtime: "docker" | "podman", options: { readonly withSearch?: boolean } = {}): Promise<RuntimeConfigType> {
   const config = await loadConfig();
-  const profile = RuntimeProfile.parse({ ...defaultLocalProfile({ runtime, composeFile: getRuntimePaths().composePath }), name, runtimeManager: runtime, secretRefs: defaultProfileSecretRefs(name) });
+  const profile = RuntimeProfile.parse({ ...defaultLocalProfile({ runtime, composeFile: getRuntimePaths().composePath, ...(options.withSearch === undefined ? {} : { withSearch: options.withSearch }) }), name, runtimeManager: runtime, secretRefs: defaultProfileSecretRefs(name) });
   const next = RuntimeConfig.parse({ ...config, profiles: { ...config.profiles, [name]: profile } });
   await saveConfig(next);
   return next;

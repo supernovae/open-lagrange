@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { join } from "node:path";
-import { defaultLocalProfile, loadConfig, saveConfig } from "./config.js";
+import { defaultLocalProfile, defaultSearxngProviderProfile, loadConfig, saveConfig } from "./config.js";
 import { composeDown, composeFileExists, composeLogs, composeUp, detectRuntime, writeComposeTemplate } from "./compose.js";
 import { modelProviderRuntimeEnv } from "./model-providers.js";
 import { getProfilePackPaths, getRuntimePaths } from "./paths.js";
@@ -13,7 +13,7 @@ interface DevState {
   readonly pids: Record<string, number>;
 }
 
-export async function initRuntime(input: { readonly runtime?: "docker" | "podman" } = {}): Promise<RuntimeConfig> {
+export async function initRuntime(input: { readonly runtime?: "docker" | "podman"; readonly withSearch?: boolean } = {}): Promise<RuntimeConfig> {
   const paths = getRuntimePaths();
   await mkdir(paths.homeDir, { recursive: true });
   await mkdir(paths.logsDir, { recursive: true });
@@ -23,20 +23,20 @@ export async function initRuntime(input: { readonly runtime?: "docker" | "podman
   const config = {
     currentProfile: "local",
     profiles: {
-      local: defaultLocalProfile({ runtime, composeFile: paths.composePath }),
+      local: defaultLocalProfile({ runtime, composeFile: paths.composePath, ...(input.withSearch === undefined ? {} : { withSearch: input.withSearch }) }),
     },
   };
   await saveConfig(config);
   return config;
 }
 
-export async function bootstrapLocalRuntime(input: { readonly runtime?: "docker" | "podman"; readonly dev?: boolean; readonly forceInit?: boolean } = {}): Promise<BootstrapReportType> {
+export async function bootstrapLocalRuntime(input: { readonly runtime?: "docker" | "podman"; readonly dev?: boolean; readonly forceInit?: boolean; readonly withSearch?: boolean } = {}): Promise<BootstrapReportType> {
   const paths = getRuntimePaths();
   const detected = await detectRuntime(input.runtime);
   const runtime = input.runtime ?? detected?.kind ?? "podman";
   const dev = input.dev ?? false;
-  const profile = await ensureBootstrapProfile(runtime, input.forceInit ?? false);
-  const status = await startLocalRuntime({ runtime, dev });
+  const profile = await ensureBootstrapProfile(runtime, input.forceInit ?? false, input.withSearch ?? false);
+  const status = await startLocalRuntime({ runtime, dev, ...(input.withSearch === undefined ? {} : { withSearch: input.withSearch }) });
   return BootstrapReport.parse({
     profileName: profile.name,
     runtime,
@@ -53,8 +53,8 @@ export async function bootstrapLocalRuntime(input: { readonly runtime?: "docker"
   });
 }
 
-export async function startLocalRuntime(input: { readonly dev?: boolean; readonly runtime?: "docker" | "podman" } = {}): Promise<RuntimeStatusType> {
-  const profile = await localProfile(input.runtime);
+export async function startLocalRuntime(input: { readonly dev?: boolean; readonly runtime?: "docker" | "podman"; readonly withSearch?: boolean } = {}): Promise<RuntimeStatusType> {
+  const profile = await localProfile(input.runtime, input.withSearch);
   if (profile.mode !== "local") return remoteRefusal(profile, "Remote profiles are externally managed and cannot be started locally.");
   if (profile.composeFile && !(await composeFileExists(profile.composeFile))) await writeComposeTemplate(profile.composeFile);
   const env = await runtimeEnv(profile);
@@ -71,7 +71,7 @@ export async function stopLocalRuntime(): Promise<RuntimeStatusType> {
   return getRuntimeStatus();
 }
 
-export async function restartLocalRuntime(input: { readonly dev?: boolean; readonly runtime?: "docker" | "podman" } = {}): Promise<RuntimeStatusType> {
+export async function restartLocalRuntime(input: { readonly dev?: boolean; readonly runtime?: "docker" | "podman"; readonly withSearch?: boolean } = {}): Promise<RuntimeStatusType> {
   await stopLocalRuntime();
   return startLocalRuntime(input);
 }
@@ -132,7 +132,7 @@ export async function getRuntimeStatus(): Promise<RuntimeStatusType> {
     mode: profile.mode,
     ownership: profile.ownership,
     api,
-    ...(profile.mode === "local" ? { hatchet: await probe("hatchet", profile.hatchetUrl), worker: await probeWorker(localWorkerUrl(profile), api), web: await probe("web", profile.webUrl) } : {}),
+    ...(profile.mode === "local" ? { hatchet: await probe("hatchet", profile.hatchetUrl), worker: await probeWorker(localWorkerUrl(profile), api), web: await probe("web", profile.webUrl), ...(hasLocalSearxng(profile) ? { search: await probe("search", "http://localhost:8088") } : {}) } : {}),
     ...(packs ? { registeredPacks: packs } : {}),
     ...(packHealth ? { packHealth } : {}),
     modelProvider: await modelStatus(profile.apiUrl, profile.auth, credentials.modelProvider),
@@ -143,12 +143,12 @@ export async function getRuntimeStatus(): Promise<RuntimeStatusType> {
   });
 }
 
-async function ensureBootstrapProfile(runtime: "docker" | "podman", forceInit: boolean): Promise<RuntimeProfile> {
+async function ensureBootstrapProfile(runtime: "docker" | "podman", forceInit: boolean, withSearch: boolean): Promise<RuntimeProfile> {
   const paths = getRuntimePaths();
   await mkdir(paths.homeDir, { recursive: true });
   await mkdir(paths.logsDir, { recursive: true });
   if (forceInit) {
-    await initRuntime({ runtime });
+    await initRuntime({ runtime, withSearch });
     return getCurrentProfile();
   }
   try {
@@ -158,26 +158,30 @@ async function ensureBootstrapProfile(runtime: "docker" | "podman", forceInit: b
       throw new Error("A local profile already exists but is externally managed. Use a managed local profile for bootstrap.");
     }
     const local = existing && existing.mode === "local"
-      ? { ...existing, runtimeManager: runtime, composeFile: existing.composeFile ?? paths.composePath }
-      : defaultLocalProfile({ runtime, composeFile: paths.composePath });
+      ? withOptionalSearch({ ...existing, runtimeManager: runtime, composeFile: existing.composeFile ?? paths.composePath }, withSearch)
+      : defaultLocalProfile({ runtime, composeFile: paths.composePath, withSearch });
     const next: RuntimeConfig = { ...config, currentProfile: "local", profiles: { ...config.profiles, local } };
     await saveConfig(next);
     if (!(await composeFileExists(local.composeFile ?? paths.composePath))) await writeComposeTemplate(local.composeFile ?? paths.composePath);
     return local;
   } catch (error) {
     if (error instanceof Error && error.message.includes("externally managed")) throw error;
-    await initRuntime({ runtime });
+    await initRuntime({ runtime, withSearch });
     return getCurrentProfile();
   }
 }
 
-async function localProfile(runtime?: "docker" | "podman"): Promise<RuntimeProfile> {
+async function localProfile(runtime?: "docker" | "podman", withSearch = false): Promise<RuntimeProfile> {
   try {
     const profile = await getCurrentProfile();
-    if (runtime && profile.mode === "local") return { ...profile, runtimeManager: runtime };
+    if (profile.mode === "local") {
+      const next = withOptionalSearch({ ...profile, ...(runtime ? { runtimeManager: runtime } : {}) }, withSearch);
+      if (withSearch || runtime) await persistCurrentProfile(next);
+      return next;
+    }
     return profile;
   } catch {
-    await initRuntime({ ...(runtime ? { runtime } : {}) });
+    await initRuntime({ ...(runtime ? { runtime } : {}), withSearch });
     return getCurrentProfile();
   }
 }
@@ -190,9 +194,28 @@ async function runtimeEnv(profile: RuntimeProfile): Promise<NodeJS.ProcessEnv> {
     ...process.env,
     ...await modelProviderRuntimeEnv(profile),
     ...(authToken ? { OPEN_LAGRANGE_API_TOKEN: authToken } : {}),
+    ...(hasLocalSearxng(profile) ? { COMPOSE_PROFILES: "search" } : {}),
     OPEN_LAGRANGE_PROFILE: profile.name,
     OPEN_LAGRANGE_PROFILE_PACKS_DIR: packPaths.packsDir,
   };
+}
+
+async function persistCurrentProfile(profile: RuntimeProfile): Promise<void> {
+  const config = await loadConfig();
+  await saveConfig({ ...config, profiles: { ...config.profiles, [profile.name]: profile } });
+}
+
+function withOptionalSearch(profile: RuntimeProfile, withSearch: boolean): RuntimeProfile {
+  if (!withSearch) return profile;
+  if (hasLocalSearxng(profile)) return profile;
+  return {
+    ...profile,
+    searchProviders: [...(profile.searchProviders ?? []), defaultSearxngProviderProfile()],
+  };
+}
+
+function hasLocalSearxng(profile: RuntimeProfile): boolean {
+  return Boolean(profile.searchProviders?.some((provider) => provider.kind === "searxng" && provider.enabled !== false && provider.baseUrl === "http://localhost:8088"));
 }
 
 function bootstrapSteps(status: RuntimeStatusType): BootstrapStep[] {
@@ -219,6 +242,7 @@ function bootstrapSteps(status: RuntimeStatusType): BootstrapStep[] {
     serviceStep("api", "Control Plane API", status.api),
     serviceStep("worker", "Worker health", status.worker),
     serviceStep("web", "Web workbench", status.web),
+    ...(status.search ? [serviceStep("search", "Local SearXNG search", status.search)] : []),
   ];
 }
 

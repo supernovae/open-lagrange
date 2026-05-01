@@ -31,6 +31,7 @@ export async function configExists(): Promise<boolean> {
 export function defaultLocalProfile(input: {
   readonly runtime: "docker" | "podman";
   readonly composeFile?: string;
+  readonly withSearch?: boolean;
 }): RuntimeProfileType {
   return RuntimeProfile.parse({
     name: "local",
@@ -48,7 +49,19 @@ export function defaultLocalProfile(input: {
     modelProviders: {
       openai: defaultModelProviderProfile(),
     },
+    ...(input.withSearch ? { searchProviders: [defaultSearxngProviderProfile()] } : {}),
   });
+}
+
+export function defaultSearxngProviderProfile() {
+  return {
+    id: "local-searxng",
+    kind: "searxng" as const,
+    baseUrl: "http://localhost:8088",
+    enabled: true,
+    language: "en",
+    categories: ["general"],
+  };
 }
 
 function parseConfig(text: string): unknown {

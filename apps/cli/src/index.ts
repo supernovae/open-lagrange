@@ -30,9 +30,10 @@ program
   .command("init")
   .description("Create a local Open Lagrange runtime profile.")
   .option("--runtime <runtime>", "docker or podman")
-  .action(async (options: { readonly runtime?: string }) => {
+  .option("--with-search", "Configure and enable a local SearXNG search container", false)
+  .action(async (options: { readonly runtime?: string; readonly withSearch: boolean }) => {
     const runtime = runtimeOption(options.runtime);
-    console.log(JSON.stringify(await initRuntime({ ...(runtime ? { runtime } : {}) }), null, 2));
+    console.log(JSON.stringify(await initRuntime({ ...(runtime ? { runtime } : {}), withSearch: options.withSearch }), null, 2));
   });
 
 program
@@ -41,9 +42,10 @@ program
   .option("--runtime <runtime>", "docker or podman")
   .option("--dev", "Run API and worker as local Node processes", false)
   .option("--force-init", "Regenerate the managed local profile and compose file", false)
-  .action(async (options: { readonly runtime?: string; readonly dev: boolean; readonly forceInit: boolean }) => {
+  .option("--with-search", "Configure and enable a local SearXNG search container", false)
+  .action(async (options: { readonly runtime?: string; readonly dev: boolean; readonly forceInit: boolean; readonly withSearch: boolean }) => {
     const runtime = runtimeOption(options.runtime);
-    console.log(JSON.stringify(await bootstrapLocalRuntime({ ...(runtime ? { runtime } : {}), dev: options.dev, forceInit: options.forceInit }), null, 2));
+    console.log(JSON.stringify(await bootstrapLocalRuntime({ ...(runtime ? { runtime } : {}), dev: options.dev, forceInit: options.forceInit, withSearch: options.withSearch }), null, 2));
   });
 
 program
@@ -51,9 +53,10 @@ program
   .description("Start the local runtime for the current profile.")
   .option("--runtime <runtime>", "docker or podman")
   .option("--dev", "Run API and worker as local Node processes", false)
-  .action(async (options: { readonly runtime?: string; readonly dev: boolean }) => {
+  .option("--with-search", "Configure and enable a local SearXNG search container", false)
+  .action(async (options: { readonly runtime?: string; readonly dev: boolean; readonly withSearch: boolean }) => {
     const runtime = runtimeOption(options.runtime);
-    console.log(JSON.stringify(await startLocalRuntime({ ...(runtime ? { runtime } : {}), dev: options.dev }), null, 2));
+    console.log(JSON.stringify(await startLocalRuntime({ ...(runtime ? { runtime } : {}), dev: options.dev, withSearch: options.withSearch }), null, 2));
   });
 
 program.command("down").description("Stop the local runtime.").action(async () => {
@@ -63,9 +66,10 @@ program.command("down").description("Stop the local runtime.").action(async () =
 program.command("restart").description("Restart the local runtime.")
   .option("--runtime <runtime>", "docker or podman")
   .option("--dev", "Run API and worker as local Node processes", false)
-  .action(async (options: { readonly runtime?: string; readonly dev: boolean }) => {
+  .option("--with-search", "Configure and enable a local SearXNG search container", false)
+  .action(async (options: { readonly runtime?: string; readonly dev: boolean; readonly withSearch: boolean }) => {
     const runtime = runtimeOption(options.runtime);
-    console.log(JSON.stringify(await restartLocalRuntime({ ...(runtime ? { runtime } : {}), dev: options.dev }), null, 2));
+    console.log(JSON.stringify(await restartLocalRuntime({ ...(runtime ? { runtime } : {}), dev: options.dev, withSearch: options.withSearch }), null, 2));
   });
 
 program
@@ -349,8 +353,8 @@ profile.command("use").argument("<name>", "Profile name").description("Switch cu
   console.log(JSON.stringify(await setCurrentProfile(name), null, 2));
 });
 
-profile.command("add-local").argument("<name>", "Profile name").requiredOption("--runtime <runtime>", "docker or podman").description("Add a local profile.").action(async (name: string, options: { readonly runtime: string }) => {
-  console.log(JSON.stringify(await addLocalProfile(name, runtimeOption(options.runtime) ?? "podman"), null, 2));
+profile.command("add-local").argument("<name>", "Profile name").requiredOption("--runtime <runtime>", "docker or podman").option("--with-search", "Configure a local SearXNG search provider", false).description("Add a local profile.").action(async (name: string, options: { readonly runtime: string; readonly withSearch: boolean }) => {
+  console.log(JSON.stringify(await addLocalProfile(name, runtimeOption(options.runtime) ?? "podman", { withSearch: options.withSearch }), null, 2));
 });
 
 profile.command("add-remote").argument("<name>", "Profile name").requiredOption("--api-url <url>", "Control Plane API URL").description("Add a remote profile.").action(async (name: string, options: { readonly apiUrl: string }) => {
