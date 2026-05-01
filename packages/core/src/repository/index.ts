@@ -19,6 +19,8 @@ export * from "./repair-loop.js";
 export * from "./repository-plan-control.js";
 export * from "./repository-plan-runner.js";
 export * from "./repository-status.js";
+export * from "./repository-doctor.js";
+export * from "./repository-explain.js";
 export * from "./repository-work-order-handlers.js";
 export * from "./review-report.js";
 export { ScopeExpansionRequestStatus, PersistedScopeExpansionRequest, ScopeExpansionApprovalPayload, normalizeScopeExpansionRequest, scopeExpansionRequestDigest, markScopeExpansionRequest } from "./scope-expansion.js";

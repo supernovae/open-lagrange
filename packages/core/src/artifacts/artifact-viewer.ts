@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, extname, join, resolve } from "node:path";
 import { ArtifactIndex, ArtifactKind, ArtifactSummary, type ArtifactKind as ArtifactKindType, type ArtifactSummary as ArtifactSummaryType } from "./artifact-model.js";
 import { stripSecretValue } from "../secrets/secret-redaction.js";
@@ -27,6 +27,15 @@ export function registerArtifacts(input: {
 
 export function listArtifacts(indexPath = DEFAULT_ARTIFACT_INDEX_PATH): readonly ArtifactSummaryType[] {
   return readArtifactIndex(resolveLocalPath(indexPath)).artifacts;
+}
+
+export function listArtifactsForPlan(planId: string, indexPath = DEFAULT_ARTIFACT_INDEX_PATH): readonly ArtifactSummaryType[] {
+  return listArtifacts(indexPath).filter((artifact) =>
+    artifact.related_plan_id === planId ||
+    artifact.produced_by_plan_id === planId ||
+    artifact.input_artifact_refs?.includes(planId) ||
+    artifact.output_artifact_refs?.includes(planId),
+  );
 }
 
 export function removeArtifactsByDemo(input: {
@@ -72,6 +81,49 @@ export function exportArtifact(input: {
   return summary;
 }
 
+export function pruneArtifacts(input: {
+  readonly older_than: string;
+  readonly index_path?: string;
+  readonly now?: string;
+}): {
+  readonly pruned_count: number;
+  readonly removed_files: readonly string[];
+  readonly retained_count: number;
+  readonly cutoff: string;
+} {
+  const nowMs = Date.parse(input.now ?? new Date().toISOString());
+  const cutoffMs = nowMs - parseDurationMs(input.older_than);
+  const cutoff = new Date(cutoffMs).toISOString();
+  const indexPath = resolveLocalPath(input.index_path ?? DEFAULT_ARTIFACT_INDEX_PATH);
+  const current = readArtifactIndex(indexPath);
+  const kept: ArtifactSummaryType[] = [];
+  const removedFiles: string[] = [];
+  for (const artifact of current.artifacts) {
+    if (Date.parse(artifact.created_at) >= cutoffMs) {
+      kept.push(artifact);
+      continue;
+    }
+    const path = resolvePath(artifact.path_or_uri);
+    if (path && isOpenLagrangePath(path) && existsSync(path)) {
+      rmSync(path, { force: true });
+      removedFiles.push(path);
+    }
+  }
+  const next = ArtifactIndex.parse({
+    schema_version: "open-lagrange.artifacts.v1",
+    artifacts: kept,
+    updated_at: input.now ?? new Date().toISOString(),
+  });
+  mkdirSync(dirname(indexPath), { recursive: true });
+  writeFileSync(indexPath, JSON.stringify(next, null, 2), "utf8");
+  return {
+    pruned_count: current.artifacts.length - kept.length,
+    removed_files: removedFiles,
+    retained_count: kept.length,
+    cutoff,
+  };
+}
+
 export function reindexArtifacts(input: {
   readonly roots?: readonly string[];
   readonly index_path?: string;
@@ -112,7 +164,11 @@ export function createArtifactSummary(input: Omit<ArtifactSummaryType, "created_
 function readArtifactIndex(indexPath: string): ArtifactIndex {
   const path = resolveLocalPath(indexPath);
   if (!existsSync(path)) return ArtifactIndex.parse({ schema_version: "open-lagrange.artifacts.v1", artifacts: [], updated_at: new Date(0).toISOString() });
-  return ArtifactIndex.parse(JSON.parse(readFileSync(path, "utf8")));
+  try {
+    return ArtifactIndex.parse(JSON.parse(readFileSync(path, "utf8")));
+  } catch {
+    return ArtifactIndex.parse({ schema_version: "open-lagrange.artifacts.v1", artifacts: [], updated_at: new Date(0).toISOString() });
+  }
 }
 
 function parseContent(text: string, contentType: string | undefined): unknown {
@@ -186,4 +242,21 @@ function resolveLocalPath(path: string): string {
 
 function callerCwd(): string {
   return process.env.INIT_CWD ?? process.cwd();
+}
+
+function parseDurationMs(value: string): number {
+  const match = /^(\d+)(m|h|d)$/.exec(value.trim());
+  if (!match) throw new Error("Duration must use m, h, or d, for example 30m, 24h, or 7d.");
+  const amount = Number(match[1]);
+  const unit = match[2];
+  if (amount <= 0) throw new Error("Duration must be greater than zero.");
+  if (unit === "m") return amount * 60_000;
+  if (unit === "h") return amount * 60 * 60_000;
+  return amount * 24 * 60 * 60_000;
+}
+
+function isOpenLagrangePath(path: string): boolean {
+  const absolute = resolve(path);
+  const root = resolve(callerCwd(), ".open-lagrange");
+  return absolute === root || absolute.startsWith(`${root}/`);
 }

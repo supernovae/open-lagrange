@@ -39,6 +39,9 @@ export const RepositoryPlanStatus = z.object({
   model_calls_summary: ModelUsageSummary.optional(),
   review_report_id: z.string().optional(),
   final_patch_artifact_id: z.string().optional(),
+  yielded_reason: z.string().optional(),
+  remediation: z.string().optional(),
+  suggested_next_command: z.string().optional(),
   errors: z.array(z.string()),
   warnings: z.array(z.string()),
   created_at: z.string().datetime(),
@@ -103,4 +106,48 @@ export function updateRepositoryPlanStatus(
     ...patch,
     updated_at: now,
   });
+}
+
+export function yieldedGuidance(input: {
+  readonly plan_id: string;
+  readonly reason: string;
+  readonly approval_id?: string;
+  readonly scope_request_id?: string;
+}): Pick<RepositoryPlanStatus, "yielded_reason" | "remediation" | "suggested_next_command"> {
+  const reason = input.reason;
+  if (/MODEL_PROVIDER_UNAVAILABLE|model provider|model route|credential/i.test(reason)) {
+    return {
+      yielded_reason: reason,
+      remediation: "Configure a model provider, or run planning with --planning-mode deterministic when only a Planfile preview is needed.",
+      suggested_next_command: "open-lagrange model status",
+    };
+  }
+  if (input.scope_request_id || /scope expansion/i.test(reason)) {
+    const requestId = input.scope_request_id ?? "<request_id>";
+    return {
+      yielded_reason: reason,
+      remediation: "Review the requested scope, approve or reject it, then resume the repository plan.",
+      suggested_next_command: `open-lagrange repo scope approve ${requestId} --reason "<reason>" && open-lagrange repo resume ${input.plan_id}`,
+    };
+  }
+  if (input.approval_id || /requires approval|approval/i.test(reason)) {
+    const approvalId = input.approval_id ?? "<approval_id>";
+    return {
+      yielded_reason: reason,
+      remediation: "Review the approval artifact, approve or reject the request, then resume if the plan supports continuation.",
+      suggested_next_command: `open-lagrange approval approve ${approvalId} --reason "<reason>"`,
+    };
+  }
+  if (/unknown evidence|validation|precondition|policy/i.test(reason)) {
+    return {
+      yielded_reason: reason,
+      remediation: "Inspect the PatchPlan, evidence bundle, and validation report before revising the Planfile or rerunning with adjusted scope.",
+      suggested_next_command: `open-lagrange repo explain ${input.plan_id}`,
+    };
+  }
+  return {
+    yielded_reason: reason,
+    remediation: "Inspect the repository plan status and artifact trail to decide whether to approve, revise, or stop the run.",
+    suggested_next_command: `open-lagrange repo explain ${input.plan_id}`,
+  };
 }

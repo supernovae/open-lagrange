@@ -3,14 +3,15 @@ import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Command } from "commander";
 import { approvalTokenForRequest } from "@open-lagrange/core/approval";
-import { exportArtifact, listArtifacts, listRunArtifacts, listRuns, recentArtifacts, reindexArtifacts, showArtifact, showRun } from "@open-lagrange/core/artifacts";
+import { exportArtifact, listArtifacts, listArtifactsForPlan, listRunArtifacts, listRuns, pruneArtifacts, recentArtifacts, reindexArtifacts, showArtifact, showRun } from "@open-lagrange/core/artifacts";
 import { listDemos, openDemo, runDemo } from "@open-lagrange/core/demos";
 import { runCoreDoctor } from "@open-lagrange/core/doctor";
 import { getPackHealth, inspectPack, listInspectablePacks, runPackSmoke, validateRegisteredPack } from "@open-lagrange/core/packs";
 import { applyPlanfile as applyLocalPlanfile, generateGoalFrame, generatePlanfile, parsePlanfileMarkdown, parsePlanfileYaml, renderPlanfileMarkdown, renderPlanMermaid, validatePlanfile, withCanonicalPlanDigest } from "@open-lagrange/core/planning";
-import { applyRepositoryPlanfile as applyLocalRepositoryPlanfile, approveApprovalRequest, approveRepositoryScopeRequest, cleanupRepositoryPlan as cleanupLocalRepositoryPlan, createRepositoryPlanfile, exportRepositoryPlanPatch as exportLocalRepositoryPlanPatch, getRepositoryPlanStatus as getLocalRepositoryPlanStatus, listRepositoryModelCalls, rejectApprovalRequest, rejectRepositoryScopeRequest, resumeRepositoryPlan } from "@open-lagrange/core/repository";
+import { applyRepositoryPlanfile as applyLocalRepositoryPlanfile, approveApprovalRequest, approveRepositoryScopeRequest, cleanupRepositoryPlan as cleanupLocalRepositoryPlan, createRepositoryPlanfile, explainRepositoryPlan, exportRepositoryPlanPatch as exportLocalRepositoryPlanPatch, getRepositoryPlanStatus as getLocalRepositoryPlanStatus, listRepositoryModelCalls, rejectApprovalRequest, rejectRepositoryScopeRequest, resumeRepositoryPlan, runRepositoryDoctor } from "@open-lagrange/core/repository";
 import { compareBenchmarkRun, listBenchmarkScenarios, listModelRouteConfigs, renderBenchmarkReport, runModelRoutingBenchmark } from "@open-lagrange/core/evals";
 import { runResearchBriefCommand, runResearchExportCommand, runResearchFetchCommand, runResearchSearchCommand } from "@open-lagrange/core/research";
 import { buildGeneratedPackFromMarkdown, generateSkillFrame, generateWorkflowSkill, installGeneratedPack, parseSkillfileMarkdown, parseWorkflowSkillMarkdown, previewWorkflowSkillRun, scaffoldGeneratedPack, validateGeneratedPack, validateWorkflowSkill } from "@open-lagrange/core/skills";
@@ -177,11 +178,16 @@ const artifact = program.command("artifact").description("Inspect local artifact
 
 artifact.command("list")
   .option("--run <runId>", "Show artifacts for a run ID, or latest")
+  .option("--plan <planId>", "Show artifacts for a repository plan ID")
   .option("--role <role>", "Filter run artifacts by role: primary_output, supporting_evidence, debug_log")
   .option("--limit <count>", "Limit flat artifact results", parsePositiveInt, 50)
-  .action((options: { readonly run?: string; readonly role?: string; readonly limit: number }) => {
+  .action((options: { readonly run?: string; readonly plan?: string; readonly role?: string; readonly limit: number }) => {
     if (options.run) {
       console.log(JSON.stringify(listRunArtifacts({ run_id: options.run, ...(options.role ? { role: artifactRole(options.role) } : {}) }), null, 2));
+      return;
+    }
+    if (options.plan) {
+      console.log(JSON.stringify(listArtifactsForPlan(options.plan), null, 2));
       return;
     }
     console.log(JSON.stringify(listArtifacts().slice(-options.limit), null, 2));
@@ -211,6 +217,12 @@ artifact.command("export").argument("<artifactId>", "Artifact ID").requiredOptio
 artifact.command("reindex").action(() => {
   console.log(JSON.stringify(reindexArtifacts(), null, 2));
 });
+
+artifact.command("prune")
+  .requiredOption("--older-than <duration>", "Prune indexed artifacts older than a duration such as 7d, 24h, or 30m")
+  .action((options: { readonly olderThan: string }) => {
+    console.log(JSON.stringify(pruneArtifacts({ older_than: options.olderThan }), null, 2));
+  });
 
 const run = program.command("run").description("Inspect run-centered outputs.");
 
@@ -437,6 +449,12 @@ model.command("status").description("Show the active model provider status.").ac
 
 const repo = program.command("repo").description("Run repository-scoped workflows.");
 
+repo.command("doctor")
+  .requiredOption("--repo <path>", "Repository root")
+  .action((options: { readonly repo: string }) => {
+    console.log(JSON.stringify(runRepositoryDoctor({ repo_root: options.repo }), null, 2));
+  });
+
 repo.command("run")
   .requiredOption("--repo <path>", "Repository root")
   .requiredOption("--goal <goal>", "Repository task goal")
@@ -519,7 +537,7 @@ repo.command("status").argument("<planId>", "Plan ID, task ID, or task run ID").
 });
 
 repo.command("model-calls").argument("<planId>", "Repository plan ID").action((planId: string) => {
-  console.log(JSON.stringify(listRepositoryModelCalls(planId).map((call) => ({
+  const calls = listRepositoryModelCalls(planId).map((call) => ({
     artifact_id: call.artifact_id,
     role: call.role,
     provider: call.provider,
@@ -529,7 +547,23 @@ repo.command("model-calls").argument("<planId>", "Repository plan ID").action((p
     cost_usd: call.cost.provider_reported_cost_usd ?? call.cost.estimated_cost_usd ?? 0,
     latency_ms: call.latency_ms ?? 0,
     output_artifact_refs: call.output_artifact_refs,
-  })), null, 2));
+  }));
+  console.log(JSON.stringify({
+    plan_id: planId,
+    count: calls.length,
+    calls,
+    message: calls.length === 0 ? "No model-call telemetry artifacts found for this plan." : undefined,
+  }, null, 2));
+});
+
+repo.command("explain").argument("<planId>", "Repository plan ID").action((planId: string) => {
+  const explanation = explainRepositoryPlan(planId);
+  if (!explanation) {
+    console.log(JSON.stringify({ plan_id: planId, status: "missing" }, null, 2));
+    process.exitCode = 1;
+    return;
+  }
+  console.log(JSON.stringify(explanation, null, 2));
 });
 
 repo.command("resume").argument("<planId>", "Repository plan ID").action(async (planId: string) => {
@@ -920,7 +954,7 @@ async function promptSecretValue(prompt: string): Promise<string> {
 }
 
 function findScriptRoot(scriptName: string): string {
-  for (const start of [process.env.INIT_CWD, process.cwd()].filter((item): item is string => Boolean(item))) {
+  for (const start of [process.env.INIT_CWD, process.cwd(), dirname(fileURLToPath(import.meta.url))].filter((item): item is string => Boolean(item))) {
     const found = findUp(start, (dir) => packageHasScript(dir, scriptName));
     if (found) return found;
   }

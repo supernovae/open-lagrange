@@ -42,6 +42,7 @@ export function createWorktreeSession(input: CreateWorktreeSessionInput): Worktr
 
 export function cleanupWorktreeSession(session: WorktreeSessionType): WorktreeSessionType {
   const now = new Date().toISOString();
+  assertSafeWorktreePath(session);
   if (!existsSync(session.worktree_path)) return WorktreeSession.parse({ ...session, status: "cleaned", updated_at: now });
   try {
     git(session.repo_root, ["worktree", "remove", "--force", session.worktree_path]);
@@ -100,4 +101,12 @@ function assertCleanBase(repoRoot: string): void {
     .map((line) => line.trim())
     .filter((line) => line.length > 0 && !line.endsWith(" .open-lagrange/") && !line.includes(" .open-lagrange/"));
   if (dirty.length > 0) throw new Error("Repository base has uncommitted changes. Use an explicit allow-dirty flag to proceed.");
+}
+
+function assertSafeWorktreePath(session: WorktreeSessionType): void {
+  const expectedRoot = resolve(session.repo_root, ".open-lagrange", "worktrees");
+  const actual = resolve(session.worktree_path);
+  if (!actual.startsWith(`${expectedRoot}/`)) {
+    throw new Error("Refusing to cleanup a path outside .open-lagrange/worktrees.");
+  }
 }

@@ -30,7 +30,7 @@ import type { RepositoryPatchArtifact as RepositoryPatchArtifactType } from "./p
 import type { ReviewReportGenerator } from "./model-review-report-generator.js";
 import type { WorktreeSession } from "./worktree-session.js";
 import { updateWorktreeSessionStatus } from "./worktree-manager.js";
-import { createRepositoryPlanStatus, updateRepositoryPlanStatus, writeRepositoryPlanStatus, type RepositoryPlanStatus } from "./repository-status.js";
+import { createRepositoryPlanStatus, updateRepositoryPlanStatus, writeRepositoryPlanStatus, yieldedGuidance, type RepositoryPlanStatus } from "./repository-status.js";
 import { createPatchPlanWorkOrder, defaultPatchPolicy, generatePatchPlanFromEvidence, patchPlanContextSummary, validateScopeExpansionRequest, type GeneratePatchPlanFromEvidenceInput, type PatchPlanGenerator } from "./model-patch-plan-generator.js";
 import { PatchPlanGenerationError } from "./patch-plan-generation-errors.js";
 import { createScopeExpansionApproval } from "./scope-expansion-approval.js";
@@ -118,6 +118,8 @@ export class RepositoryPlanRunner {
       this.status = this.writeStatus({ current_node: node.id, status: "running", plan_state: state });
       const result = await this.runNode(node, memory);
       state = await this.markNode(state, node, result.status, result.artifactRefs, result.errors);
+      const yieldedScopeRequestId = memory.scope_expansion_request_ids.at(-1);
+      const yieldedApprovalId = result.artifactRefs.find((artifact) => artifact.artifact_id.startsWith("approval_"))?.artifact_id;
       this.status = this.writeStatus({
         plan_state: state,
         artifact_refs: [...new Set([...this.status.artifact_refs, ...result.artifactRefs.map((artifact) => artifact.artifact_id)])],
@@ -132,6 +134,12 @@ export class RepositoryPlanRunner {
         repair_attempt_ids: memory.repairs.map((repair) => repair.repair_attempt_id),
         ...(memory.review ? { review_report_id: memory.review.review_report_id } : {}),
         errors: [...this.status.errors, ...result.errors],
+        ...(result.status === "yielded" ? yieldedGuidance({
+          plan_id: this.plan.plan_id,
+          reason: result.errors[0] ?? `Node yielded: ${node.id}`,
+          ...(yieldedScopeRequestId ? { scope_request_id: yieldedScopeRequestId } : {}),
+          ...(yieldedApprovalId ? { approval_id: yieldedApprovalId } : {}),
+        }) : {}),
       });
       if (result.status === "failed" || result.status === "yielded") break;
     }

@@ -2,6 +2,7 @@
   "scenario_id": "cli-json-status",
   "title": "Add JSON output to CLI status",
   "description": "Add --json output to a tiny CLI status command.",
+  "fixture_repo_path": "examples/evals/repo-plan-to-patch/cli-json-status",
   "goal": "add json output to my cli status command",
   "expected_changed_files": ["src/cli.ts"],
   "verification_command_ids": ["npm_run_typecheck"],

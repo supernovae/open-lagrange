@@ -1,8 +1,8 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { createRepositoryReviewReport } from "../src/capability-packs/repository/executor.js";
 import { createCapabilitySnapshotForTask } from "../src/capability-registry/registry.js";
@@ -13,7 +13,10 @@ import { cleanupWorktreeSession, createWorktreeSession } from "../src/repository
 import { exportFinalPatch } from "../src/repository/patch-exporter.js";
 import { validateRepositoryPatchPlan } from "../src/repository/patch-validator.js";
 import { nextRepairAttempt } from "../src/repository/repair-loop.js";
-import { createRepositoryPlanfile, applyRepositoryPlanfile, approveRepositoryScopeRequest, resumeRepositoryPlan, listRepositoryModelCalls } from "../src/repository/repository-plan-control.js";
+import { createRepositoryPlanfile, applyRepositoryPlanfile, approveRepositoryScopeRequest, resumeRepositoryPlan, listRepositoryModelCalls, getRepositoryPlanStatus, exportRepositoryPlanPatch, cleanupRepositoryPlan } from "../src/repository/repository-plan-control.js";
+import { explainRepositoryPlan } from "../src/repository/repository-explain.js";
+import { runRepositoryDoctor } from "../src/repository/repository-doctor.js";
+import { createArtifactSummary, listArtifactsForPlan, pruneArtifacts, registerArtifacts } from "../src/artifacts/index.js";
 import { runVerificationPolicy } from "../src/repository/verification-runner.js";
 import { generatePatchPlanFromEvidence, patchPlanContextSummary } from "../src/repository/model-patch-plan-generator.js";
 import { modelProviderUnavailable } from "../src/repository/patch-plan-generation-errors.js";
@@ -310,6 +313,78 @@ describe("repository Planfile to patch pipeline", () => {
     }
   });
 
+  it("runs the golden CLI JSON status path with inspectable artifacts and cleanup", async () => {
+    const root = goldenFixture();
+    const originalInitCwd = process.env.INIT_CWD;
+    process.env.INIT_CWD = root;
+    try {
+      const doctor = runRepositoryDoctor({ repo_root: root, now: "2026-04-30T12:00:00.000Z" });
+      expect(doctor.checks.find((check) => check.id === "repository_pack")?.status).toBe("pass");
+      expect(doctor.checks.find((check) => check.id === "verification_commands")?.summary).toContain("npm_run_typecheck");
+
+      const created = await createRepositoryPlanfile({
+        repo_root: root,
+        goal: "add json output to my cli status command",
+        dry_run: true,
+        verification_command_ids: ["npm_run_typecheck"],
+        now: "2026-04-30T12:00:00.000Z",
+      });
+
+      expect(existsSync(created.path)).toBe(true);
+      const status = await applyRepositoryPlanfile({
+        planfile: created.planfile,
+        patch_plan_generator: async (input) => {
+          const file = input.evidence_bundle.files.find((item) => item.path === "src/cli.ts");
+          if (!file) throw new Error("Missing CLI evidence.");
+          return {
+            patch_plan_id: "patch-golden-cli-json",
+            plan_id: input.plan_id,
+            node_id: input.node_id,
+            summary: "Add JSON status output",
+            rationale: "Use the bounded CLI evidence.",
+            evidence_refs: [input.evidence_bundle.evidence_bundle_id, file.path],
+            operations: [{
+              operation_id: "op-cli-full",
+              kind: "full_replacement",
+              relative_path: file.path,
+              expected_sha256: file.sha256,
+              content: "export interface StatusOptions {\n  readonly json?: boolean;\n}\n\nexport function status(options: StatusOptions = {}): string {\n  if (options.json) {\n    return JSON.stringify({ status: \"ok\" });\n  }\n  return \"status: ok\";\n}\n\nif (process.argv.includes(\"status\")) {\n  const output = status({ json: process.argv.includes(\"--json\") });\n  process.stdout.write(`${output}\\n`);\n}\n",
+              rationale: "Small fixture file replacement.",
+            }],
+            expected_changed_files: [file.path],
+            verification_command_ids: ["npm_run_typecheck"],
+            preconditions: [{ kind: "file_hash", path: file.path, expected_sha256: file.sha256, summary: "CLI hash matches evidence." }],
+            risk_level: "write",
+            approval_required: false,
+            confidence: 0.9,
+            requires_scope_expansion: false,
+          };
+        },
+        now: "2026-04-30T12:01:00.000Z",
+      });
+
+      expect(status.status).toBe("completed");
+      expect(status.worktree_session?.worktree_path).toContain(".open-lagrange/worktrees");
+      expect((await getRepositoryPlanStatus(created.planfile.plan_id))?.artifact_refs.length).toBeGreaterThan(0);
+      expect(listArtifactsForPlan(created.planfile.plan_id).length).toBeGreaterThan(0);
+      expect(explainRepositoryPlan(created.planfile.plan_id)?.final_patch_artifact_id).toBeTruthy();
+      expect(listRepositoryModelCalls(created.planfile.plan_id)).toHaveLength(0);
+      const patchPath = join(root, "final.patch");
+      const patch = await exportRepositoryPlanPatch(created.planfile.plan_id, patchPath);
+      expect(patch?.changed_files).toEqual(["src/cli.ts"]);
+      expect(readFileSync(patchPath, "utf8")).toContain("JSON.stringify");
+      const worktreePath = status.worktree_session?.worktree_path ?? "";
+      expect(existsSync(worktreePath)).toBe(true);
+      const cleanup = await cleanupRepositoryPlan(created.planfile.plan_id);
+      expect(cleanup.cleaned).toBe(true);
+      expect(existsSync(worktreePath)).toBe(false);
+      expect(readFileSync(join(root, "src", "cli.ts"), "utf8")).toContain("not implemented yet");
+    } finally {
+      if (originalInitCwd === undefined) delete process.env.INIT_CWD;
+      else process.env.INIT_CWD = originalInitCwd;
+    }
+  });
+
   it("keeps deterministic planning available and yields clearly without a model route", async () => {
     const root = gitFixture({ package_json: true });
     const deterministic = await createRepositoryPlanfile({
@@ -330,6 +405,34 @@ describe("repository Planfile to patch pipeline", () => {
       planning_mode: "model",
       verification_command_ids: ["npm_run_typecheck"],
     })).rejects.toThrow(/model route/i);
+  });
+
+  it("records actionable remediation when PatchPlan generation yields for missing model provider", async () => {
+    const root = gitFixture({ package_json: true });
+    const originalInitCwd = process.env.INIT_CWD;
+    const original = {
+      provider: process.env.OPEN_LAGRANGE_MODEL_PROVIDER,
+      key: process.env.OPEN_LAGRANGE_MODEL_API_KEY,
+      openai: process.env.OPENAI_API_KEY,
+      gateway: process.env.AI_GATEWAY_API_KEY,
+    };
+    process.env.INIT_CWD = root;
+    delete process.env.OPEN_LAGRANGE_MODEL_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.AI_GATEWAY_API_KEY;
+    process.env.OPEN_LAGRANGE_MODEL_PROVIDER = "openai";
+    try {
+      const created = await createRepositoryPlanfile({ repo_root: root, goal: "update readme", dry_run: true, verification_command_ids: ["npm_run_typecheck"] });
+      const status = await applyRepositoryPlanfile({ planfile: created.planfile });
+      expect(status.status).toBe("yielded");
+      expect(status.yielded_reason).toMatch(/model provider/i);
+      expect(status.remediation).toContain("Configure a model provider");
+      expect(status.suggested_next_command).toBe("open-lagrange model status");
+    } finally {
+      restoreEnv(original);
+      if (originalInitCwd === undefined) delete process.env.INIT_CWD;
+      else process.env.INIT_CWD = originalInitCwd;
+    }
   });
 
   it("rejects PatchPlans with unknown evidence refs during apply", async () => {
@@ -623,6 +726,48 @@ describe("repository Planfile to patch pipeline", () => {
     expect(report.metrics.some((metric) => metric.tokens_input >= 0)).toBe(true);
     expect(renderBenchmarkReportMarkdown(report)).toContain("Repository Plan-to-Patch Benchmark");
   });
+
+  it("prunes only old indexed Open Lagrange artifacts", () => {
+    const root = gitFixture();
+    const originalInitCwd = process.env.INIT_CWD;
+    process.env.INIT_CWD = root;
+    try {
+      mkdirSync(join(root, ".open-lagrange", "artifacts"), { recursive: true });
+      writeFileSync(join(root, ".open-lagrange", "artifacts", "old.json"), "{}\n");
+      writeFileSync(join(root, "README.md"), "# Demo\nDo not prune.\n");
+      registerArtifacts({
+        artifacts: [
+          createArtifactSummary({
+            artifact_id: "old-artifact",
+            kind: "raw_log",
+            title: "Old",
+            summary: "Old artifact",
+            path_or_uri: ".open-lagrange/artifacts/old.json",
+            content_type: "application/json",
+            created_at: "2026-04-01T00:00:00.000Z",
+          }),
+          createArtifactSummary({
+            artifact_id: "source-file",
+            kind: "raw_log",
+            title: "Source",
+            summary: "Source file should not be removed.",
+            path_or_uri: "README.md",
+            content_type: "text/markdown",
+            created_at: "2026-04-01T00:00:00.000Z",
+          }),
+        ],
+        now: "2026-04-30T00:00:00.000Z",
+      });
+      const result = pruneArtifacts({ older_than: "7d", now: "2026-04-30T00:00:00.000Z" });
+      expect(result.pruned_count).toBe(2);
+      expect(existsSync(join(root, ".open-lagrange", "artifacts", "old.json"))).toBe(false);
+      expect(existsSync(join(root, "README.md"))).toBe(true);
+      expect(() => pruneArtifacts({ older_than: "forever" })).toThrow(/Duration/);
+    } finally {
+      if (originalInitCwd === undefined) delete process.env.INIT_CWD;
+      else process.env.INIT_CWD = originalInitCwd;
+    }
+  });
 });
 
 function gitFixture(options: { readonly package_json?: boolean; readonly cli?: boolean } = {}): string {
@@ -646,6 +791,17 @@ function gitFixture(options: { readonly package_json?: boolean; readonly cli?: b
   }
   git(root, ["add", "README.md", ".gitignore", ...(options.package_json ? ["package.json"] : []), ...(options.cli ? ["src/cli.ts"] : [])]);
   git(root, ["commit", "-q", "-m", "init"]);
+  return root;
+}
+
+function goldenFixture(): string {
+  const root = mkdtempSync(join(tmpdir(), "open-lagrange-golden-cli-"));
+  cpSync(resolve("examples/evals/repo-plan-to-patch/cli-json-status"), root, { recursive: true });
+  git(root, ["init", "-q"]);
+  git(root, ["config", "user.email", "test@example.com"]);
+  git(root, ["config", "user.name", "Test"]);
+  git(root, ["add", "."]);
+  git(root, ["commit", "-q", "-m", "fixture"]);
   return root;
 }
 

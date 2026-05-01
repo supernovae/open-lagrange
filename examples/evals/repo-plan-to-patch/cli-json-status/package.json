@@ -1,0 +1,10 @@
+{
+  "name": "open-lagrange-cli-json-status-fixture",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "node --test test/status.test.mjs",
+    "test": "node --test test/status.test.mjs"
+  }
+}
