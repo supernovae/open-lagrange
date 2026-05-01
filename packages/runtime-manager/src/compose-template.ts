@@ -1,4 +1,4 @@
-export function localComposeTemplate(input: { readonly sourceRoot: string }): string {
+export function localComposeTemplate(input: { readonly sourceRoot: string; readonly searxngSettingsPath?: string }): string {
   return `name: open-lagrange
 
 services:
@@ -42,10 +42,11 @@ services:
     environment:
       SEARXNG_BASE_URL: http://localhost:8088/
       SEARXNG_SECRET: \${OPEN_LAGRANGE_API_TOKEN:-open-lagrange-local-search}
+      SEARXNG_SETTINGS_PATH: /etc/searxng/settings.yml
       UWSGI_WORKERS: "1"
       UWSGI_THREADS: "4"
     volumes:
-      - searxng_config:/etc/searxng
+      - ${yamlString(input.searxngSettingsPath ?? "/tmp/open-lagrange-searxng-settings.yml")}:/etc/searxng/settings.yml:ro
 
   hatchet-migration:
     image: ghcr.io/hatchet-dev/hatchet/hatchet-migrate:latest
@@ -212,7 +213,26 @@ volumes:
   hatchet_config:
   hatchet_certs:
   open_lagrange_data:
-  searxng_config:
+`;
+}
+
+export function localSearxngSettingsTemplate(): string {
+  return `# Managed by Open Lagrange.
+use_default_settings: true
+
+general:
+  instance_name: "Open Lagrange Local Search"
+
+search:
+  safe_search: 1
+  formats:
+    - html
+    - json
+
+server:
+  secret_key: "open-lagrange-local-search"
+  limiter: false
+  image_proxy: false
 `;
 }
 

@@ -34,7 +34,7 @@ async function searchSearxng(
   }).catch((error: unknown) => {
     throw new SearchError(
       "SEARCH_PROVIDER_UNAVAILABLE",
-      `SearXNG provider ${config.id} is configured but unreachable at ${config.baseUrl}. Start it with open-lagrange up --with-search.`,
+      `SearXNG provider ${config.id} is reachable but did not return JSON search results at ${config.baseUrl}. Regenerate config with open-lagrange init --runtime podman --with-search, then restart with open-lagrange up --with-search.`,
       { provider_id: config.id, baseUrl: config.baseUrl, cause: error instanceof Error ? error.message : String(error) },
     );
   });

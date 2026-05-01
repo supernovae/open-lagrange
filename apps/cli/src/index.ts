@@ -961,8 +961,11 @@ async function currentSearchProviderConfigs(): Promise<readonly SearchProviderCo
 
 async function probeSearchProvider(baseUrl: string): Promise<"running" | "unreachable"> {
   try {
-    const response = await fetch(baseUrl, { method: "GET", signal: AbortSignal.timeout(1500) });
-    return response.ok || response.status < 500 ? "running" : "unreachable";
+    const url = new URL("/search", baseUrl);
+    url.searchParams.set("q", "open lagrange");
+    url.searchParams.set("format", "json");
+    const response = await fetch(url, { method: "GET", signal: AbortSignal.timeout(1500) });
+    return response.ok ? "running" : "unreachable";
   } catch {
     return "unreachable";
   }

@@ -1,8 +1,8 @@
 import { access, mkdir, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { localComposeTemplate } from "./compose-template.js";
+import { localComposeTemplate, localSearxngSettingsTemplate } from "./compose-template.js";
 import { getRuntimePaths } from "./paths.js";
 import { resolveSourceRoot } from "./source-root.js";
 import type { ComposeRuntime, RuntimeProfile } from "./types.js";
@@ -24,7 +24,9 @@ export async function detectRuntime(preferred?: "docker" | "podman"): Promise<Co
 
 export async function writeComposeTemplate(path = getRuntimePaths().composePath): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, localComposeTemplate({ sourceRoot: resolveSourceRoot() }), "utf8");
+  const searxngSettingsPath = join(dirname(path), "searxng-settings.yml");
+  await writeFile(searxngSettingsPath, localSearxngSettingsTemplate(), "utf8");
+  await writeFile(path, localComposeTemplate({ sourceRoot: resolveSourceRoot(), searxngSettingsPath }), "utf8");
 }
 
 export async function composeFileExists(path: string): Promise<boolean> {

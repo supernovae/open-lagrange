@@ -132,7 +132,7 @@ export async function getRuntimeStatus(): Promise<RuntimeStatusType> {
     mode: profile.mode,
     ownership: profile.ownership,
     api,
-    ...(profile.mode === "local" ? { hatchet: await probe("hatchet", profile.hatchetUrl), worker: await probeWorker(localWorkerUrl(profile), api), web: await probe("web", profile.webUrl), ...(hasLocalSearxng(profile) ? { search: await probe("search", "http://localhost:8088") } : {}) } : {}),
+    ...(profile.mode === "local" ? { hatchet: await probe("hatchet", profile.hatchetUrl), worker: await probeWorker(localWorkerUrl(profile), api), web: await probe("web", profile.webUrl), ...(hasLocalSearxng(profile) ? { search: await probeSearxng("http://localhost:8088") } : {}) } : {}),
     ...(packs ? { registeredPacks: packs } : {}),
     ...(packHealth ? { packHealth } : {}),
     modelProvider: await modelStatus(profile.apiUrl, profile.auth, credentials.modelProvider),
@@ -295,6 +295,18 @@ async function probe(name: string, url: string | undefined): Promise<ServiceStat
     return { name, state: response.ok || response.status < 500 ? "running" : "error", url, detail: String(response.status) };
   } catch {
     return { name, state: "unreachable", url };
+  }
+}
+
+async function probeSearxng(url: string): Promise<ServiceStatus> {
+  try {
+    const searchUrl = new URL("/search", url);
+    searchUrl.searchParams.set("q", "open lagrange");
+    searchUrl.searchParams.set("format", "json");
+    const response = await fetch(searchUrl, { method: "GET", signal: AbortSignal.timeout(2500) });
+    return { name: "search", state: response.ok ? "running" : "error", url, detail: String(response.status) };
+  } catch {
+    return { name: "search", state: "unreachable", url };
   }
 }
 

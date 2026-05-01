@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { podmanComposeCandidatesForConnections, writeComposeTemplate } from "../src/compose.js";
-import { localComposeTemplate } from "../src/compose-template.js";
+import { localComposeTemplate, localSearxngSettingsTemplate } from "../src/compose-template.js";
 import { initRuntime } from "../src/manager.js";
 import { getRuntimePaths } from "../src/paths.js";
 import { BootstrapReport } from "../src/types.js";
@@ -32,6 +32,17 @@ describe("runtime compose template", () => {
     expect(text).toContain("- search");
     expect(text).toContain('"8088:8080"');
     expect(text).toContain("SEARXNG_SECRET: ${OPEN_LAGRANGE_API_TOKEN:-open-lagrange-local-search}");
+    expect(text).toContain("SEARXNG_SETTINGS_PATH: /etc/searxng/settings.yml");
+    expect(text).toContain("/etc/searxng/settings.yml:ro");
+  });
+
+  it("enables JSON format in managed SearXNG settings", () => {
+    const text = localSearxngSettingsTemplate();
+
+    expect(text).toContain("use_default_settings: true");
+    expect(text).toContain("formats:");
+    expect(text).toContain("- json");
+    expect(text).toContain("limiter: false");
   });
 
   it("keeps RabbitMQ ephemeral while preserving durable runtime volumes", () => {
@@ -57,8 +68,10 @@ describe("runtime compose template", () => {
     await initRuntime({ runtime: "podman" });
 
     const text = await readFile(getRuntimePaths().composePath, "utf8");
+    const searxngSettings = await readFile(join(home, "searxng-settings.yml"), "utf8");
     expect(text).toContain("containers/api.Containerfile");
     expect(text).not.toContain(`context: "${home}"`);
+    expect(searxngSettings).toContain("- json");
   });
 
   it("init can configure local SearXNG search", async () => {
