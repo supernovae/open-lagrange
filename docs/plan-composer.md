@@ -19,6 +19,9 @@ open-lagrange plan compose "research open source container security"
 open-lagrange plan compose "summarize https://example.com"
 open-lagrange plan compose "add JSON output to my CLI" --repo .
 open-lagrange plan compose "research MCP security" --provider local-searxng --write
+open-lagrange plan check .open-lagrange/plans/<plan_id>.plan.md
+open-lagrange plan requirements .open-lagrange/plans/<plan_id>.plan.md
+open-lagrange plan explain .open-lagrange/plans/<plan_id>.plan.md
 ```
 
 ## Runtime Semantics

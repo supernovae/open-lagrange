@@ -15,14 +15,21 @@ export function HomeMode({ model }: { readonly model: TuiViewModel }): React.Rea
         <Text>Packs {model.health.packs}  Pack health {unhealthy === 0 ? "healthy" : `${unhealthy} issue(s)`}  Approvals {model.approvals.length}  Artifacts {model.artifacts.length}</Text>
       </Box>
       <Box borderStyle="single" borderColor={theme.border} paddingX={1} marginTop={1} flexDirection="column">
-        <Text color={theme.title}>Starter Flows</Text>
+        <Text color={theme.title}>Plans / Runs</Text>
+        <Text>Current plan: {model.plan?.plan_id ?? "none"}</Text>
+        <Text>Recent run detail: /run show latest</Text>
+        <Text>Compose: /compose &lt;goal&gt;  Check: /check &lt;planfile&gt;</Text>
+      </Box>
+      <Box borderStyle="single" borderColor={theme.border} paddingX={1} marginTop={1} flexDirection="column">
+        <Text color={theme.title}>Starter Planfiles</Text>
         <SuggestedFlows />
       </Box>
       {model.pendingFlow ? <CommandSuggestion flow={model.pendingFlow} /> : null}
       <Box borderStyle="single" borderColor={theme.border} paddingX={1} marginTop={1} flexDirection="column">
-        <Text color={theme.title}>Recent Artifacts</Text>
+        <Text color={theme.title}>Artifacts / Packs / Providers</Text>
         {model.artifacts.slice(-4).map((artifact) => <Text key={artifact.artifact_id}>• {artifact.title}</Text>)}
         {model.artifacts.length === 0 ? <Text>No artifacts indexed yet.</Text> : null}
+        <Text>Packs: /packs  Providers: /providers  Schedules: /schedule</Text>
       </Box>
     </Box>
   );

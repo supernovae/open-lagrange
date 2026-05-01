@@ -10,7 +10,7 @@ import { exportArtifact, listArtifacts, listArtifactsForPlan, listRunArtifacts, 
 import { listDemos, openDemo, runDemo } from "@open-lagrange/core/demos";
 import { runCoreDoctor } from "@open-lagrange/core/doctor";
 import { getPackHealth, inspectPack, listInspectablePacks, runPackSmoke, validateRegisteredPack } from "@open-lagrange/core/packs";
-import { applyPlanfile as applyLocalPlanfile, composePlanfileFromIntent, createScheduleRecord, generateGoalFrame, generatePlanfile, getScheduleRecord, listScheduleRecords, parsePlanfileMarkdown, parsePlanfileYaml, renderPlanfileMarkdown, renderPlanMermaid, validatePlanfile, withCanonicalPlanDigest } from "@open-lagrange/core/planning";
+import { addPlanLibraryEntry, applyPlanfile as applyLocalPlanfile, composePlanfileFromIntent, createScheduleRecord, derivePlanRequirements, generateGoalFrame, generatePlanfile, getScheduleRecord, instantiatePlanTemplate, listPlanLibrary, listScheduleRecords, parsePlanfileMarkdown, parsePlanfileYaml, renderPlanfileMarkdown, renderPlanMermaid, syncPlanLibrary, validatePlanfile, withCanonicalPlanDigest } from "@open-lagrange/core/planning";
 import { applyRepositoryPlanfile as applyLocalRepositoryPlanfile, approveApprovalRequest, approveRepositoryScopeRequest, cleanupRepositoryPlan as cleanupLocalRepositoryPlan, createRepositoryPlanfile, explainRepositoryPlan, exportRepositoryPlanPatch as exportLocalRepositoryPlanPatch, getRepositoryPlanStatus as getLocalRepositoryPlanStatus, listRepositoryModelCalls, rejectApprovalRequest, rejectRepositoryScopeRequest, resumeRepositoryPlan, runRepositoryDoctor } from "@open-lagrange/core/repository";
 import { compareBenchmarkRun, listBenchmarkScenarios, listModelRouteConfigs, renderBenchmarkReport, runModelRoutingBenchmark } from "@open-lagrange/core/evals";
 import { runResearchBriefCommand, runResearchExportCommand, runResearchFetchCommand, runResearchSearchCommand, runResearchSummarizeUrlCommand } from "@open-lagrange/core/research";
@@ -19,12 +19,15 @@ import { buildGeneratedPackFromMarkdown, generateSkillFrame, generateWorkflowSki
 import { createPlatformClientFromCurrentProfile } from "@open-lagrange/platform-client";
 import { addLocalProfile, addRemoteProfile, bootstrapLocalRuntime, configureCurrentProfileModelProvider, deleteCurrentProfileSecret, describeCurrentProfileModelProvider, describeCurrentProfileSecret, getCurrentProfile, getProfilePackPaths, initRuntime, listCurrentProfileModelProviders, listCurrentProfileSecrets, listKnownModelProviders, loadConfig, removeProfile, restartLocalRuntime, setCurrentProfile, setCurrentProfileSecret, startLocalRuntime, stopLocalRuntime, tailLogs, getRuntimeStatus } from "@open-lagrange/runtime-manager";
 import type { SecretRef } from "@open-lagrange/core/secrets";
+import { groupedHelpText } from "./help-taxonomy.js";
 
 const program = new Command();
 
 program
   .name("open-lagrange")
   .description("Open Lagrange Control Plane CLI.");
+
+program.addHelpText("after", groupedHelpText());
 
 program
   .command("init")
@@ -89,7 +92,7 @@ program.command("logs").description("Show local runtime logs.").argument("[servi
   console.log(await tailLogs(service));
 });
 
-program.command("tui").description("Start the terminal reconciliation cockpit.").allowUnknownOption(true).allowExcessArguments(true).action(async () => {
+program.command("tui").description("Start the terminal Plan/Run workbench.").allowUnknownOption(true).allowExcessArguments(true).action(async () => {
   const args = process.argv.slice(process.argv.indexOf("tui") + 1);
   const child = spawn("npm", ["run", "dev:tui", "--", ...args], { cwd: findScriptRoot("dev:tui"), stdio: "inherit" });
   child.on("exit", (code) => process.exit(code ?? 0));
@@ -155,7 +158,7 @@ program.command("run-demo").description("Submit the README summary demo.").actio
   console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).submitProject({ goal: "Create a short README summary for this repository." }), null, 2));
 });
 
-const demo = program.command("demo").description("Run golden-path demos.");
+const demo = program.command("demo").description("Advanced/dev sample Planfile and fixture flows.");
 
 demo.command("list").action(() => {
   console.log(JSON.stringify(listDemos(), null, 2));
@@ -183,7 +186,7 @@ demo.command("open").argument("<demoId>", "Demo ID").action((demoId: string) => 
   console.log(JSON.stringify(openDemo(demoId), null, 2));
 });
 
-const artifact = program.command("artifact").description("Inspect local artifact index entries.");
+const artifact = program.command("artifact").description("Inspect Planfile run artifacts.");
 
 artifact.command("list")
   .option("--run <runId>", "Show artifacts for a run ID, or latest")
@@ -233,7 +236,7 @@ artifact.command("prune")
     console.log(JSON.stringify(pruneArtifacts({ older_than: options.olderThan }), null, 2));
   });
 
-const run = program.command("run").description("Inspect run-centered outputs.");
+const run = program.command("run").description("Inspect Planfile run outputs.");
 
 run.command("list").option("--limit <count>", "Number of recent runs", parsePositiveInt, 20).action((options: { readonly limit: number }) => {
   console.log(JSON.stringify([...listRuns()].slice(-options.limit), null, 2));
@@ -492,7 +495,48 @@ search.command("test-provider")
     }), null, 2));
   });
 
-const repo = program.command("repo").description("Run repository-scoped workflows.");
+const provider = program.command("provider").description("Inspect profile provider configuration.");
+
+provider.command("list").description("List model and search providers for the current profile.").action(async () => {
+  const profile = await getCurrentProfile();
+  console.log(JSON.stringify({
+    profile: profile.name,
+    active_model_provider: profile.activeModelProvider,
+    model_providers: Object.keys(profile.modelProviders ?? {}),
+    search_providers: [
+      { id: "manual-urls", kind: "manual_urls", enabled: true },
+      ...(profile.searchProviders ?? []).map((config) => ({
+        id: config.id,
+        kind: config.kind,
+        enabled: config.enabled !== false,
+        ...(config.kind === "searxng" ? { baseUrl: config.baseUrl } : {}),
+      })),
+    ],
+  }, null, 2));
+});
+
+provider.command("model").description("Show configured model providers for the current profile.").action(async () => {
+  console.log(JSON.stringify(await listCurrentProfileModelProviders(), null, 2));
+});
+
+provider.command("search").description("Show configured search providers for the current profile.").action(async () => {
+  const providers = await currentSearchProviderConfigs();
+  console.log(JSON.stringify({
+    providers: [
+      { id: "manual-urls", kind: "manual_urls", mode: "live", configured: true, enabled: true },
+      ...providers.map((config) => ({
+        id: config.id,
+        kind: config.kind,
+        mode: "live",
+        configured: config.enabled !== false,
+        enabled: config.enabled !== false,
+        ...(config.kind === "searxng" ? { baseUrl: config.baseUrl } : {}),
+      })),
+    ],
+  }, null, 2));
+});
+
+const repo = program.command("repo").description("Repository shortcuts for Planfile flows.");
 
 repo.command("doctor")
   .requiredOption("--repo <path>", "Repository root")
@@ -501,6 +545,7 @@ repo.command("doctor")
   });
 
 repo.command("run")
+  .description("Shortcut for composing and running a repository Planfile.")
   .requiredOption("--repo <path>", "Repository root")
   .requiredOption("--goal <goal>", "Repository task goal")
   .option("--workspace-id <workspaceId>", "Repository workspace ID")
@@ -542,6 +587,7 @@ repo.command("run")
   });
 
 repo.command("plan")
+  .description("Compose a repository Planfile.")
   .requiredOption("--repo <path>", "Repository root")
   .requiredOption("--goal <goal>", "Repository task goal")
   .option("--workspace-id <workspaceId>", "Repository workspace ID")
@@ -660,7 +706,7 @@ repoScope.command("reject")
     console.log(JSON.stringify(await rejectRepositoryScopeRequest({ request_id: requestId, reason: options.reason, rejected_by: options.rejectedBy }), null, 2));
   });
 
-const evalCommand = program.command("eval").description("Run repository evaluation harnesses.");
+const evalCommand = program.command("eval").description("Advanced/dev harnesses around Planfiles and fixtures.");
 
 evalCommand.command("list").action(() => {
   console.log(JSON.stringify(listBenchmarkScenarios(), null, 2));
@@ -721,9 +767,10 @@ repo.command("reject").argument("<taskId>", "Task ID or task run ID").requiredOp
   console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).rejectTask(taskId, { decided_by: options.rejectedBy, reason: options.reason, approval_token: options.approvalToken }), null, 2));
 });
 
-const research = program.command("research").description("Run live research workflows with explicit fixture mode for demos.");
+const research = program.command("research").description("Research shortcuts for Planfile flows.");
 
 research.command("search")
+  .description("Shortcut for bounded research source discovery.")
   .argument("<query>", "Research query")
   .option("--provider <providerId>", "Search provider ID, such as local-searxng")
   .option("--fixture", "Use deterministic checked-in fixture sources", false)
@@ -742,6 +789,7 @@ research.command("search")
   });
 
 research.command("fetch")
+  .description("Shortcut for a live research source fetch Planfile step.")
   .argument("<url>", "Source URL")
   .option("--fixture", "Resolve URL against deterministic fixture sources", false)
   .option("--dry-run", "Validate URL/policy/capability without fetching", false)
@@ -757,6 +805,7 @@ research.command("fetch")
   });
 
 research.command("summarize-url")
+  .description("Shortcut for a URL summary Planfile flow.")
   .argument("<url>", "Source URL")
   .option("--fixture", "Resolve URL against deterministic fixture sources", false)
   .option("--dry-run", "Validate URL/policy/capability without fetching", false)
@@ -772,6 +821,7 @@ research.command("summarize-url")
   });
 
 research.command("brief")
+  .description("Compose and run a research Planfile.")
   .argument("<topic>", "Brief topic")
   .option("--provider <providerId>", "Search provider ID, such as local-searxng")
   .option("--fixture", "Use deterministic checked-in fixture sources", false)
@@ -881,6 +931,65 @@ plan.command("validate").argument("<planfile>", "Planfile Markdown or YAML path"
   if (!result.ok) process.exitCode = 1;
 });
 
+plan.command("check").argument("<planfile>", "Planfile Markdown or YAML path").action(async (path: string) => {
+  const planfile = withCanonicalPlanDigest(await loadLocalPlanfile(path));
+  const validation = validatePlanfile(planfile);
+  const runtimeProfile = await getCurrentProfile().catch(() => undefined);
+  const requirements = derivePlanRequirements({ planfile, ...(runtimeProfile ? { runtime_profile: runtimeProfile } : {}) });
+  console.log(JSON.stringify({ validation, requirements, plan_id: planfile.plan_id, canonical_plan_digest: planfile.canonical_plan_digest }, null, 2));
+  if (!validation.ok || hasMissingRequirements(requirements)) process.exitCode = 1;
+});
+
+plan.command("requirements").argument("<planfile>", "Planfile Markdown or YAML path").action(async (path: string) => {
+  const planfile = withCanonicalPlanDigest(await loadLocalPlanfile(path));
+  const runtimeProfile = await getCurrentProfile().catch(() => undefined);
+  console.log(JSON.stringify(derivePlanRequirements({ planfile, ...(runtimeProfile ? { runtime_profile: runtimeProfile } : {}) }), null, 2));
+});
+
+plan.command("explain").argument("<planfile>", "Planfile Markdown or YAML path").action(async (path: string) => {
+  const planfile = withCanonicalPlanDigest(await loadLocalPlanfile(path));
+  const runtimeProfile = await getCurrentProfile().catch(() => undefined);
+  const validation = validatePlanfile(planfile);
+  const requirements = derivePlanRequirements({ planfile, ...(runtimeProfile ? { runtime_profile: runtimeProfile } : {}) });
+  console.log(formatPlanExplanation({ planfile, validation, requirements }));
+});
+
+const planLibrary = plan.command("library").description("Browse local Planfile libraries.");
+
+planLibrary.command("list").description("List plans from workspace and home libraries.").action(() => {
+  console.log(JSON.stringify({ plans: listPlanLibrary() }, null, 2));
+});
+
+planLibrary.command("add")
+  .argument("<name>", "Library entry name")
+  .argument("<path>", "Planfile path")
+  .option("--title <title>", "Display title")
+  .option("--summary <summary>", "Display summary")
+  .action((name: string, path: string, options: { readonly title?: string; readonly summary?: string }) => {
+    console.log(JSON.stringify(addPlanLibraryEntry({ name, path, ...(options.title ? { title: options.title } : {}), ...(options.summary ? { summary: options.summary } : {}) }), null, 2));
+  });
+
+planLibrary.command("sync").description("Refresh local library listings.").action(() => {
+  console.log(JSON.stringify(syncPlanLibrary(), null, 2));
+});
+
+plan.command("instantiate")
+  .argument("<template>", "Template Planfile path")
+  .option("--param <key=value>", "Template parameter", collectKeyValue, {})
+  .option("--write <path>", "Write instantiated Planfile to a path")
+  .action((template: string, options: { readonly param: Record<string, string>; readonly write?: string }) => {
+    const result = instantiatePlanTemplate({
+      template_path: cliPath(template),
+      params: options.param,
+      ...(options.write ? { write_path: cliPath(options.write) } : {}),
+    });
+    if (options.write) {
+      console.log(JSON.stringify({ status: result.status, path: result.path }, null, 2));
+      return;
+    }
+    console.log(result.content);
+  });
+
 plan.command("graph").argument("<planfile>", "Planfile Markdown or YAML path").action(async (path: string) => {
   console.log(renderPlanMermaid(await loadLocalPlanfile(path)));
 });
@@ -979,7 +1088,7 @@ plan.command("reject").argument("<planId>", "Plan ID").requiredOption("--reason 
   console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).rejectPlan(planId, { decided_by: options.rejectedBy, reason: options.reason, approval_token: options.approvalToken }), null, 2));
 });
 
-const skill = program.command("skill").description("Build and preview Workflow Skill artifacts.");
+const skill = program.command("skill").description("Skill shortcuts that compile into Planfile or pack artifacts.");
 
 skill.command("frame")
   .argument("<skillfile>", "skills.md path")
@@ -989,6 +1098,7 @@ skill.command("frame")
   });
 
 skill.command("plan")
+  .description("Compile a skill file into a Planfile-backed artifact.")
   .argument("<skillfile>", "skills.md path")
   .option("--output <path>", "Write markdown artifact to a path")
   .option("--write", "Write to .open-lagrange/skills/<skill_id>.skill.md", false)
@@ -1055,6 +1165,57 @@ function parsePositiveInt(value: string): number {
 
 function collectString(value: string, previous: readonly string[]): string[] {
   return [...previous, value];
+}
+
+function collectKeyValue(value: string, previous: Record<string, string>): Record<string, string> {
+  const index = value.indexOf("=");
+  if (index <= 0) throw new Error("--param must use key=value");
+  return { ...previous, [value.slice(0, index)]: value.slice(index + 1) };
+}
+
+function hasMissingRequirements(report: ReturnType<typeof derivePlanRequirements>): boolean {
+  return report.missing_packs.length > 0
+    || report.missing_providers.length > 0
+    || report.missing_credentials.length > 0
+    || report.missing_permissions.length > 0;
+}
+
+function formatPlanExplanation(input: {
+  readonly planfile: Awaited<ReturnType<typeof loadLocalPlanfile>>;
+  readonly validation: ReturnType<typeof validatePlanfile>;
+  readonly requirements: ReturnType<typeof derivePlanRequirements>;
+}): string {
+  const scheduleInfo = input.requirements.schedule_info
+    ? JSON.stringify(input.requirements.schedule_info)
+    : "none";
+  return [
+    `Planfile: ${input.planfile.plan_id}`,
+    `Goal: ${input.planfile.goal_frame.interpreted_goal}`,
+    `Status: ${input.planfile.status}`,
+    `Mode: ${input.planfile.mode}`,
+    `Validation: ${input.validation.ok ? "passed" : "failed"}`,
+    `Portability: ${input.requirements.portability_level}`,
+    "",
+    "Requirements:",
+    `- Packs: ${lineList(input.requirements.required_packs)}`,
+    `- Providers: ${lineList(input.requirements.required_providers)}`,
+    `- Credentials: ${lineList(input.requirements.required_credentials)}`,
+    `- Permissions: ${lineList(input.requirements.permissions)}`,
+    `- Approvals: ${lineList(input.requirements.approval_requirements)}`,
+    `- Side effects: ${lineList(input.requirements.side_effects)}`,
+    `- Schedule: ${scheduleInfo}`,
+    "",
+    "Missing:",
+    `- Packs: ${lineList(input.requirements.missing_packs)}`,
+    `- Providers: ${lineList(input.requirements.missing_providers)}`,
+    `- Credentials: ${lineList(input.requirements.missing_credentials)}`,
+    `- Permissions: ${lineList(input.requirements.missing_permissions)}`,
+    ...(input.requirements.suggested_commands.length > 0 ? ["", "Suggested Commands:", ...input.requirements.suggested_commands.map((command) => `- ${command}`)] : []),
+  ].join("\n");
+}
+
+function lineList(values: readonly string[]): string {
+  return values.length > 0 ? values.join(", ") : "none";
 }
 
 function scheduleCadence(value: string): "daily" | "weekly" | "cron" {

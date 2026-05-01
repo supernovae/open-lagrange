@@ -134,6 +134,29 @@ describe("TUI input parsing", () => {
     expect(capabilities.event).toMatchObject({ type: "capability.list" });
   });
 
+  it("maps workbench commands to plan, artifact, provider, and schedule events", () => {
+    const compose = parseUserInput("/compose research container security", { repo_path: "." });
+    const check = parseUserInput("/check .open-lagrange/plans/example.plan.md", {});
+    const library = parseUserInput("/library", {});
+    const providers = parseUserInput("/providers", {});
+    const artifacts = parseUserInput("/artifacts", {});
+    const schedule = parseUserInput("/schedule", {});
+
+    expect(compose.kind).toBe("command");
+    expect(check.kind).toBe("command");
+    expect(library.kind).toBe("command");
+    expect(providers.kind).toBe("command");
+    expect(artifacts.kind).toBe("command");
+    expect(schedule.kind).toBe("command");
+    if (compose.kind !== "command" || check.kind !== "command" || library.kind !== "command" || providers.kind !== "command" || artifacts.kind !== "command" || schedule.kind !== "command") return;
+    expect(compose.event).toMatchObject({ type: "plan.compose", prompt: "research container security", repo_path: "." });
+    expect(check.event).toMatchObject({ type: "plan.check", planfile: ".open-lagrange/plans/example.plan.md" });
+    expect(library.event).toMatchObject({ type: "plan.library" });
+    expect(providers.event).toMatchObject({ type: "provider.list" });
+    expect(artifacts.event).toMatchObject({ type: "artifact.show", artifact_id: "list" });
+    expect(schedule.event).toMatchObject({ type: "schedule.list" });
+  });
+
   it("maps natural language skills file requests to pack build suggestions", () => {
     const parsed = parseUserInput("build a pack from skills.md", {});
 

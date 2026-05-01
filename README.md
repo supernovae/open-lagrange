@@ -23,6 +23,21 @@ boundaries, approvals, verification, durable progress, and artifacts.
 
 It is built for workflows where “the model said so” is not enough.
 
+## Product Model
+
+Open Lagrange is organized around five core objects:
+
+- **Plans** are reusable, reviewable Planfiles.
+- **Runs** are executions of a Planfile.
+- **Packs** provide validated capabilities.
+- **Artifacts** are durable outputs and evidence.
+- **Profiles/Providers** configure where work runs and which model/search services are available.
+
+Research briefs, repository tasks, skills, scheduled jobs, demos, and evals all
+compile to or run through Planfiles where possible. Domain commands remain as
+shortcuts, but `plan compose`, `plan check`, `run`, `artifact`, `pack`, and
+`provider` are the primary surfaces.
+
 ## What You Can Try Now
 
 - **Planfiles**: turn a vague goal into a reviewable Markdown plan with typed YAML execution data.

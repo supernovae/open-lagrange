@@ -4,7 +4,7 @@ import { explainSystem, getCapabilitiesSummary, routeIntent } from "@open-lagran
 import { listDemos, runDemo } from "@open-lagrange/core/demos";
 import type { DemoRunResult } from "@open-lagrange/core/demos";
 import { inspectPack } from "@open-lagrange/core/packs";
-import { composePlanfileFromIntent } from "@open-lagrange/core/planning";
+import { composePlanfileFromIntent, derivePlanRequirements, listPlanLibrary, listScheduleRecords, parsePlanfileMarkdown, parsePlanfileYaml, validatePlanfile, withCanonicalPlanDigest } from "@open-lagrange/core/planning";
 import { runResearchBriefCommand, runResearchExportCommand, runResearchFetchCommand, runResearchSearchCommand, runResearchSummarizeUrlCommand, type ResearchCommandResult } from "@open-lagrange/core/research";
 import { buildGeneratedPackFromMarkdown, generateSkillFrame, generateWorkflowSkill, parseSkillfileMarkdown } from "@open-lagrange/core/skills";
 import type { TuiUserFrameEvent, UserFrameEvent, UserFrameEventResult } from "@open-lagrange/core/interface";
@@ -64,6 +64,21 @@ async function submitLocalOrRemoteEvent(event: TuiUserFrameEvent): Promise<UserF
     }
     return { status: "completed", message: planComposeMessage(composed), output: composed };
   }
+  if (event.type === "plan.check") {
+    const planfile = withCanonicalPlanDigest(await loadLocalPlanfile(event.planfile));
+    const profile = await getCurrentProfile().catch(() => undefined);
+    const validation = validatePlanfile(planfile);
+    const requirements = derivePlanRequirements({ planfile, ...(profile ? { runtime_profile: profile } : {}) });
+    return {
+      status: validation.ok && !hasMissingRequirements(requirements) ? "completed" : "failed",
+      message: planCheckMessage(planfile.plan_id, validation.ok, requirements),
+      output: { validation, requirements },
+    };
+  }
+  if (event.type === "plan.library") {
+    const plans = listPlanLibrary();
+    return { status: "completed", message: planLibraryMessage(plans), output: { plans } };
+  }
   if (event.type === "doctor.run") return { status: "completed", message: "Doctor checks completed.", output: await runDoctor() };
   if (event.type === "status.show") return { status: "completed", message: "Runtime status loaded.", output: await (await createPlatformClientFromCurrentProfile()).getRuntimeStatus() };
   if (event.type === "pack.inspect") return { status: "completed", message: `Pack inspected: ${event.pack_id}`, output: inspectPack(event.pack_id) ?? { status: "missing", pack_id: event.pack_id } };
@@ -115,6 +130,26 @@ async function submitLocalOrRemoteEvent(event: TuiUserFrameEvent): Promise<UserF
     }
     const output = showArtifact(event.artifact_id);
     return { status: output ? "completed" : "failed", message: output ? `Artifact loaded: ${event.artifact_id}` : `Artifact not found: ${event.artifact_id}`, output };
+  }
+  if (event.type === "provider.list") {
+    const profile = await getCurrentProfile().catch(() => undefined);
+    const searchProviders = profile?.searchProviders ?? [];
+    return {
+      status: "completed",
+      message: [
+        "Providers",
+        "",
+        `Profile: ${profile?.name ?? "unknown"}`,
+        `Active model provider: ${profile?.activeModelProvider ?? "not configured"}`,
+        `Model providers: ${Object.keys(profile?.modelProviders ?? {}).join(", ") || "none"}`,
+        `Search providers: ${["manual-urls", ...searchProviders.map((provider) => provider.id)].join(", ")}`,
+      ].join("\n"),
+      output: { profile: profile?.name, active_model_provider: profile?.activeModelProvider, search_providers: searchProviders },
+    };
+  }
+  if (event.type === "schedule.list") {
+    const schedules = listScheduleRecords();
+    return { status: "completed", message: `Schedules loaded: ${schedules.length} record(s).`, output: { schedules } };
   }
   if (event.type === "research.providers") {
     const providers = await currentSearchProviderConfigs();
@@ -190,8 +225,14 @@ function helpText(): string {
     "Useful commands:",
     "- /status",
     "- /doctor",
-    "- /capabilities",
+    "- /compose <goal>",
+    "- /check <planfile>",
+    "- /library",
+    "- /providers",
+    "- /artifacts",
+    "- /schedule",
     "- /packs",
+    "- /capabilities",
     "- /demos",
     "- /plan compose <goal>",
     "- /plan repo <goal>",
@@ -250,6 +291,46 @@ function providerLine(result: Awaited<ReturnType<typeof composePlanfileFromInten
   const parameterRecord = result.planfile.execution_context?.parameters;
   const provider = parameterRecord && typeof parameterRecord === "object" ? (parameterRecord as Record<string, unknown>).provider_id : undefined;
   return `Provider: ${typeof provider === "string" && provider.length > 0 ? provider : result.warnings.some((warning) => warning.includes("SEARCH_PROVIDER_NOT_CONFIGURED")) ? "not configured" : "configured"}`;
+}
+
+async function loadLocalPlanfile(path: string) {
+  const local = localPath(path);
+  const text = await readFile(local, "utf8");
+  return local.endsWith(".yaml") || local.endsWith(".yml") ? parsePlanfileYaml(text) : parsePlanfileMarkdown(text);
+}
+
+function hasMissingRequirements(report: ReturnType<typeof derivePlanRequirements>): boolean {
+  return report.missing_packs.length > 0
+    || report.missing_providers.length > 0
+    || report.missing_credentials.length > 0
+    || report.missing_permissions.length > 0;
+}
+
+function planCheckMessage(planId: string, validationOk: boolean, requirements: ReturnType<typeof derivePlanRequirements>): string {
+  return [
+    `Plan check: ${planId}`,
+    `Validation: ${validationOk ? "passed" : "failed"}`,
+    `Portability: ${requirements.portability_level}`,
+    `Required packs: ${lineList(requirements.required_packs)}`,
+    `Required providers: ${lineList(requirements.required_providers)}`,
+    `Missing providers: ${lineList(requirements.missing_providers)}`,
+    `Approvals: ${lineList(requirements.approval_requirements)}`,
+    `Side effects: ${lineList(requirements.side_effects)}`,
+    ...(requirements.suggested_commands.length > 0 ? ["", "Suggested commands:", ...requirements.suggested_commands.map((command) => `- ${command}`)] : []),
+  ].join("\n");
+}
+
+function planLibraryMessage(plans: ReturnType<typeof listPlanLibrary>): string {
+  return [
+    `Plan Library: ${plans.length} plan(s)`,
+    "",
+    ...plans.map((plan) => `- ${plan.name}${plan.plan_id ? ` (${plan.plan_id})` : ""}: ${plan.path}`),
+    ...(plans.length === 0 ? ["No local Planfiles found in .open-lagrange/plans or ~/.open-lagrange/plans."] : []),
+  ].join("\n");
+}
+
+function lineList(values: readonly string[]): string {
+  return values.length > 0 ? values.join(", ") : "none";
 }
 
 export function researchStatus(result: ResearchCommandResult): "completed" | "failed" {

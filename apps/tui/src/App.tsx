@@ -299,8 +299,8 @@ function copyTurn(text: string, project_id?: string, task_id?: string): Conversa
 }
 
 function viewTitle(pane: PaneId): string {
-  if (pane === "demo") return "Demo launcher";
-  if (pane === "capabilities") return "Capabilities";
+  if (pane === "demo") return "Sample Planfiles";
+  if (pane === "capabilities") return "Providers";
   if (pane === "pack_builder") return "Packs";
   if (pane === "artifact_json") return "Artifacts";
   if (pane === "doctor") return "Doctor";
@@ -310,16 +310,16 @@ function viewTitle(pane: PaneId): string {
 
 function viewJournalText(pane: PaneId, model: ReturnType<typeof buildViewModel>): string {
   if (pane === "help") return "Opened Help. Use slash commands for precise flows, or type natural language and confirm the suggested flow.";
-  if (pane === "demo") return "Opened Demo Launcher. Use /demo run repo-json-output for a dry-run preview, or /demo run repo-json-output --live for isolated local worktree execution.";
-  if (pane === "capabilities") return `Opened Capabilities. Runtime reports ${model.health.packs} registered pack(s). Use /packs or /pack inspect <pack_id> for details.`;
+  if (pane === "demo") return "Opened Sample Planfiles. Use /demo run repo-json-output for a dry-run preview, or /demo run repo-json-output --live for isolated local worktree execution.";
+  if (pane === "capabilities") return `Opened Providers. Runtime reports ${model.health.packs} registered pack(s). Use /providers for profile provider configuration or /packs for capability packs.`;
   if (pane === "pack_builder") return "Opened Packs. Use /pack build <skills.md> for generated pack previews or /pack inspect <pack_id> for installed pack details.";
   if (pane === "artifact_json") return "Opened Artifacts. Use /run outputs latest for the latest primary outputs, /artifact recent for high-signal artifacts, or /artifact show <artifact_id> for a specific item.";
   if (pane === "doctor") return "Opened Doctor. Use /doctor to run checks and journal the result.";
   if (pane === "timeline") return `Opened Timeline. ${model.timeline.length} timeline event(s) are currently visible in the selected project.`;
   if (pane === "tasks") return `Opened Tasks. ${model.project?.task_statuses.length ?? 0} task(s) are currently attached.`;
   if (pane === "approvals") return `Opened Approvals. ${model.approvals.length} approval request(s) are currently pending.`;
-  if (pane === "plan") return `Opened Plan. ${model.plan ? `Plan ${model.plan.plan_id} is loaded.` : "No plan is currently attached."}`;
-  if (pane === "run") return "Opened Run. Start or inspect repository work with /repo run <goal> or /run outputs latest.";
+  if (pane === "plan") return `Opened Plans. ${model.plan ? `Plan ${model.plan.plan_id} is loaded.` : "Use /compose <goal>, /library, or /check <planfile>."}`;
+  if (pane === "run") return "Opened Runs. Inspect run outputs with /run list or /run outputs latest.";
   if (pane === "diff") return "Opened Diff. Attach a project or use a repository workflow to load diff output.";
   if (pane === "verification") return `Opened Verification. ${model.verificationResults.length} verification result(s) are currently attached.`;
   if (pane === "review") return "Opened Review. Attach a project or run a workflow to load review output.";

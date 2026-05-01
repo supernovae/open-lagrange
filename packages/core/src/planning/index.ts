@@ -10,6 +10,8 @@ export * from "./plan-composition-errors.js";
 export * from "./plan-artifacts.js";
 export * from "./plan-cognition.js";
 export * from "./plan-errors.js";
+export * from "./plan-library.js";
+export * from "./plan-requirements.js";
 export * from "./plan-runner.js";
 export * from "./plan-state.js";
 export * from "./plan-template-registry.js";

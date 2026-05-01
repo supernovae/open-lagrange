@@ -29,6 +29,12 @@ export function parseSlashCommand(input: string, context: SlashCommandContext = 
   if (command === "help") return { kind: "event", command, pane: "chat", event: { type: "chat.help" } };
   if (command === "status") return { kind: "event", command, pane: "chat", event: { type: "status.show" } };
   if (command === "doctor") return { kind: "event", command, pane: "chat", event: { type: "doctor.run" } };
+  if (command === "compose" && text) return { kind: "event", command, pane: "chat", event: { type: "plan.compose", prompt: text, write: false, ...(context.repo_path ? { repo_path: context.repo_path } : {}) } };
+  if (command === "check" && text) return { kind: "event", command, pane: "chat", event: { type: "plan.check", planfile: text } };
+  if (command === "library") return { kind: "event", command, pane: "chat", event: { type: "plan.library" } };
+  if (command === "providers") return { kind: "event", command, pane: "chat", event: { type: "provider.list" } };
+  if (command === "artifacts") return { kind: "event", command, pane: "chat", event: { type: "artifact.show", artifact_id: "list" } };
+  if (command === "schedule") return { kind: "event", command, pane: "chat", event: { type: "schedule.list" } };
   if (command === "capabilities") return { kind: "event", command, pane: "chat", event: { type: "capability.list" } };
   if (command === "packs") return { kind: "event", command, pane: "chat", event: { type: "pack.list" } };
   if (command === "demos") return { kind: "event", command, pane: "chat", event: { type: "demo.list" } };
@@ -42,6 +48,8 @@ export function parseSlashCommand(input: string, context: SlashCommandContext = 
   if (command === "plan") {
     const [target, ...goalParts] = rest;
     if (target === "compose" && goalParts.length > 0) return { kind: "event", command, pane: "chat", event: flowForPlanCompose(goalParts.join(" "), context).event };
+    if (target === "check" && goalParts.length > 0) return { kind: "event", command, pane: "chat", event: { type: "plan.check", planfile: goalParts.join(" ") } };
+    if (target === "library") return { kind: "event", command, pane: "chat", event: { type: "plan.library" } };
     if (target === "repo" && goalParts.length > 0) return { kind: "event", command, pane: "chat", event: flowForRepositoryPlan(goalParts.join(" "), context).event };
     if (text) return { kind: "event", command, pane: "chat", event: { type: "plan.create", target: "generic", goal: text, dry_run: true } };
     return { kind: "error", command, error: "Usage: /plan repo <goal>" };

@@ -15,10 +15,14 @@ export function formatDuration(ms: number): string {
 }
 
 export function paneTitle(pane: PaneId): string {
-  if (pane === "pack_builder") return "pack builder";
+  if (pane === "pack_builder") return "packs";
+  if (pane === "artifact_json") return "artifacts";
+  if (pane === "capabilities") return "providers";
   if (pane === "home") return "home";
-  if (pane === "research") return "research";
-  if (pane === "demo") return "demos";
+  if (pane === "research") return "research shortcuts";
+  if (pane === "demo") return "sample Planfiles";
+  if (pane === "run") return "runs";
+  if (pane === "plan") return "plans";
   return pane.replace("_", " ");
 }
 

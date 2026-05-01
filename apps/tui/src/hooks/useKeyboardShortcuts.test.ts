@@ -3,7 +3,7 @@ import { nextPane, shortcutActionForInput } from "./useKeyboardShortcuts.js";
 
 describe("pane selection", () => {
   it("cycles forward and backward through panes", () => {
-    expect(nextPane("chat", 1)).toBe("timeline");
+    expect(nextPane("chat", 1)).toBe("plan");
     expect(nextPane("chat", -1)).toBe("home");
   });
 

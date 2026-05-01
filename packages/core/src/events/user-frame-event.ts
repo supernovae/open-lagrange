@@ -8,6 +8,8 @@ export const TuiUserFrameEvent = z.discriminatedUnion("type", [
   z.object({ type: z.literal("intent.classify"), text: z.string().min(1) }).strict(),
   z.object({ type: z.literal("plan.compose"), prompt: z.string().min(1), repo_path: z.string().optional(), provider_id: z.string().min(1).optional(), write: z.boolean().default(false) }).strict(),
   z.object({ type: z.literal("plan.create"), goal: z.string().min(1), target: z.enum(["generic", "repo"]).default("generic"), repo_path: z.string().optional(), dry_run: z.boolean().default(true) }).strict(),
+  z.object({ type: z.literal("plan.check"), planfile: z.string().min(1) }).strict(),
+  z.object({ type: z.literal("plan.library") }).strict(),
   z.object({ type: z.literal("plan.apply"), planfile: z.string().min(1) }).strict(),
   z.object({ type: z.literal("repo.run"), goal: z.string().min(1), repo_path: z.string().default("."), dry_run: z.boolean().default(true), apply: z.boolean().default(false) }).strict(),
   z.object({ type: z.literal("skill.frame"), file: z.string().min(1) }).strict(),
@@ -20,6 +22,8 @@ export const TuiUserFrameEvent = z.discriminatedUnion("type", [
   z.object({ type: z.literal("run.show"), run_id: z.string().min(1).default("latest"), outputs_only: z.boolean().default(false) }).strict(),
   z.object({ type: z.literal("artifact.show"), artifact_id: z.string().min(1) }).strict(),
   z.object({ type: z.literal("research.providers") }).strict(),
+  z.object({ type: z.literal("provider.list") }).strict(),
+  z.object({ type: z.literal("schedule.list") }).strict(),
   z.object({ type: z.literal("research.search"), query: z.string().min(1), mode: ExecutionMode.default("live"), provider_id: z.string().min(1).optional(), dry_run: z.boolean().default(false) }).strict(),
   z.object({ type: z.literal("research.fetch"), url: z.string().min(1), mode: ExecutionMode.default("live"), dry_run: z.boolean().default(false) }).strict(),
   z.object({ type: z.literal("research.summarize_url"), url: z.string().min(1), mode: ExecutionMode.default("live"), dry_run: z.boolean().default(false) }).strict(),
@@ -41,6 +45,8 @@ export type FlowId =
   | "packs"
   | "demos"
   | "plan_compose"
+  | "plan_check"
+  | "plan_library"
   | "repository_plan"
   | "repository_run"
   | "skill_frame"
@@ -56,6 +62,8 @@ export type FlowId =
   | "research_summarize_url"
   | "research_brief"
   | "research_export"
+  | "provider_list"
+  | "schedule_list"
   | "approval";
 
 export const WorkflowStartingEventTypes = new Set<TuiUserFrameEvent["type"]>([

@@ -22,7 +22,8 @@ describe("TUI formatters", () => {
   });
 
   it("maps pane and status labels", () => {
-    expect(paneTitle("artifact_json")).toBe("artifact json");
+    expect(paneTitle("artifact_json")).toBe("artifacts");
+    expect(paneTitle("capabilities")).toBe("providers");
     expect(statusColor("completed")).toBe("green");
     expect(statusColor("requires_approval")).toBe("yellow");
     expect(statusColor("failed")).toBe("red");

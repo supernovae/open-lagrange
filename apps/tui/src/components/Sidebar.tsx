@@ -10,7 +10,7 @@ export function Sidebar({ model, width, height }: { readonly model: TuiViewModel
   const textWidth = Math.max(16, width - 6);
   return (
     <Box flexDirection="column" width={width} height={height} borderStyle="single" borderColor={theme.border} paddingX={1} flexShrink={0}>
-      <Text color={theme.title}>Project / Task Frame</Text>
+      <Text color={theme.title}>Workbench</Text>
       <Text>Status: <Text color={statusColor(status)}>{status}</Text></Text>
       <Text>Project: {truncateText(model.project?.project_id ?? "none", textWidth)}</Text>
       <Text>Task: {truncateText(model.activeTask?.task_run_id ?? "none", textWidth)}</Text>
@@ -23,10 +23,10 @@ export function Sidebar({ model, width, height }: { readonly model: TuiViewModel
       <Text>Verification: {model.verificationResults.length > 0 ? verificationLabel(model) : "none"}</Text>
       <Box marginTop={1} flexDirection="column">
         <Text color={theme.title}>Commands</Text>
-        <Text>/confirm   /help</Text>
-        <Text>/plan repo /repo run</Text>
-        <Text>/doctor    /packs</Text>
-        <Text>/artifact  /approve</Text>
+        <Text>/compose   /run</Text>
+        <Text>/check     /library</Text>
+        <Text>/artifacts /packs</Text>
+        <Text>/providers /doctor</Text>
         <Text>tab pane   ctrl+q quit</Text>
       </Box>
     </Box>
