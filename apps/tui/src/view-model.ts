@@ -87,6 +87,8 @@ function planSummary(project: ProjectRunStatus | undefined): PlanViewSummary | u
       dag_lines: livePlan.nodes.map((node) => `${node.node_id}: ${node.status}${node.capability ? ` (${node.capability})` : ""}`),
       approval_requirements: [],
       evidence_bundles: livePlan.evidence_bundle_ids,
+      scope_expansion_requests: livePlan.scope_expansion_request_ids,
+      patch_validation_reports: livePlan.patch_validation_report_ids,
       changed_files: livePlan.changed_files,
       patch_artifacts: livePlan.patch_artifact_ids,
       verification_reports: livePlan.verification_report_ids,
@@ -107,6 +109,8 @@ function planSummary(project: ProjectRunStatus | undefined): PlanViewSummary | u
     dag_lines: plan.tasks.map((task, index) => `${index + 1}. ${task.task_id}: ${task.title}`),
     approval_requirements: approvalSummaries(project?.task_statuses ?? []).map((approval) => `${approval.task_id}: ${approval.requested_risk_level}`),
     evidence_bundles: artifactSummaries(project, project?.task_statuses[0]).filter((artifact) => artifact.artifact_type === "evidence_bundle").map((artifact) => artifact.artifact_id),
+    scope_expansion_requests: artifactSummaries(project, project?.task_statuses[0]).filter((artifact) => artifact.artifact_type === "scope_expansion_request").map((artifact) => artifact.artifact_id),
+    patch_validation_reports: artifactSummaries(project, project?.task_statuses[0]).filter((artifact) => artifact.artifact_type === "patch_validation_report").map((artifact) => artifact.artifact_id),
     changed_files: changedFiles(project?.task_statuses[0]).map((file) => file.path),
     patch_artifacts: artifactSummaries(project, project?.task_statuses[0]).filter((artifact) => artifact.artifact_type === "diff").map((artifact) => artifact.artifact_id),
     verification_reports: artifactSummaries(project, project?.task_statuses[0]).filter((artifact) => artifact.artifact_type === "verification").map((artifact) => artifact.artifact_id),
@@ -128,6 +132,8 @@ function livePlanExecution(project: ProjectRunStatus | undefined): {
   readonly worktree_path?: string;
   readonly nodes: readonly { readonly node_id: string; readonly status: string; readonly capability?: string }[];
   readonly evidence_bundle_ids: readonly string[];
+  readonly scope_expansion_request_ids: readonly string[];
+  readonly patch_validation_report_ids: readonly string[];
   readonly changed_files: readonly string[];
   readonly patch_artifact_ids: readonly string[];
   readonly verification_report_ids: readonly string[];
@@ -168,6 +174,8 @@ function livePlanExecution(project: ProjectRunStatus | undefined): {
     ...(worktreePath ? { worktree_path: worktreePath } : {}),
     nodes,
     evidence_bundle_ids: arrayStrings(record.evidence_bundle_ids),
+    scope_expansion_request_ids: arrayStrings(record.scope_expansion_request_ids),
+    patch_validation_report_ids: arrayStrings(record.patch_validation_report_ids),
     changed_files: arrayStrings(record.changed_files),
     patch_artifact_ids: arrayStrings(record.patch_artifact_ids),
     verification_report_ids: arrayStrings(record.verification_report_ids),
@@ -284,7 +292,7 @@ function artifactType(value: string): ArtifactSummary["artifact_type"] {
   if (value === "planfile") return "plan";
   if (value === "verification_report") return "verification";
   if (value === "review_report") return "review";
-  if (value === "skill_frame" || value === "workflow_skill" || value === "pack_build_plan" || value === "generated_pack" || value === "pack_manifest" || value === "pack_validation_report" || value === "pack_test_report" || value === "pack_install_report" || value === "policy_decision_report" || value === "evidence_bundle" || value === "patch_plan" || value === "patch_artifact" || value === "final_patch_artifact" || value === "source_search_results" || value === "source_snapshot" || value === "source_text" || value === "source_set" || value === "research_brief" || value === "citation_index" || value === "capability_step_result" || value === "approval_request" || value === "execution_timeline" || value === "worktree_session" || value === "raw_log") return value;
+  if (value === "skill_frame" || value === "workflow_skill" || value === "pack_build_plan" || value === "generated_pack" || value === "pack_manifest" || value === "pack_validation_report" || value === "pack_test_report" || value === "pack_install_report" || value === "policy_decision_report" || value === "evidence_bundle" || value === "patch_plan_context" || value === "patch_plan" || value === "patch_validation_report" || value === "patch_artifact" || value === "final_patch_artifact" || value === "scope_expansion_request" || value === "repair_patch_plan" || value === "repair_decision" || value === "source_search_results" || value === "source_snapshot" || value === "source_text" || value === "source_set" || value === "research_brief" || value === "citation_index" || value === "capability_step_result" || value === "approval_request" || value === "execution_timeline" || value === "worktree_session" || value === "raw_log") return value;
   return "artifact_json";
 }
 

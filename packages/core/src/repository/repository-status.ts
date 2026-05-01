@@ -3,6 +3,15 @@ import { dirname, join, resolve } from "node:path";
 import { z } from "zod";
 import { PlanState } from "../planning/plan-state.js";
 import { WorktreeSession } from "./worktree-session.js";
+import { ScopeExpansionRequest } from "./patch-plan.js";
+
+export const RepositoryScopeExpansionStatus = z.object({
+  request: ScopeExpansionRequest,
+  approval_request_id: z.string().min(1),
+  approval_status: z.enum(["requested", "approved", "rejected"]),
+  suggested_approve_command: z.string().min(1),
+  suggested_reject_command: z.string().min(1),
+}).strict();
 
 export const RepositoryPlanStatus = z.object({
   schema_version: z.literal("open-lagrange.repository-status.v1"),
@@ -15,7 +24,11 @@ export const RepositoryPlanStatus = z.object({
   changed_files: z.array(z.string()),
   evidence_bundle_ids: z.array(z.string()),
   patch_plan_ids: z.array(z.string()),
+  patch_plan_generated_by_model: z.boolean().optional(),
+  patch_validation_report_ids: z.array(z.string()),
   patch_artifact_ids: z.array(z.string()),
+  scope_expansion_request_ids: z.array(z.string()),
+  scope_expansion_requests: z.array(RepositoryScopeExpansionStatus),
   verification_report_ids: z.array(z.string()),
   repair_attempt_ids: z.array(z.string()),
   review_report_id: z.string().optional(),
@@ -27,6 +40,7 @@ export const RepositoryPlanStatus = z.object({
 }).strict();
 
 export type RepositoryPlanStatus = z.infer<typeof RepositoryPlanStatus>;
+export type RepositoryScopeExpansionStatus = z.infer<typeof RepositoryScopeExpansionStatus>;
 
 export function createRepositoryPlanStatus(input: {
   readonly plan_id: string;
@@ -41,7 +55,10 @@ export function createRepositoryPlanStatus(input: {
     changed_files: [],
     evidence_bundle_ids: [],
     patch_plan_ids: [],
+    patch_validation_report_ids: [],
     patch_artifact_ids: [],
+    scope_expansion_request_ids: [],
+    scope_expansion_requests: [],
     verification_report_ids: [],
     repair_attempt_ids: [],
     errors: [],

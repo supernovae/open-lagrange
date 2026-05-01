@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { createArtifactSummary, registerArtifacts } from "../artifacts/index.js";
 import { createRunSummary, registerRun } from "../artifacts/run-index.js";
+import { getStateStore } from "../storage/state-store.js";
 import { stableHash } from "../util/hash.js";
 import { generateGoalFrame } from "../planning/goal-frame.js";
 import { renderPlanfileMarkdown } from "../planning/planfile-markdown.js";
@@ -13,6 +14,7 @@ import { WorktreeSession } from "./worktree-session.js";
 import { RepositoryPlanRunner } from "./repository-plan-runner.js";
 import { readRepositoryPlanStatus, writeRepositoryPlanStatus } from "./repository-status.js";
 import { exportFinalPatch } from "./patch-exporter.js";
+import type { PatchPlanGenerator } from "./model-patch-plan-generator.js";
 
 export interface CreateRepositoryPlanfileInput {
   readonly repo_root: string;
@@ -93,6 +95,7 @@ export async function applyRepositoryPlanfile(input: {
   readonly planfile: unknown;
   readonly allow_dirty_base?: boolean;
   readonly retain_on_failure?: boolean;
+  readonly patch_plan_generator?: PatchPlanGenerator;
   readonly now?: string;
 }) {
   const now = input.now ?? new Date().toISOString();
@@ -111,6 +114,7 @@ export async function applyRepositoryPlanfile(input: {
     planfile: plan,
     session,
     retain_worktree: input.retain_on_failure ?? true,
+    ...(input.patch_plan_generator ? { patch_plan_generator: input.patch_plan_generator } : {}),
     now,
   }).run();
   registerRun({
@@ -151,6 +155,44 @@ export async function cleanupRepositoryPlan(planId: string) {
   const cleaned = cleanupWorktreeSession(WorktreeSession.parse(status.worktree_session));
   writeRepositoryPlanStatus({ ...status, worktree_session: cleaned, updated_at: cleaned.updated_at });
   return { plan_id: planId, cleaned: true, worktree_path: cleaned.worktree_path };
+}
+
+export async function approveRepositoryScopeRequest(input: {
+  readonly request_id: string;
+  readonly reason: string;
+  readonly approved_by?: string;
+  readonly now?: string;
+}) {
+  const now = input.now ?? new Date().toISOString();
+  const decision = await getStateStore().approveRequest(input.request_id, input.approved_by ?? "human-local", now, input.reason);
+  const envelope = await getStateStore().getApprovalContinuationEnvelope(input.request_id);
+  if (envelope?.kind === "scope_expansion") updateScopeStatus(envelope.project_id, input.request_id, "approved");
+  return decision ?? { request_id: input.request_id, status: "missing" };
+}
+
+export async function rejectRepositoryScopeRequest(input: {
+  readonly request_id: string;
+  readonly reason: string;
+  readonly rejected_by?: string;
+  readonly now?: string;
+}) {
+  const now = input.now ?? new Date().toISOString();
+  const decision = await getStateStore().rejectRequest(input.request_id, input.rejected_by ?? "human-local", now, input.reason);
+  const envelope = await getStateStore().getApprovalContinuationEnvelope(input.request_id);
+  if (envelope?.kind === "scope_expansion") updateScopeStatus(envelope.project_id, input.request_id, "rejected");
+  return decision ?? { request_id: input.request_id, status: "missing" };
+}
+
+function updateScopeStatus(planId: string, requestId: string, approvalStatus: "approved" | "rejected"): void {
+  const status = readRepositoryPlanStatus(planId);
+  if (!status) return;
+  writeRepositoryPlanStatus({
+    ...status,
+    scope_expansion_requests: status.scope_expansion_requests.map((item) =>
+      item.approval_request_id === requestId || item.request.request_id === requestId ? { ...item, approval_status: approvalStatus } : item,
+    ),
+    updated_at: new Date().toISOString(),
+  });
 }
 
 function node(

@@ -53,7 +53,10 @@ export function PlanPane({ model }: { readonly model: TuiViewModel }): React.Rea
       <Box marginTop={1} flexDirection="column">
         <Text color={theme.title}>Repository</Text>
         <Text>Changed files: {(plan.changed_files.length > 0 ? plan.changed_files.join(", ") : "none")}</Text>
+        <Text>Evidence: {(plan.evidence_bundles.length > 0 ? plan.evidence_bundles.join(", ") : "none")}</Text>
+        <Text>Validation: {(plan.patch_validation_reports.length > 0 ? plan.patch_validation_reports.join(", ") : "none")}</Text>
         <Text>Patch artifacts: {(plan.patch_artifacts.length > 0 ? plan.patch_artifacts.join(", ") : "none")}</Text>
+        <Text>Scope requests: {(plan.scope_expansion_requests.length > 0 ? plan.scope_expansion_requests.join(", ") : "none")}</Text>
         <Text>Verification: {(plan.verification_reports.length > 0 ? plan.verification_reports.join(", ") : "none")}</Text>
         <Text>Repair attempts: {(plan.repair_attempts.length > 0 ? plan.repair_attempts.length : 0)}</Text>
       </Box>

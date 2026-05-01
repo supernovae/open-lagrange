@@ -16,6 +16,9 @@ A `PatchPlan` is a proposed edit. It is not the final patch and it is not allowe
   preconditions: PatchPrecondition[];
   risk_level: "read" | "write" | "destructive";
   approval_required: boolean;
+  confidence?: number;
+  requires_scope_expansion: boolean;
+  scope_expansion_request?: ScopeExpansionRequest;
 }
 ```
 
@@ -34,6 +37,8 @@ Supported operation kinds are `replace_range`, `insert_after`, `insert_before`, 
 - file size limits
 - no broad delete behavior in this phase
 - lockfile changes only with explicit preconditions
+- unique anchors for anchor-based edits unless policy permits ambiguity
+- approved scope expansion before touching files outside allowed evidence
 
 Only a validated `PatchPlan` can be passed to the `PatchApplier`.
 

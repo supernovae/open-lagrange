@@ -8,7 +8,7 @@ import { applyPatchOperation, readCurrentContent } from "./patch-operations.js";
 import { validateRepositoryPatchPlan } from "./patch-validator.js";
 import { RepositoryPatchArtifact } from "./patch-artifact.js";
 import type { RepositoryPatchArtifact as RepositoryPatchArtifactType } from "./patch-artifact.js";
-import type { RepositoryPatchPlan } from "./patch-plan.js";
+import type { PatchPolicy, RepositoryPatchPlan } from "./patch-plan.js";
 import { git, gitRaw } from "./worktree-manager.js";
 import type { WorktreeSession } from "./worktree-session.js";
 
@@ -16,10 +16,11 @@ export function applyRepositoryPatchPlan(input: {
   readonly workspace: RepositoryWorkspace;
   readonly session: WorktreeSession;
   readonly patch_plan: RepositoryPatchPlan;
+  readonly patch_policy?: PatchPolicy;
   readonly now?: string;
 }): RepositoryPatchArtifactType {
   const now = input.now ?? new Date().toISOString();
-  const validation = validateRepositoryPatchPlan(input.workspace, input.patch_plan);
+  const validation = validateRepositoryPatchPlan(input.workspace, input.patch_plan, input.patch_policy);
   if (!validation.valid || !validation.normalized_patch_plan) {
     return RepositoryPatchArtifact.parse({
       patch_artifact_id: `patch_artifact_${stableHash({ plan: input.patch_plan.patch_plan_id, now }).slice(0, 18)}`,

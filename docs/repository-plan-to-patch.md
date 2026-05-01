@@ -40,7 +40,7 @@ The CLI does not execute freeform Markdown. It parses and validates the executab
 - Planfile generation writes `.open-lagrange/plans/<plan_id>.plan.md`.
 - Repository apply creates `.open-lagrange/worktrees/<plan_id>/` on branch `ol/<plan_id>`.
 - Evidence collection uses repository capabilities through PackRegistry and CapabilityStepRunner.
-- Patch proposals are validated before writes.
+- Patch proposals are generated as schema-bound model PatchPlans from EvidenceBundle context, then validated before writes.
 - Patch application mutates only the isolated worktree.
 - Verification uses allowlisted executable plus args, not arbitrary shell strings.
 - Final patch export validates the diff against the recorded base commit.
@@ -48,4 +48,4 @@ The CLI does not execute freeform Markdown. It parses and validates the executab
 
 ## Still Experimental
 
-The current implementation is intentionally narrow. Patch planning uses a bounded deterministic fallback for small repository tasks. Repair records a bounded decision and yields when broader scope is needed. Parallel DAG execution, broad semantic code editing, and remote distributed repository execution are not part of this phase.
+The current implementation is intentionally narrow. Patch generation requires a configured model provider during apply, with explicit mock generation available for tests and demos. Repair records bounded decisions and scope expansion requests. Parallel DAG execution, broad semantic code editing, and remote distributed repository execution are not part of this phase.

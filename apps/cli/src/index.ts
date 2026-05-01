@@ -10,7 +10,7 @@ import { listDemos, openDemo, runDemo } from "@open-lagrange/core/demos";
 import { runCoreDoctor } from "@open-lagrange/core/doctor";
 import { getPackHealth, inspectPack, listInspectablePacks, runPackSmoke, validateRegisteredPack } from "@open-lagrange/core/packs";
 import { applyPlanfile as applyLocalPlanfile, generateGoalFrame, generatePlanfile, parsePlanfileMarkdown, parsePlanfileYaml, renderPlanfileMarkdown, renderPlanMermaid, validatePlanfile, withCanonicalPlanDigest } from "@open-lagrange/core/planning";
-import { applyRepositoryPlanfile as applyLocalRepositoryPlanfile, cleanupRepositoryPlan as cleanupLocalRepositoryPlan, createRepositoryPlanfile, exportRepositoryPlanPatch as exportLocalRepositoryPlanPatch, getRepositoryPlanStatus as getLocalRepositoryPlanStatus } from "@open-lagrange/core/repository";
+import { applyRepositoryPlanfile as applyLocalRepositoryPlanfile, approveRepositoryScopeRequest, cleanupRepositoryPlan as cleanupLocalRepositoryPlan, createRepositoryPlanfile, exportRepositoryPlanPatch as exportLocalRepositoryPlanPatch, getRepositoryPlanStatus as getLocalRepositoryPlanStatus, rejectRepositoryScopeRequest } from "@open-lagrange/core/repository";
 import { runResearchBriefCommand, runResearchExportCommand, runResearchFetchCommand, runResearchSearchCommand } from "@open-lagrange/core/research";
 import { buildGeneratedPackFromMarkdown, generateSkillFrame, generateWorkflowSkill, installGeneratedPack, parseSkillfileMarkdown, parseWorkflowSkillMarkdown, previewWorkflowSkillRun, scaffoldGeneratedPack, validateGeneratedPack, validateWorkflowSkill } from "@open-lagrange/core/skills";
 import { createPlatformClientFromCurrentProfile } from "@open-lagrange/platform-client";
@@ -519,6 +519,24 @@ repo.command("review").argument("<planId>", "Plan ID, task ID, or task run ID").
 repo.command("cleanup").argument("<planId>", "Repository plan ID").action(async (planId: string) => {
   console.log(JSON.stringify(await cleanupLocalRepositoryPlan(planId), null, 2));
 });
+
+const repoScope = repo.command("scope").description("Approve or reject repository scope expansion requests.");
+
+repoScope.command("approve")
+  .argument("<requestId>", "Scope expansion request ID")
+  .requiredOption("--reason <reason>", "Approval reason")
+  .option("--approved-by <approvedBy>", "Approver identifier", "human-local")
+  .action(async (requestId: string, options: { readonly reason: string; readonly approvedBy: string }) => {
+    console.log(JSON.stringify(await approveRepositoryScopeRequest({ request_id: requestId, reason: options.reason, approved_by: options.approvedBy }), null, 2));
+  });
+
+repoScope.command("reject")
+  .argument("<requestId>", "Scope expansion request ID")
+  .requiredOption("--reason <reason>", "Rejection reason")
+  .option("--rejected-by <rejectedBy>", "Reviewer identifier", "human-local")
+  .action(async (requestId: string, options: { readonly reason: string; readonly rejectedBy: string }) => {
+    console.log(JSON.stringify(await rejectRepositoryScopeRequest({ request_id: requestId, reason: options.reason, rejected_by: options.rejectedBy }), null, 2));
+  });
 
 repo.command("approve").argument("<taskId>", "Task ID or task run ID").requiredOption("--reason <reason>", "Approval reason").requiredOption("--approval-token <approvalToken>", "Approval token").option("--approved-by <approvedBy>", "Approver identifier", "human-local").action(async (taskId: string, options: { readonly reason: string; readonly approvalToken: string; readonly approvedBy: string }) => {
   console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).approveTask(taskId, { decided_by: options.approvedBy, reason: options.reason, approval_token: options.approvalToken }), null, 2));

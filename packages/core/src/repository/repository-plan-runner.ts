@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { createArtifactSummary, registerArtifacts, type ArtifactSummary } from "../artifacts/index.js";
 import { packRegistry } from "../capability-registry/registry.js";
 import { createMockDelegationContext } from "../clients/mock-delegation.js";
+import { getStateStore } from "../storage/state-store.js";
 import { createArtifactRef } from "../planning/plan-artifacts.js";
 import { renderPlanfileMarkdown } from "../planning/planfile-markdown.js";
 import { createInitialPlanState, type PlanState, type PlanStateStore } from "../planning/plan-state.js";
@@ -15,7 +16,7 @@ import { stableHash } from "../util/hash.js";
 import { loadRepositoryWorkspace } from "./workspace.js";
 import { applyRepositoryPatchPlan } from "./patch-applier.js";
 import { exportFinalPatch } from "./patch-exporter.js";
-import { RepositoryPatchPlan, type RepositoryPatchPlan as RepositoryPatchPlanType } from "./patch-plan.js";
+import { type PatchPolicy, RepositoryPatchPlan, ScopeExpansionRequest, type RepositoryPatchPlan as RepositoryPatchPlanType } from "./patch-plan.js";
 import { validateRepositoryPatchPlan } from "./patch-validator.js";
 import { collectEvidenceBundle } from "./evidence-collector.js";
 import type { EvidenceBundle } from "./evidence-bundle.js";
@@ -28,6 +29,8 @@ import type { RepositoryReviewReport as RepositoryReviewReportType } from "./rev
 import type { WorktreeSession } from "./worktree-session.js";
 import { updateWorktreeSessionStatus } from "./worktree-manager.js";
 import { createRepositoryPlanStatus, updateRepositoryPlanStatus, writeRepositoryPlanStatus, type RepositoryPlanStatus } from "./repository-status.js";
+import { createPatchPlanWorkOrder, defaultPatchPolicy, generatePatchPlanFromEvidence, patchPlanContextSummary, validateScopeExpansionRequest, type GeneratePatchPlanFromEvidenceInput, type PatchPlanGenerator } from "./model-patch-plan-generator.js";
+import { PatchPlanGenerationError } from "./patch-plan-generation-errors.js";
 
 export interface RepositoryPlanRunnerOptions {
   readonly store: PlanStateStore;
@@ -35,6 +38,7 @@ export interface RepositoryPlanRunnerOptions {
   readonly session: WorktreeSession;
   readonly allow_dirty_base?: boolean;
   readonly retain_worktree?: boolean;
+  readonly patch_plan_generator?: PatchPlanGenerator;
   readonly now?: string;
 }
 
@@ -52,6 +56,8 @@ interface RepositoryExecutionMemory {
   repairs: RepairAttempt[];
   review?: RepositoryReviewReportType;
   changed_files: string[];
+  patch_validation_report_ids: string[];
+  scope_expansion_request_ids: string[];
 }
 
 export class RepositoryPlanRunner {
@@ -87,7 +93,7 @@ export class RepositoryPlanRunner {
       markdown_projection: renderPlanfileMarkdown({ ...this.plan, status: "running" }),
       now: this.now,
     }));
-    const memory: RepositoryExecutionMemory = { repairs: [], changed_files: [] };
+    const memory: RepositoryExecutionMemory = { repairs: [], changed_files: [], patch_validation_report_ids: [], scope_expansion_request_ids: [] };
     for (const node of this.linearNodes()) {
       state = await this.markNode(state, node, "running");
       this.status = this.writeStatus({ current_node: node.id, status: "running", plan_state: state });
@@ -99,6 +105,9 @@ export class RepositoryPlanRunner {
         changed_files: memory.changed_files,
         evidence_bundle_ids: memory.evidence ? [memory.evidence.evidence_bundle_id] : this.status.evidence_bundle_ids,
         patch_plan_ids: memory.patch_plan ? [memory.patch_plan.patch_plan_id] : this.status.patch_plan_ids,
+        patch_plan_generated_by_model: memory.patch_plan ? true : this.status.patch_plan_generated_by_model,
+        patch_validation_report_ids: memory.patch_validation_report_ids,
+        scope_expansion_request_ids: memory.scope_expansion_request_ids,
         patch_artifact_ids: memory.patch_artifact_id ? [memory.patch_artifact_id] : this.status.patch_artifact_ids,
         verification_report_ids: memory.verification ? [memory.verification.verification_report_id] : this.status.verification_report_ids,
         repair_attempt_ids: memory.repairs.map((repair) => repair.repair_attempt_id),
@@ -109,7 +118,7 @@ export class RepositoryPlanRunner {
     }
     const finalPatch = exportFinalPatch(this.session);
     const finalArtifact = this.recordArtifact("final_patch_artifact", "Final Patch Artifact", "Validated final git patch artifact.", finalPatch, "application/json");
-    this.session = updateWorktreeSessionStatus(this.session, state.status === "failed" ? "failed" : "completed", { final_patch_artifact_id: finalArtifact.artifact_id });
+    this.session = updateWorktreeSessionStatus(this.session, state.status === "failed" ? "failed" : state.status === "yielded" ? "retained" : "completed", { final_patch_artifact_id: finalArtifact.artifact_id });
     this.status = this.writeStatus({
       status: state.status === "failed" ? "failed" : state.status === "yielded" ? "yielded" : "completed",
       worktree_session: this.session,
@@ -139,17 +148,30 @@ export class RepositoryPlanRunner {
     }
     if (node.kind === "patch") {
       if (!memory.evidence) return { status: "failed", artifactRefs: [], errors: ["Patch node requires an EvidenceBundle."] };
-      const patchPlan = deterministicPatchPlan(this.plan, node, memory.evidence);
+      const generated = await this.generatePatchPlan(node, memory.evidence, "initial_patch", undefined, undefined);
+      if ("yielded" in generated) return generated.yielded;
+      const { patchPlan, patchPolicy, contextArtifact } = generated;
       memory.patch_plan = patchPlan;
       const planArtifact = this.recordArtifact("patch_plan", "Patch Plan", patchPlan.summary, patchPlan, "application/json");
-      const validation = validateRepositoryPatchPlan(workspace, patchPlan);
-      if (!validation.valid) return { status: "failed", artifactRefs: [this.planArtifactRef(planArtifact)], errors: validation.violations.map((violation) => violation.message) };
+      const scopeResult = await this.handleScopeExpansionIfNeeded(node, patchPlan, memory.evidence);
+      if (scopeResult) {
+        memory.scope_expansion_request_ids.push(scopeResult.requestId);
+        return { status: "yielded", artifactRefs: [this.planArtifactRef(contextArtifact), this.planArtifactRef(planArtifact), this.planArtifactRef(scopeResult.artifact)], errors: [scopeResult.message] };
+      }
+      const validation = validateRepositoryPatchPlan(workspace, patchPlan, patchPolicy);
+      const validationArtifact = this.recordArtifact("patch_validation_report", "Patch Validation Report", validation.valid ? "Patch validation passed." : "Patch validation failed.", validation, "application/json");
+      memory.patch_validation_report_ids.push(validationArtifact.artifact_id);
+      if (!validation.valid) return { status: "failed", artifactRefs: [this.planArtifactRef(contextArtifact), this.planArtifactRef(planArtifact), this.planArtifactRef(validationArtifact)], errors: validation.violations.map((violation) => violation.message) };
+      if (validation.approval_required) {
+        const approvalArtifact = await this.createPatchApproval(node, patchPlan);
+        return { status: "yielded", artifactRefs: [this.planArtifactRef(contextArtifact), this.planArtifactRef(planArtifact), this.planArtifactRef(validationArtifact), this.planArtifactRef(approvalArtifact)], errors: [`PatchPlan requires approval: ${approvalArtifact.artifact_id}`] };
+      }
       await this.invokeCapability(workspace, "repo.propose_patch", { patch_plan: legacyPatchPlan(patchPlan, memory.evidence) }, node.id, [memory.evidence.artifact_id]);
-      const patchArtifact = applyRepositoryPatchPlan({ workspace, session: this.session, patch_plan: patchPlan, now: this.now });
+      const patchArtifact = applyRepositoryPatchPlan({ workspace, session: this.session, patch_plan: patchPlan, patch_policy: patchPolicy, now: this.now });
       memory.patch_artifact_id = patchArtifact.artifact_id;
       memory.changed_files = patchArtifact.changed_files;
       const artifact = this.recordArtifact("patch_artifact", "Patch Artifact", `${patchArtifact.changed_files.length} changed file(s).`, patchArtifact, "application/json");
-      return { status: patchArtifact.apply_status === "applied" ? "completed" : "failed", artifactRefs: [this.planArtifactRef(planArtifact), this.planArtifactRef(artifact)], errors: patchArtifact.errors.map((error) => error.message) };
+      return { status: patchArtifact.apply_status === "applied" ? "completed" : "failed", artifactRefs: [this.planArtifactRef(contextArtifact), this.planArtifactRef(planArtifact), this.planArtifactRef(validationArtifact), this.planArtifactRef(artifact)], errors: patchArtifact.errors.map((error) => error.message) };
     }
     if (node.kind === "verify") {
       const policy = detectVerificationPolicy(this.session.worktree_path);
@@ -163,8 +185,31 @@ export class RepositoryPlanRunner {
       if (!memory.verification || memory.verification.passed) return { status: "skipped", artifactRefs: [], errors: [] };
       const repair = nextRepairAttempt({ plan_id: this.plan.plan_id, node_id: node.id, previous_attempts: memory.repairs, verification_report: memory.verification, now: this.now });
       memory.repairs.push(repair);
-      const artifact = this.recordArtifact("raw_log", "Repair Decision", repair.failure_summary, repair, "application/json");
-      return { status: repair.status === "yielded" ? "yielded" : "yielded", artifactRefs: [this.planArtifactRef(artifact)], errors: [repair.decision.reason] };
+      const repairArtifact = this.recordArtifact("repair_decision", "Repair Decision", repair.failure_summary, repair, "application/json");
+      if (!memory.evidence) return { status: "yielded", artifactRefs: [this.planArtifactRef(repairArtifact)], errors: ["Repair requires an EvidenceBundle."] };
+      const generated = await this.generatePatchPlan(node, memory.evidence, "repair", memory.verification.failures, `${memory.changed_files.length} changed file(s): ${memory.changed_files.join(", ")}`);
+      if ("yielded" in generated) return { status: "yielded", artifactRefs: [this.planArtifactRef(repairArtifact), ...generated.yielded.artifactRefs], errors: [repair.decision.reason, ...generated.yielded.errors] };
+      const { patchPlan, patchPolicy, contextArtifact } = generated;
+      memory.patch_plan = patchPlan;
+      const planArtifact = this.recordArtifact("repair_patch_plan", "Repair Patch Plan", patchPlan.summary, patchPlan, "application/json");
+      const scopeResult = await this.handleScopeExpansionIfNeeded(node, patchPlan, memory.evidence);
+      if (scopeResult) {
+        memory.scope_expansion_request_ids.push(scopeResult.requestId);
+        return { status: "yielded", artifactRefs: [this.planArtifactRef(repairArtifact), this.planArtifactRef(contextArtifact), this.planArtifactRef(planArtifact), this.planArtifactRef(scopeResult.artifact)], errors: [scopeResult.message] };
+      }
+      const validation = validateRepositoryPatchPlan(workspace, patchPlan, patchPolicy);
+      const validationArtifact = this.recordArtifact("patch_validation_report", "Repair Patch Validation Report", validation.valid ? "Repair patch validation passed." : "Repair patch validation failed.", validation, "application/json");
+      memory.patch_validation_report_ids.push(validationArtifact.artifact_id);
+      if (!validation.valid) return { status: "yielded", artifactRefs: [this.planArtifactRef(repairArtifact), this.planArtifactRef(contextArtifact), this.planArtifactRef(planArtifact), this.planArtifactRef(validationArtifact)], errors: validation.violations.map((violation) => violation.message) };
+      if (validation.approval_required) {
+        const approvalArtifact = await this.createPatchApproval(node, patchPlan);
+        return { status: "yielded", artifactRefs: [this.planArtifactRef(repairArtifact), this.planArtifactRef(contextArtifact), this.planArtifactRef(planArtifact), this.planArtifactRef(validationArtifact), this.planArtifactRef(approvalArtifact)], errors: [`Repair PatchPlan requires approval: ${approvalArtifact.artifact_id}`] };
+      }
+      const patchArtifact = applyRepositoryPatchPlan({ workspace, session: this.session, patch_plan: patchPlan, patch_policy: patchPolicy, now: this.now });
+      memory.patch_artifact_id = patchArtifact.artifact_id;
+      memory.changed_files = patchArtifact.changed_files;
+      const patchArtifactSummary = this.recordArtifact("patch_artifact", "Repair Patch Artifact", `${patchArtifact.changed_files.length} changed file(s).`, patchArtifact, "application/json");
+      return { status: "completed", artifactRefs: [this.planArtifactRef(repairArtifact), this.planArtifactRef(contextArtifact), this.planArtifactRef(planArtifact), this.planArtifactRef(validationArtifact), this.planArtifactRef(patchArtifactSummary)], errors: patchArtifact.errors.map((error) => error.message) };
     }
     if (node.kind === "review") {
       const review = RepositoryReviewReport.parse({
@@ -227,7 +272,7 @@ export class RepositoryPlanRunner {
 
   private async markNode(state: PlanState, node: PlanNode, status: PlanNode["status"], artifacts: ReturnType<typeof createArtifactRef>[] = [], errors: readonly string[] = []): Promise<PlanState> {
     const nodeStates = state.node_states.map((item) => item.node_id === node.id ? { ...item, status, completed_at: status === "running" ? item.completed_at : new Date().toISOString(), artifacts, errors: [...errors] } : item);
-    const planStatus = errors.length > 0 || status === "failed" ? "failed" : nodeStates.every((item) => item.status === "completed" || item.status === "skipped") ? "completed" : "running";
+    const planStatus = status === "yielded" ? "yielded" : status === "failed" || (errors.length > 0 && status !== "skipped") ? "failed" : nodeStates.every((item) => item.status === "completed" || item.status === "skipped") ? "completed" : "running";
     return this.options.store.recordPlanState({
       ...state,
       status: planStatus,
@@ -279,7 +324,7 @@ export class RepositoryPlanRunner {
   private planArtifactRef(artifact: ArtifactSummary) {
     return createArtifactRef({
       artifact_id: artifact.artifact_id,
-      kind: artifact.kind === "final_patch_artifact" ? "final_patch_artifact" : artifact.kind === "review_report" ? "review_report" : artifact.kind === "verification_report" ? "verification_report" : artifact.kind === "patch_artifact" ? "patch_artifact" : artifact.kind === "patch_plan" ? "patch_plan" : artifact.kind === "evidence_bundle" ? "evidence_bundle" : "raw_log",
+      kind: artifact.kind === "final_patch_artifact" ? "final_patch_artifact" : artifact.kind === "review_report" ? "review_report" : artifact.kind === "verification_report" ? "verification_report" : artifact.kind === "patch_artifact" ? "patch_artifact" : artifact.kind === "patch_plan" || artifact.kind === "repair_patch_plan" ? "patch_plan" : artifact.kind === "evidence_bundle" ? "evidence_bundle" : "raw_log",
       path_or_uri: artifact.path_or_uri,
       summary: artifact.summary,
       created_at: artifact.created_at,
@@ -289,32 +334,131 @@ export class RepositoryPlanRunner {
   private writeStatus(patch: Partial<Omit<RepositoryPlanStatus, "schema_version" | "plan_id" | "created_at">>): RepositoryPlanStatus {
     return writeRepositoryPlanStatus(updateRepositoryPlanStatus(this.status, patch));
   }
-}
 
-function deterministicPatchPlan(plan: PlanfileType, node: PlanNode, evidence: EvidenceBundle): RepositoryPatchPlanType {
-  const target = evidence.files.find((file) => file.path.toLowerCase().includes("readme")) ?? evidence.files[0];
-  const path = target?.path ?? "README.md";
-  return RepositoryPatchPlan.parse({
-    patch_plan_id: `repo_patch_${stableHash({ plan: plan.plan_id, node: node.id, evidence: evidence.evidence_bundle_id }).slice(0, 18)}`,
-    plan_id: plan.plan_id,
-    node_id: node.id,
-    summary: `Apply bounded repository change for ${plan.goal_frame.interpreted_goal}`,
-    rationale: "Initial implementation keeps patching bounded to collected evidence.",
-    evidence_refs: [evidence.artifact_id],
-    operations: [{
-      operation_id: "op_append_repository_plan_note",
-      kind: "insert_after",
-      relative_path: path,
-      ...(target ? { expected_sha256: target.sha256 } : {}),
-      content: "\n\n<!-- Open Lagrange repository plan executed. -->\n",
-      rationale: "Small deterministic patch used by the durable repository execution path.",
-    }],
-    expected_changed_files: [path],
-    verification_command_ids: plan.verification_policy.allowed_command_ids,
-    preconditions: target ? [{ kind: "file_hash", path, expected_sha256: target.sha256, summary: `${path} hash matches evidence.` }] : [{ kind: "file_absent", path, summary: `${path} can be created.` }],
-    risk_level: "write",
-    approval_required: true,
-  });
+  private async generatePatchPlan(
+    node: PlanNode,
+    evidence: EvidenceBundle,
+    mode: "initial_patch" | "repair",
+    latestFailures: RepositoryVerificationReport["failures"] | undefined,
+    currentDiffSummary: string | undefined,
+  ): Promise<{ readonly patchPlan: RepositoryPatchPlanType; readonly patchPolicy: PatchPolicy; readonly contextArtifact: ArtifactSummary } | { readonly yielded: { readonly status: "failed" | "yielded"; readonly artifactRefs: ReturnType<typeof createArtifactRef>[]; readonly errors: readonly string[] } }> {
+    const workOrder = createPatchPlanWorkOrder({ plan: this.plan, node, evidence, ...(latestFailures ? { latest_failures: latestFailures } : {}) });
+    const allowedFiles = evidence.files.map((file) => file.path);
+    const patchPolicy = defaultPatchPolicy({
+      allowed_files: allowedFiles,
+      denied_files: [],
+      allowed_verification_command_ids: node.verification_command_ids ?? this.plan.verification_policy.allowed_command_ids,
+    });
+    const input: GeneratePatchPlanFromEvidenceInput = {
+      plan_id: this.plan.plan_id,
+      node_id: node.id,
+      work_order: workOrder,
+      evidence_bundle: evidence,
+      allowed_files: allowedFiles,
+      denied_files: patchPolicy.denied_files,
+      acceptance_criteria: workOrder.acceptance_criteria,
+      non_goals: workOrder.non_goals,
+      constraints: workOrder.constraints,
+      patch_policy: patchPolicy,
+      ...(latestFailures ? { latest_failures: latestFailures } : {}),
+      ...(currentDiffSummary ? { current_diff_summary: currentDiffSummary } : {}),
+      mode,
+      model_role_hint: mode === "repair" ? "repair_small" : "implementer_small",
+    };
+    const contextArtifact = this.recordArtifact("patch_plan_context", mode === "repair" ? "Repair PatchPlan Context" : "PatchPlan Context", "Redacted evidence-only PatchPlan generation context.", patchPlanContextSummary(input), "application/json");
+    try {
+      const patchPlan = RepositoryPatchPlan.parse(await (this.options.patch_plan_generator ?? generatePatchPlanFromEvidence)(input));
+      const evidenceRefs = new Set([evidence.evidence_bundle_id, evidence.artifact_id, ...evidence.files.map((file) => file.path)]);
+      const unknownRefs = patchPlan.evidence_refs.filter((ref) => !evidenceRefs.has(ref));
+      if (unknownRefs.length > 0) {
+        return { yielded: { status: "yielded", artifactRefs: [this.planArtifactRef(contextArtifact)], errors: [`PatchPlan referenced unknown evidence: ${unknownRefs.join(", ")}`] } };
+      }
+      return { patchPlan, patchPolicy, contextArtifact };
+    } catch (caught) {
+      if (caught instanceof PatchPlanGenerationError && caught.code === "MODEL_PROVIDER_UNAVAILABLE") {
+        return { yielded: { status: "yielded", artifactRefs: [this.planArtifactRef(contextArtifact)], errors: [caught.message] } };
+      }
+      return { yielded: { status: "failed", artifactRefs: [this.planArtifactRef(contextArtifact)], errors: [caught instanceof Error ? caught.message : String(caught)] } };
+    }
+  }
+
+  private async handleScopeExpansionIfNeeded(node: PlanNode, patchPlan: RepositoryPatchPlanType, evidence: EvidenceBundle): Promise<{ readonly requestId: string; readonly artifact: ArtifactSummary; readonly message: string } | undefined> {
+    if (!patchPlan.requires_scope_expansion) return undefined;
+    if (!patchPlan.scope_expansion_request) return {
+      requestId: `scope_missing_${stableHash(patchPlan).slice(0, 18)}`,
+      artifact: this.recordArtifact("scope_expansion_request", "Invalid Scope Expansion Request", "PatchPlan requested scope expansion without a request.", { patch_plan_id: patchPlan.patch_plan_id }, "application/json"),
+      message: "PatchPlan requested scope expansion without a request.",
+    };
+    const request = validateScopeExpansionRequest({
+      request: ScopeExpansionRequest.parse(patchPlan.scope_expansion_request),
+      plan_id: this.plan.plan_id,
+      node_id: node.id,
+      evidence_refs: [evidence.evidence_bundle_id, evidence.artifact_id, ...evidence.files.map((file) => file.path)],
+    });
+    const approvalRequest = {
+      approval_request_id: request.request_id,
+      task_id: node.id,
+      project_id: this.plan.plan_id,
+      intent_id: `scope_expansion_${request.request_id}`,
+      requested_risk_level: request.requested_risk_level ?? "write",
+      requested_capability: "repo.scope_expansion",
+      task_run_id: this.plan.plan_id,
+      requested_at: this.now,
+      prompt: request.reason,
+      trace_id: `trace_${this.plan.plan_id}`,
+    };
+    const decision = await getStateStore().createApprovalRequest(approvalRequest);
+    await getStateStore().recordApprovalContinuationEnvelope({
+      kind: "scope_expansion",
+      approval_request: approvalRequest,
+      project_id: this.plan.plan_id,
+      task_run_id: this.plan.plan_id,
+      trace_id: `trace_${this.plan.plan_id}`,
+      payload: request,
+    });
+    const artifact = this.recordArtifact("scope_expansion_request", "Scope Expansion Request", request.reason, request, "application/json");
+    this.status = this.writeStatus({
+      scope_expansion_request_ids: [...new Set([...this.status.scope_expansion_request_ids, request.request_id])],
+      scope_expansion_requests: [...this.status.scope_expansion_requests, {
+        request,
+        approval_request_id: decision.approval_request_id,
+        approval_status: decision.decision,
+        suggested_approve_command: `open-lagrange repo scope approve ${decision.approval_request_id} --reason "<reason>"`,
+        suggested_reject_command: `open-lagrange repo scope reject ${decision.approval_request_id} --reason "<reason>"`,
+      }],
+    });
+    return { requestId: request.request_id, artifact, message: `Scope expansion requires approval: ${request.request_id}` };
+  }
+
+  private async createPatchApproval(node: PlanNode, patchPlan: RepositoryPatchPlanType): Promise<ArtifactSummary> {
+    const request = {
+      approval_request_id: `approval_${stableHash({ plan: this.plan.plan_id, node: node.id, patch: patchPlan.patch_plan_id }).slice(0, 18)}`,
+      task_id: node.id,
+      project_id: this.plan.plan_id,
+      intent_id: `patch_${patchPlan.patch_plan_id}`,
+      requested_risk_level: patchPlan.risk_level,
+      requested_capability: "repo.apply_patch",
+      task_run_id: this.plan.plan_id,
+      requested_at: this.now,
+      prompt: patchPlan.summary,
+      trace_id: `trace_${this.plan.plan_id}`,
+    };
+    const decision = await getStateStore().createApprovalRequest(request);
+    await getStateStore().recordApprovalContinuationEnvelope({
+      kind: "repository_patch",
+      approval_request: request,
+      project_id: this.plan.plan_id,
+      task_run_id: this.plan.plan_id,
+      trace_id: `trace_${this.plan.plan_id}`,
+      payload: { patch_plan_id: patchPlan.patch_plan_id },
+    });
+    return this.recordArtifact("approval_request", "Patch Approval Request", patchPlan.summary, {
+      approval_request: request,
+      approval_status: decision.decision,
+      suggested_approve_command: `open-lagrange approve ${decision.approval_request_id} --reason "<reason>" --approval-token "$(open-lagrange approval-token ${decision.approval_request_id})"`,
+      suggested_reject_command: `open-lagrange reject ${decision.approval_request_id} --reason "<reason>" --approval-token "$(open-lagrange approval-token ${decision.approval_request_id})"`,
+    }, "application/json");
+  }
 }
 
 function legacyPatchPlan(patchPlan: RepositoryPatchPlanType, evidence: EvidenceBundle) {

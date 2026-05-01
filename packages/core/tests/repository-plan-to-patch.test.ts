@@ -5,6 +5,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { createRepositoryReviewReport } from "../src/capability-packs/repository/executor.js";
+import { createCapabilitySnapshotForTask } from "../src/capability-registry/registry.js";
+import { WorkOrder } from "../src/planning/work-order.js";
+import { createEvidenceBundle } from "../src/repository/evidence-bundle.js";
 import { loadRepositoryWorkspace } from "../src/repository/workspace.js";
 import { cleanupWorktreeSession, createWorktreeSession } from "../src/repository/worktree-manager.js";
 import { exportFinalPatch } from "../src/repository/patch-exporter.js";
@@ -12,6 +15,9 @@ import { validateRepositoryPatchPlan } from "../src/repository/patch-validator.j
 import { nextRepairAttempt } from "../src/repository/repair-loop.js";
 import { createRepositoryPlanfile, applyRepositoryPlanfile } from "../src/repository/repository-plan-control.js";
 import { runVerificationPolicy } from "../src/repository/verification-runner.js";
+import { generatePatchPlanFromEvidence, patchPlanContextSummary } from "../src/repository/model-patch-plan-generator.js";
+import { modelProviderUnavailable } from "../src/repository/patch-plan-generation-errors.js";
+import { normalizeModelPatchPlanOutput } from "../src/repository/patch-plan-output-schema.js";
 import type { RepositoryPatchPlan } from "../src/repository/patch-plan.js";
 
 describe("repository Planfile to patch pipeline", () => {
@@ -76,6 +82,129 @@ describe("repository Planfile to patch pipeline", () => {
     expect(changedHash.errors.join("\n")).toContain("expected hash does not match");
   });
 
+  it("rejects missing and ambiguous anchors", () => {
+    const root = gitFixture();
+    writeFileSync(join(root, "README.md"), "# Demo\nanchor\nanchor\n");
+    const workspace = loadRepositoryWorkspace({ repo_root: root, trace_id: "trace-test", dry_run: false });
+    const readmeHash = sha(root, "README.md");
+    const missing = validateRepositoryPatchPlan(workspace, anchorPatchPlan("missing", readmeHash), {
+      allowed_files: ["README.md"],
+      denied_files: [],
+      allow_full_replacement: true,
+      full_replacement_max_bytes: 32000,
+      allow_ambiguous_anchors: false,
+      allowed_verification_command_ids: ["npm_run_typecheck"],
+    });
+    const ambiguous = validateRepositoryPatchPlan(workspace, anchorPatchPlan("anchor", readmeHash), {
+      allowed_files: ["README.md"],
+      denied_files: [],
+      allow_full_replacement: true,
+      full_replacement_max_bytes: 32000,
+      allow_ambiguous_anchors: false,
+      allowed_verification_command_ids: ["npm_run_typecheck"],
+    });
+
+    expect(missing.errors.join("\n")).toContain("anchor was not found");
+    expect(ambiguous.errors.join("\n")).toContain("anchor is ambiguous");
+  });
+
+  it("validates model PatchPlan output schema", () => {
+    const hash = "a".repeat(64);
+    const plan = normalizeModelPatchPlanOutput({
+      patch_plan_id: "patch-model",
+      plan_id: "plan-test",
+      node_id: "patch_repo",
+      summary: "Patch README",
+      rationale: "Use provided evidence only.",
+      evidence_refs: ["evidence-test"],
+      operations: [{
+        operation_id: "op-1",
+        type: "insert_after",
+        path: "README.md",
+        anchor: "# Demo",
+        content: "\n\nUpdated.\n",
+        expected_sha256: hash,
+        rationale: "Small anchor edit.",
+      }],
+      expected_changed_files: ["README.md"],
+      verification_command_ids: ["npm_run_typecheck"],
+      preconditions: [{ kind: "file_hash", path: "README.md", expected_sha256: hash, summary: "README hash matches evidence." }],
+      risk_level: "write",
+      approval_required: true,
+      confidence: 0.7,
+      requires_scope_expansion: false,
+    });
+
+    expect(plan.operations[0]?.kind).toBe("insert_after");
+    expect(plan.operations[0]?.relative_path).toBe("README.md");
+  });
+
+  it("keeps PatchPlan generation context evidence-only", () => {
+    const root = gitFixture();
+    const evidence = testEvidence(root);
+    const context = patchPlanContextSummary({
+      plan_id: "plan-test",
+      node_id: "patch_repo",
+      work_order: testWorkOrder(),
+      evidence_bundle: evidence,
+      allowed_files: ["README.md"],
+      denied_files: [".env"],
+      acceptance_criteria: ["README updated"],
+      non_goals: ["Do not touch secrets"],
+      constraints: ["allowed files only"],
+      patch_policy: {
+        allowed_files: ["README.md"],
+        denied_files: [".env"],
+        allow_full_replacement: true,
+        full_replacement_max_bytes: 32000,
+        allow_ambiguous_anchors: false,
+        allowed_verification_command_ids: ["npm_run_typecheck"],
+      },
+      mode: "initial_patch",
+      model_role_hint: "implementer_small",
+    });
+
+    const text = JSON.stringify(context);
+    expect(text).toContain("README.md");
+    expect(text).not.toContain("SECRET=1");
+    expect(text).not.toContain(".git");
+  });
+
+  it("yields when PatchPlan generation has no configured model provider", async () => {
+    const original = {
+      provider: process.env.OPEN_LAGRANGE_MODEL_PROVIDER,
+      key: process.env.OPEN_LAGRANGE_MODEL_API_KEY,
+      openai: process.env.OPENAI_API_KEY,
+      gateway: process.env.AI_GATEWAY_API_KEY,
+    };
+    delete process.env.OPEN_LAGRANGE_MODEL_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.AI_GATEWAY_API_KEY;
+    process.env.OPEN_LAGRANGE_MODEL_PROVIDER = "openai";
+    await expect(generatePatchPlanFromEvidence({
+      plan_id: "plan-test",
+      node_id: "patch_repo",
+      work_order: testWorkOrder(),
+      evidence_bundle: testEvidence(gitFixture()),
+      allowed_files: ["README.md"],
+      denied_files: [],
+      acceptance_criteria: ["README updated"],
+      non_goals: [],
+      constraints: [],
+      patch_policy: {
+        allowed_files: ["README.md"],
+        denied_files: [],
+        allow_full_replacement: true,
+        full_replacement_max_bytes: 32000,
+        allow_ambiguous_anchors: false,
+        allowed_verification_command_ids: ["npm_run_typecheck"],
+      },
+      mode: "initial_patch",
+      model_role_hint: "implementer_small",
+    })).rejects.toMatchObject({ code: "MODEL_PROVIDER_UNAVAILABLE" });
+    restoreEnv(original);
+  });
+
   it("stops repair after repeated failures or max attempts", () => {
     const report = {
       results: [{
@@ -134,6 +263,34 @@ describe("repository Planfile to patch pipeline", () => {
 
       const status = await applyRepositoryPlanfile({
         planfile: created.planfile,
+        patch_plan_generator: async (input) => {
+          const file = input.evidence_bundle.files.find((item) => item.path === "README.md") ?? input.evidence_bundle.files[0];
+          if (!file) throw new Error("Missing evidence file.");
+          return {
+            patch_plan_id: "patch-model-apply",
+            plan_id: input.plan_id,
+            node_id: input.node_id,
+            summary: "Update README from model PatchPlan",
+            rationale: "Use the bounded evidence excerpt.",
+            evidence_refs: [input.evidence_bundle.evidence_bundle_id],
+            operations: [{
+              operation_id: "op-readme",
+              kind: "insert_after",
+              relative_path: file.path,
+              expected_sha256: file.sha256,
+              anchor: "# Demo",
+              content: "\n\nModel PatchPlan executed.\n",
+              rationale: "Small anchor edit.",
+            }],
+            expected_changed_files: [file.path],
+            verification_command_ids: ["npm_run_typecheck"],
+            preconditions: [{ kind: "file_hash", path: file.path, expected_sha256: file.sha256, summary: "README hash matches evidence." }],
+            risk_level: "write",
+            approval_required: false,
+            confidence: 0.8,
+            requires_scope_expansion: false,
+          };
+        },
         now: "2026-04-30T12:01:00.000Z",
       });
 
@@ -144,6 +301,145 @@ describe("repository Planfile to patch pipeline", () => {
       expect(status.patch_artifact_ids.length).toBeGreaterThan(0);
       expect(status.verification_report_ids.length).toBeGreaterThan(0);
       expect(status.final_patch_artifact_id).toBeTruthy();
+      expect(readFileSync(join(root, "README.md"), "utf8")).toBe("# Demo\n");
+    } finally {
+      if (originalInitCwd === undefined) delete process.env.INIT_CWD;
+      else process.env.INIT_CWD = originalInitCwd;
+    }
+  });
+
+  it("rejects PatchPlans with unknown evidence refs during apply", async () => {
+    const root = gitFixture({ package_json: true });
+    const originalInitCwd = process.env.INIT_CWD;
+    process.env.INIT_CWD = root;
+    try {
+      const created = await createRepositoryPlanfile({ repo_root: root, goal: "update readme", dry_run: true, verification_command_ids: ["npm_run_typecheck"] });
+      const status = await applyRepositoryPlanfile({
+        planfile: created.planfile,
+        patch_plan_generator: async (input) => ({
+          patch_plan_id: "patch-unknown-evidence",
+          plan_id: input.plan_id,
+          node_id: input.node_id,
+          summary: "Invalid evidence",
+          rationale: "Test rejection.",
+          evidence_refs: ["missing-evidence"],
+          operations: [{
+            operation_id: "op-readme",
+            kind: "insert_after",
+            relative_path: "README.md",
+            expected_sha256: input.evidence_bundle.files[0]?.sha256 ?? "0".repeat(64),
+            anchor: "# Demo",
+            content: "\nInvalid.\n",
+            rationale: "Test.",
+          }],
+          expected_changed_files: ["README.md"],
+          verification_command_ids: ["npm_run_typecheck"],
+          preconditions: [],
+          risk_level: "write",
+          approval_required: false,
+          confidence: 0.1,
+          requires_scope_expansion: false,
+        }),
+      });
+      expect(status.status).toBe("yielded");
+      expect(status.errors.join("\n")).toContain("unknown evidence");
+    } finally {
+      if (originalInitCwd === undefined) delete process.env.INIT_CWD;
+      else process.env.INIT_CWD = originalInitCwd;
+    }
+  });
+
+  it("records scope expansion approval requests without applying", async () => {
+    const root = gitFixture({ package_json: true });
+    const originalInitCwd = process.env.INIT_CWD;
+    process.env.INIT_CWD = root;
+    try {
+      const created = await createRepositoryPlanfile({ repo_root: root, goal: "update cli", dry_run: true, verification_command_ids: ["npm_run_typecheck"] });
+      const status = await applyRepositoryPlanfile({
+        planfile: created.planfile,
+        patch_plan_generator: async (input) => ({
+          patch_plan_id: "patch-scope",
+          plan_id: input.plan_id,
+          node_id: input.node_id,
+          summary: "Need CLI file",
+          rationale: "README evidence is insufficient.",
+          evidence_refs: [input.evidence_bundle.evidence_bundle_id],
+          operations: [{
+            operation_id: "op-cli",
+            kind: "insert_after",
+            relative_path: "src/cli.ts",
+            expected_sha256: "1".repeat(64),
+            anchor: "main",
+            content: "\n",
+            rationale: "Requested file is outside current scope.",
+          }],
+          expected_changed_files: ["src/cli.ts"],
+          verification_command_ids: ["npm_run_typecheck"],
+          preconditions: [],
+          risk_level: "write",
+          approval_required: true,
+          confidence: 0.5,
+          requires_scope_expansion: true,
+          scope_expansion_request: {
+            request_id: "scope-request-1",
+            plan_id: input.plan_id,
+            node_id: input.node_id,
+            reason: "Need the CLI entrypoint file.",
+            requested_files: ["src/cli.ts"],
+            requested_risk_level: "write",
+            evidence_refs: [input.evidence_bundle.evidence_bundle_id],
+          },
+        }),
+      });
+      expect(status.status).toBe("yielded");
+      expect(status.scope_expansion_request_ids).toEqual(["scope-request-1"]);
+      expect(status.scope_expansion_requests[0]?.suggested_approve_command).toContain("repo scope approve");
+      expect(readFileSync(join(root, "README.md"), "utf8")).toBe("# Demo\n");
+    } finally {
+      if (originalInitCwd === undefined) delete process.env.INIT_CWD;
+      else process.env.INIT_CWD = originalInitCwd;
+    }
+  });
+
+  it("yields before applying when PatchPlan approval is required", async () => {
+    const root = gitFixture({ package_json: true });
+    const originalInitCwd = process.env.INIT_CWD;
+    process.env.INIT_CWD = root;
+    try {
+      const created = await createRepositoryPlanfile({ repo_root: root, goal: "update readme", dry_run: true, verification_command_ids: ["npm_run_typecheck"] });
+      const status = await applyRepositoryPlanfile({
+        planfile: created.planfile,
+        patch_plan_generator: async (input) => {
+          const file = input.evidence_bundle.files.find((item) => item.path === "README.md") ?? input.evidence_bundle.files[0];
+          if (!file) throw new Error("Missing evidence file.");
+          return {
+            patch_plan_id: "patch-needs-approval",
+            plan_id: input.plan_id,
+            node_id: input.node_id,
+            summary: "Approval-gated README update",
+            rationale: "Test approval pause.",
+            evidence_refs: [input.evidence_bundle.evidence_bundle_id],
+            operations: [{
+              operation_id: "op-readme",
+              kind: "insert_after",
+              relative_path: file.path,
+              expected_sha256: file.sha256,
+              anchor: "# Demo",
+              content: "\n\nApproval gated.\n",
+              rationale: "Small anchor edit.",
+            }],
+            expected_changed_files: [file.path],
+            verification_command_ids: ["npm_run_typecheck"],
+            preconditions: [{ kind: "file_hash", path: file.path, expected_sha256: file.sha256, summary: "README hash matches evidence." }],
+            risk_level: "write",
+            approval_required: true,
+            confidence: 0.8,
+            requires_scope_expansion: false,
+          };
+        },
+      });
+      expect(status.status).toBe("yielded");
+      expect(status.artifact_refs.some((ref) => ref.startsWith("approval_"))).toBe(true);
       expect(readFileSync(join(root, "README.md"), "utf8")).toBe("# Demo\n");
     } finally {
       if (originalInitCwd === undefined) delete process.env.INIT_CWD;
@@ -217,7 +513,76 @@ function patchPlan(relative_path: string, expected_sha256: string): RepositoryPa
     preconditions: [],
     risk_level: "write",
     approval_required: true,
+    confidence: 0.5,
+    requires_scope_expansion: false,
   };
+}
+
+function anchorPatchPlan(anchor: string, expected_sha256: string): RepositoryPatchPlan {
+  return {
+    ...patchPlan("README.md", expected_sha256),
+    operations: [{
+      operation_id: "op-anchor",
+      kind: "insert_after",
+      relative_path: "README.md",
+      expected_sha256,
+      anchor,
+      content: "\ninserted\n",
+      rationale: "Test anchor operation.",
+    }],
+  };
+}
+
+function testEvidence(root: string) {
+  return createEvidenceBundle({
+    evidence_bundle_id: "evidence-test",
+    plan_id: "plan-test",
+    node_id: "inspect_repo",
+    repo_root: root,
+    worktree_path: root,
+    file_reads: [{
+      relative_path: "README.md",
+      content: readFileSync(join(root, "README.md"), "utf8"),
+      sha256: sha(root, "README.md"),
+      size: readFileSync(join(root, "README.md")).byteLength,
+      truncated: false,
+    }],
+    findings: [{ finding_id: "finding-1", kind: "documentation", summary: "README evidence.", source_ref: "README.md" }],
+    notes: ["test evidence"],
+    created_at: "2026-04-30T12:00:00.000Z",
+  });
+}
+
+function testWorkOrder() {
+  return WorkOrder.parse({
+    work_order_id: "work-order-test",
+    plan_id: "plan-test",
+    node_id: "patch_repo",
+    phase: "patch",
+    objective: "Update README",
+    acceptance_criteria: ["README updated"],
+    non_goals: [],
+    assumptions: [],
+    constraints: ["allowed files only"],
+    allowed_capability_snapshot: createCapabilitySnapshotForTask({ allowed_capabilities: [], allowed_scopes: [], max_risk_level: "read", now: "2026-04-30T12:00:00.000Z" }),
+    input_artifacts: ["evidence-test"],
+    required_output_schema: { type: "object" },
+    relevant_evidence: ["evidence-test"],
+    latest_failures: [],
+    max_attempts: 1,
+    model_role_hint: "implementer",
+  });
+}
+
+function restoreEnv(input: { readonly provider?: string; readonly key?: string; readonly openai?: string; readonly gateway?: string }): void {
+  if (input.provider === undefined) delete process.env.OPEN_LAGRANGE_MODEL_PROVIDER;
+  else process.env.OPEN_LAGRANGE_MODEL_PROVIDER = input.provider;
+  if (input.key === undefined) delete process.env.OPEN_LAGRANGE_MODEL_API_KEY;
+  else process.env.OPEN_LAGRANGE_MODEL_API_KEY = input.key;
+  if (input.openai === undefined) delete process.env.OPENAI_API_KEY;
+  else process.env.OPENAI_API_KEY = input.openai;
+  if (input.gateway === undefined) delete process.env.AI_GATEWAY_API_KEY;
+  else process.env.AI_GATEWAY_API_KEY = input.gateway;
 }
 
 function sha(root: string, path: string): string {

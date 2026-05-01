@@ -167,7 +167,7 @@ npm run cli -- repo status <plan_id>
 npm run cli -- repo patch <plan_id> --output final.patch
 ```
 
-This path is real local runtime execution. The Planfile is validated, repository capabilities are invoked through PackRegistry and CapabilityStepRunner, evidence is recorded, file writes happen only in `.open-lagrange/worktrees/<plan_id>/`, verification commands are allowlisted, and the final patch is exported as a reviewable artifact against the original base commit. Patch planning is still intentionally narrow and deterministic for small TypeScript/CLI tasks.
+This path is real local runtime execution. The Planfile is validated, repository capabilities are invoked through PackRegistry and CapabilityStepRunner, evidence is recorded, PatchPlans are generated from bounded evidence, file writes happen only in `.open-lagrange/worktrees/<plan_id>/`, verification commands are allowlisted, and the final patch is exported as a reviewable artifact against the original base commit. Authoritative apply yields if no model provider is configured.
 
 Build a Workflow Skill from ordinary Markdown:
 
