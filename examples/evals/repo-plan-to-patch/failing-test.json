@@ -1,0 +1,21 @@
+{
+  "scenario_id": "fix-failing-test",
+  "title": "Fix simple failing test",
+  "description": "Repair a tiny math helper so the included test passes.",
+  "goal": "fix the failing add test",
+  "expected_changed_files": ["src/math.ts"],
+  "verification_command_ids": ["npm_run_test"],
+  "success_criteria": {
+    "patch_applies": true,
+    "verification_must_pass": true,
+    "required_files_changed": ["src/math.ts"],
+    "forbidden_files_changed": ["test/math.test.js"],
+    "required_output_patterns": ["\\+"],
+    "forbidden_output_patterns": []
+  },
+  "fixture_files": {
+    "package.json": "{\"scripts\":{\"test\":\"node test/math.test.js\"},\"type\":\"module\"}\n",
+    "src/math.ts": "export function add(a: number, b: number) { return a - b; }\n",
+    "test/math.test.js": "import assert from 'node:assert/strict';\nimport { add } from '../src/math.js';\nassert.equal(add(1, 2), 3);\n"
+  }
+}

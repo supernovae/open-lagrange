@@ -69,6 +69,10 @@
     "./events": {
       "types": "./dist/events/index.d.ts",
       "import": "./dist/events/index.js"
+    },
+    "./evals": {
+      "types": "./dist/evals/index.d.ts",
+      "import": "./dist/evals/index.js"
     }
   },
   "scripts": {

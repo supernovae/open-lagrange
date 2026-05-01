@@ -58,6 +58,28 @@ export class PlatformClient {
     return this.post(`/v1/repository/plans/${encodeURIComponent(planId)}/cleanup`, {});
   }
 
+  async resumeRepositoryPlan(planId: string): Promise<unknown> {
+    return this.post(`/v1/repository/plans/${encodeURIComponent(planId)}/resume`, {});
+  }
+
+  async getPendingRepositoryScopeRequests(planId: string): Promise<unknown> {
+    return this.get(`/v1/repository/plans/${encodeURIComponent(planId)}/scope`);
+  }
+
+  async approveRepositoryScopeRequest(requestId: string, input: { readonly decided_by?: string; readonly reason: string }): Promise<unknown> {
+    return this.post(`/v1/repository/scope/${encodeURIComponent(requestId)}/approve`, {
+      ...(input.decided_by ? { approved_by: input.decided_by } : {}),
+      reason: input.reason,
+    });
+  }
+
+  async rejectRepositoryScopeRequest(requestId: string, input: { readonly decided_by?: string; readonly reason: string }): Promise<unknown> {
+    return this.post(`/v1/repository/scope/${encodeURIComponent(requestId)}/reject`, {
+      ...(input.decided_by ? { rejected_by: input.decided_by } : {}),
+      reason: input.reason,
+    });
+  }
+
   async getProjectStatus(projectId: string): Promise<unknown> {
     return this.get(`/v1/projects/${encodeURIComponent(projectId)}`);
   }

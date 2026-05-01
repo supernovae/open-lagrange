@@ -18,6 +18,11 @@ export * from "./repository-plan-runner.js";
 export * from "./repository-status.js";
 export * from "./repository-work-order-handlers.js";
 export * from "./review-report.js";
+export { ScopeExpansionRequestStatus, PersistedScopeExpansionRequest, ScopeExpansionApprovalPayload, normalizeScopeExpansionRequest, scopeExpansionRequestDigest, markScopeExpansionRequest } from "./scope-expansion.js";
+export type { PersistedScopeExpansionRequest as PersistedScopeExpansionRequestType, ScopeExpansionApprovalPayload as ScopeExpansionApprovalPayloadType } from "./scope-expansion.js";
+export * from "./scope-expansion-approval.js";
+export * from "./scope-expansion-errors.js";
+export * from "./scope-expansion-resume.js";
 export {
   detectVerificationPolicy,
   VerificationCommand as RepositoryVerificationCommand,

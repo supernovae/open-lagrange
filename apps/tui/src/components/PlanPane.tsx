@@ -57,6 +57,7 @@ export function PlanPane({ model }: { readonly model: TuiViewModel }): React.Rea
         <Text>Validation: {(plan.patch_validation_reports.length > 0 ? plan.patch_validation_reports.join(", ") : "none")}</Text>
         <Text>Patch artifacts: {(plan.patch_artifacts.length > 0 ? plan.patch_artifacts.join(", ") : "none")}</Text>
         <Text>Scope requests: {(plan.scope_expansion_requests.length > 0 ? plan.scope_expansion_requests.join(", ") : "none")}</Text>
+        {(plan.scope_expansion_details.length > 0 ? plan.scope_expansion_details : []).map((line) => <Text key={line}>Scope detail: {line}</Text>)}
         <Text>Verification: {(plan.verification_reports.length > 0 ? plan.verification_reports.join(", ") : "none")}</Text>
         <Text>Repair attempts: {(plan.repair_attempts.length > 0 ? plan.repair_attempts.length : 0)}</Text>
       </Box>

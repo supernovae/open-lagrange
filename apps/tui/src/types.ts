@@ -74,6 +74,7 @@ export interface PlanViewSummary {
   readonly approval_requirements: readonly string[];
   readonly evidence_bundles: readonly string[];
   readonly scope_expansion_requests: readonly string[];
+  readonly scope_expansion_details: readonly string[];
   readonly patch_validation_reports: readonly string[];
   readonly changed_files: readonly string[];
   readonly patch_artifacts: readonly string[];

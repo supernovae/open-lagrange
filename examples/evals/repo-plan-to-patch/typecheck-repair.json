@@ -1,0 +1,20 @@
+{
+  "scenario_id": "typecheck-error-fix",
+  "title": "Repair typecheck error",
+  "description": "Fix a simple TypeScript return type error.",
+  "goal": "repair the type mismatch in the greeting helper",
+  "expected_changed_files": ["src/greet.ts"],
+  "verification_command_ids": ["npm_run_typecheck"],
+  "success_criteria": {
+    "patch_applies": true,
+    "verification_must_pass": true,
+    "required_files_changed": ["src/greet.ts"],
+    "forbidden_files_changed": [],
+    "required_output_patterns": ["string|`|\"|'"],
+    "forbidden_output_patterns": []
+  },
+  "fixture_files": {
+    "package.json": "{\"scripts\":{\"typecheck\":\"tsc --noEmit\"},\"devDependencies\":{\"typescript\":\"latest\"}}\n",
+    "src/greet.ts": "export function greet(name: string): string { return 1; }\n"
+  }
+}

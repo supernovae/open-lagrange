@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createArtifactSummary, registerArtifacts, type ArtifactSummary } from "../artifacts/index.js";
 import { packRegistry } from "../capability-registry/registry.js";
@@ -31,6 +31,8 @@ import { updateWorktreeSessionStatus } from "./worktree-manager.js";
 import { createRepositoryPlanStatus, updateRepositoryPlanStatus, writeRepositoryPlanStatus, type RepositoryPlanStatus } from "./repository-status.js";
 import { createPatchPlanWorkOrder, defaultPatchPolicy, generatePatchPlanFromEvidence, patchPlanContextSummary, validateScopeExpansionRequest, type GeneratePatchPlanFromEvidenceInput, type PatchPlanGenerator } from "./model-patch-plan-generator.js";
 import { PatchPlanGenerationError } from "./patch-plan-generation-errors.js";
+import { createScopeExpansionApproval } from "./scope-expansion-approval.js";
+import { normalizeScopeExpansionRequest, type PersistedScopeExpansionRequest } from "./scope-expansion.js";
 
 export interface RepositoryPlanRunnerOptions {
   readonly store: PlanStateStore;
@@ -39,6 +41,12 @@ export interface RepositoryPlanRunnerOptions {
   readonly allow_dirty_base?: boolean;
   readonly retain_worktree?: boolean;
   readonly patch_plan_generator?: PatchPlanGenerator;
+  readonly initial_status?: RepositoryPlanStatus;
+  readonly resume_from_node_id?: string;
+  readonly approved_scope_request?: PersistedScopeExpansionRequest;
+  readonly expanded_files?: readonly string[];
+  readonly expanded_capabilities?: readonly string[];
+  readonly expanded_verification_commands?: readonly string[];
   readonly now?: string;
 }
 
@@ -73,10 +81,11 @@ export class RepositoryPlanRunner {
     this.plan = withCanonicalPlanDigest(Planfile.parse(options.planfile));
     this.session = updateWorktreeSessionStatus(options.session, "running");
     this.outputDir = join(this.session.repo_root, ".open-lagrange", "runs", this.plan.plan_id);
-    this.status = writeRepositoryPlanStatus(updateRepositoryPlanStatus(createRepositoryPlanStatus({ plan_id: this.plan.plan_id, now: this.now }), {
+    const baseStatus = options.initial_status ?? createRepositoryPlanStatus({ plan_id: this.plan.plan_id, now: this.now });
+    this.status = writeRepositoryPlanStatus(updateRepositoryPlanStatus(baseStatus, {
       status: "running",
       worktree_session: this.session,
-      current_node: "frame_goal",
+      current_node: options.resume_from_node_id ?? "frame_goal",
     }, this.now));
   }
 
@@ -84,7 +93,11 @@ export class RepositoryPlanRunner {
     const validation = validatePlanfile(this.plan);
     if (!validation.ok) throw new Error(validation.issues.map((issue) => issue.message).join("; "));
     this.persistExecutionCopy();
-    let state = await this.options.store.recordPlanState(createInitialPlanState({
+    let state = await this.options.store.recordPlanState(this.options.initial_status?.plan_state ? {
+      ...this.options.initial_status.plan_state,
+      status: "running",
+      updated_at: this.now,
+    } : createInitialPlanState({
       plan_id: this.plan.plan_id,
       status: "running",
       canonical_plan_digest: this.plan.canonical_plan_digest ?? "",
@@ -93,8 +106,8 @@ export class RepositoryPlanRunner {
       markdown_projection: renderPlanfileMarkdown({ ...this.plan, status: "running" }),
       now: this.now,
     }));
-    const memory: RepositoryExecutionMemory = { repairs: [], changed_files: [], patch_validation_report_ids: [], scope_expansion_request_ids: [] };
-    for (const node of this.linearNodes()) {
+    const memory = this.createInitialMemory();
+    for (const node of this.nodesForRun()) {
       state = await this.markNode(state, node, "running");
       this.status = this.writeStatus({ current_node: node.id, status: "running", plan_state: state });
       const result = await this.runNode(node, memory);
@@ -134,20 +147,20 @@ export class RepositoryPlanRunner {
     if (node.kind === "frame" || node.kind === "design") return { status: "completed", artifactRefs: [], errors: [] };
     const workspace = loadRepositoryWorkspace({ repo_root: this.session.worktree_path, trace_id: `trace_${this.plan.plan_id}`, dry_run: false, require_approval: false });
     if (node.kind === "inspect") {
-      const evidence = await collectEvidenceBundle({
-        plan_id: this.plan.plan_id,
-        node_id: node.id,
-        goal: this.plan.goal_frame.interpreted_goal,
-        workspace,
-        invoke: (capabilityRef, stepInput, stepNodeId, refs) => this.invokeCapability(workspace, capabilityRef, stepInput, stepNodeId, refs),
-        now: this.now,
-      });
+      const evidence = await this.collectEvidence(workspace, node);
       memory.evidence = evidence;
       const artifact = this.recordArtifact("evidence_bundle", "Evidence Bundle", `${evidence.files.length} file(s), ${evidence.findings.length} finding(s).`, evidence, "application/json");
       return { status: "completed", artifactRefs: [this.planArtifactRef(artifact)], errors: [] };
     }
     if (node.kind === "patch") {
-      if (!memory.evidence) return { status: "failed", artifactRefs: [], errors: ["Patch node requires an EvidenceBundle."] };
+      if (!memory.evidence) {
+        memory.evidence = await this.collectEvidence(workspace, node);
+        const evidenceArtifact = this.recordArtifact("evidence_bundle", "Expanded Evidence Bundle", `${memory.evidence.files.length} file(s), ${memory.evidence.findings.length} finding(s).`, memory.evidence, "application/json");
+        this.status = this.writeStatus({
+          artifact_refs: [...new Set([...this.status.artifact_refs, evidenceArtifact.artifact_id])],
+          evidence_bundle_ids: [...new Set([...this.status.evidence_bundle_ids, memory.evidence.evidence_bundle_id])],
+        });
+      }
       const generated = await this.generatePatchPlan(node, memory.evidence, "initial_patch", undefined, undefined);
       if ("yielded" in generated) return generated.yielded;
       const { patchPlan, patchPolicy, contextArtifact } = generated;
@@ -186,7 +199,14 @@ export class RepositoryPlanRunner {
       const repair = nextRepairAttempt({ plan_id: this.plan.plan_id, node_id: node.id, previous_attempts: memory.repairs, verification_report: memory.verification, now: this.now });
       memory.repairs.push(repair);
       const repairArtifact = this.recordArtifact("repair_decision", "Repair Decision", repair.failure_summary, repair, "application/json");
-      if (!memory.evidence) return { status: "yielded", artifactRefs: [this.planArtifactRef(repairArtifact)], errors: ["Repair requires an EvidenceBundle."] };
+      if (!memory.evidence) {
+        memory.evidence = await this.collectEvidence(workspace, node);
+        const evidenceArtifact = this.recordArtifact("evidence_bundle", "Expanded Repair Evidence Bundle", `${memory.evidence.files.length} file(s), ${memory.evidence.findings.length} finding(s).`, memory.evidence, "application/json");
+        this.status = this.writeStatus({
+          artifact_refs: [...new Set([...this.status.artifact_refs, evidenceArtifact.artifact_id])],
+          evidence_bundle_ids: [...new Set([...this.status.evidence_bundle_ids, memory.evidence.evidence_bundle_id])],
+        });
+      }
       const generated = await this.generatePatchPlan(node, memory.evidence, "repair", memory.verification.failures, `${memory.changed_files.length} changed file(s): ${memory.changed_files.join(", ")}`);
       if ("yielded" in generated) return { status: "yielded", artifactRefs: [this.planArtifactRef(repairArtifact), ...generated.yielded.artifactRefs], errors: [repair.decision.reason, ...generated.yielded.errors] };
       const { patchPlan, patchPolicy, contextArtifact } = generated;
@@ -209,7 +229,12 @@ export class RepositoryPlanRunner {
       memory.patch_artifact_id = patchArtifact.artifact_id;
       memory.changed_files = patchArtifact.changed_files;
       const patchArtifactSummary = this.recordArtifact("patch_artifact", "Repair Patch Artifact", `${patchArtifact.changed_files.length} changed file(s).`, patchArtifact, "application/json");
-      return { status: "completed", artifactRefs: [this.planArtifactRef(repairArtifact), this.planArtifactRef(contextArtifact), this.planArtifactRef(planArtifact), this.planArtifactRef(validationArtifact), this.planArtifactRef(patchArtifactSummary)], errors: patchArtifact.errors.map((error) => error.message) };
+      const policy = detectVerificationPolicy(this.session.worktree_path);
+      const commandIds = patchPlan.verification_command_ids.length > 0 ? patchPlan.verification_command_ids : policy.allowed_commands.map((command) => command.command_id).slice(0, 1);
+      const verification = await runVerificationPolicy({ plan_id: this.plan.plan_id, node_id: node.id, cwd: this.session.worktree_path, commands: policy.allowed_commands, command_ids: commandIds, now: this.now });
+      memory.verification = verification;
+      const verifyArtifact = this.recordArtifact("verification_report", "Repair Verification Report", verification.passed ? "Repair verification passed." : "Repair verification failed.", verification, "application/json");
+      return { status: "completed", artifactRefs: [this.planArtifactRef(repairArtifact), this.planArtifactRef(contextArtifact), this.planArtifactRef(planArtifact), this.planArtifactRef(validationArtifact), this.planArtifactRef(patchArtifactSummary), this.planArtifactRef(verifyArtifact)], errors: patchArtifact.errors.map((error) => error.message) };
     }
     if (node.kind === "review") {
       const review = RepositoryReviewReport.parse({
@@ -268,6 +293,29 @@ export class RepositoryPlanRunner {
 
   private linearNodes(): readonly PlanNode[] {
     return [...this.plan.nodes].sort((left, right) => this.plan.nodes.indexOf(left) - this.plan.nodes.indexOf(right));
+  }
+
+  private nodesForRun(): readonly PlanNode[] {
+    const nodes = this.linearNodes();
+    if (!this.options.resume_from_node_id) return nodes;
+    const start = nodes.findIndex((node) => node.id === this.options.resume_from_node_id);
+    return start >= 0 ? nodes.slice(start) : nodes;
+  }
+
+  private createInitialMemory(): RepositoryExecutionMemory {
+    const status = this.options.initial_status;
+    const memory: RepositoryExecutionMemory = {
+      repairs: [],
+      changed_files: status?.changed_files ?? [],
+      patch_validation_report_ids: status?.patch_validation_report_ids ?? [],
+      scope_expansion_request_ids: status?.scope_expansion_request_ids ?? [],
+    };
+    const verificationId = status?.verification_report_ids.at(-1);
+    const verification = verificationId ? this.readArtifactJson<RepositoryVerificationReport>(verificationId) : undefined;
+    if (verification) memory.verification = verification;
+    const patchArtifactId = status?.patch_artifact_ids.at(-1);
+    if (patchArtifactId) memory.patch_artifact_id = patchArtifactId;
+    return memory;
   }
 
   private async markNode(state: PlanState, node: PlanNode, status: PlanNode["status"], artifacts: ReturnType<typeof createArtifactRef>[] = [], errors: readonly string[] = []): Promise<PlanState> {
@@ -343,11 +391,11 @@ export class RepositoryPlanRunner {
     currentDiffSummary: string | undefined,
   ): Promise<{ readonly patchPlan: RepositoryPatchPlanType; readonly patchPolicy: PatchPolicy; readonly contextArtifact: ArtifactSummary } | { readonly yielded: { readonly status: "failed" | "yielded"; readonly artifactRefs: ReturnType<typeof createArtifactRef>[]; readonly errors: readonly string[] } }> {
     const workOrder = createPatchPlanWorkOrder({ plan: this.plan, node, evidence, ...(latestFailures ? { latest_failures: latestFailures } : {}) });
-    const allowedFiles = evidence.files.map((file) => file.path);
+    const allowedFiles = [...new Set([...evidence.files.map((file) => file.path), ...(this.options.expanded_files ?? [])])];
     const patchPolicy = defaultPatchPolicy({
       allowed_files: allowedFiles,
       denied_files: [],
-      allowed_verification_command_ids: node.verification_command_ids ?? this.plan.verification_policy.allowed_command_ids,
+      allowed_verification_command_ids: [...new Set([...(node.verification_command_ids ?? this.plan.verification_policy.allowed_command_ids), ...(this.options.expanded_verification_commands ?? [])])],
     });
     const input: GeneratePatchPlanFromEvidenceInput = {
       plan_id: this.plan.plan_id,
@@ -389,42 +437,32 @@ export class RepositoryPlanRunner {
       artifact: this.recordArtifact("scope_expansion_request", "Invalid Scope Expansion Request", "PatchPlan requested scope expansion without a request.", { patch_plan_id: patchPlan.patch_plan_id }, "application/json"),
       message: "PatchPlan requested scope expansion without a request.",
     };
-    const request = validateScopeExpansionRequest({
+    const workOrderId = `work_order_${stableHash({ plan: this.plan.plan_id, node: node.id, evidence: evidence.evidence_bundle_id }).slice(0, 18)}`;
+    const request = normalizeScopeExpansionRequest({
+      request: validateScopeExpansionRequest({
       request: ScopeExpansionRequest.parse(patchPlan.scope_expansion_request),
       plan_id: this.plan.plan_id,
       node_id: node.id,
       evidence_refs: [evidence.evidence_bundle_id, evidence.artifact_id, ...evidence.files.map((file) => file.path)],
+      }),
+      plan_id: this.plan.plan_id,
+      node_id: node.id,
+      work_order_id: patchPlan.scope_expansion_request.work_order_id ?? workOrderId,
+      now: this.now,
     });
-    const approvalRequest = {
-      approval_request_id: request.request_id,
-      task_id: node.id,
-      project_id: this.plan.plan_id,
-      intent_id: `scope_expansion_${request.request_id}`,
-      requested_risk_level: request.requested_risk_level ?? "write",
-      requested_capability: "repo.scope_expansion",
-      task_run_id: this.plan.plan_id,
-      requested_at: this.now,
-      prompt: request.reason,
-      trace_id: `trace_${this.plan.plan_id}`,
-    };
-    const decision = await getStateStore().createApprovalRequest(approvalRequest);
-    await getStateStore().recordApprovalContinuationEnvelope({
-      kind: "scope_expansion",
-      approval_request: approvalRequest,
-      project_id: this.plan.plan_id,
-      task_run_id: this.plan.plan_id,
-      trace_id: `trace_${this.plan.plan_id}`,
-      payload: request,
-    });
+    const { decision, digest } = await createScopeExpansionApproval({ request, now: this.now });
     const artifact = this.recordArtifact("scope_expansion_request", "Scope Expansion Request", request.reason, request, "application/json");
     this.status = this.writeStatus({
       scope_expansion_request_ids: [...new Set([...this.status.scope_expansion_request_ids, request.request_id])],
       scope_expansion_requests: [...this.status.scope_expansion_requests, {
-        request,
+        request: { ...request, approval_id: decision.approval_request_id },
         approval_request_id: decision.approval_request_id,
+        request_digest: digest,
         approval_status: decision.decision,
+        resume_status: "not_ready",
         suggested_approve_command: `open-lagrange repo scope approve ${decision.approval_request_id} --reason "<reason>"`,
         suggested_reject_command: `open-lagrange repo scope reject ${decision.approval_request_id} --reason "<reason>"`,
+        suggested_resume_command: `open-lagrange repo resume ${this.plan.plan_id}`,
       }],
     });
     return { requestId: request.request_id, artifact, message: `Scope expansion requires approval: ${request.request_id}` };
@@ -458,6 +496,24 @@ export class RepositoryPlanRunner {
       suggested_approve_command: `open-lagrange approve ${decision.approval_request_id} --reason "<reason>" --approval-token "$(open-lagrange approval-token ${decision.approval_request_id})"`,
       suggested_reject_command: `open-lagrange reject ${decision.approval_request_id} --reason "<reason>" --approval-token "$(open-lagrange approval-token ${decision.approval_request_id})"`,
     }, "application/json");
+  }
+
+  private async collectEvidence(workspace: ReturnType<typeof loadRepositoryWorkspace>, node: PlanNode): Promise<EvidenceBundle> {
+    return collectEvidenceBundle({
+      plan_id: this.plan.plan_id,
+      node_id: node.id,
+      goal: this.plan.goal_frame.interpreted_goal,
+      workspace,
+      invoke: (capabilityRef, stepInput, stepNodeId, refs) => this.invokeCapability(workspace, capabilityRef, stepInput, stepNodeId, refs),
+      requested_files: this.options.expanded_files ?? this.options.approved_scope_request?.requested_files ?? [],
+      now: this.now,
+    });
+  }
+
+  private readArtifactJson<T>(artifactId: string): T | undefined {
+    const path = join(this.outputDir, "artifacts", `${artifactId}.json`);
+    if (!existsSync(path)) return undefined;
+    return JSON.parse(readFileSync(path, "utf8")) as T;
   }
 }
 

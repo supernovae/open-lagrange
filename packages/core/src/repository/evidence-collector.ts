@@ -11,11 +11,14 @@ export async function collectEvidenceBundle(input: {
   readonly goal: string;
   readonly workspace: RepositoryWorkspace;
   readonly invoke: RepositoryCapabilityInvoker;
+  readonly requested_files?: readonly string[];
   readonly now?: string;
 }): Promise<EvidenceBundle> {
   const listed = await input.invoke("repo.list_files", { relative_path: ".", max_results: input.workspace.max_files_per_task }, input.node_id);
   const files = RepositoryFileInfo.array().parse(listed.output ?? []);
-  const selected = selectFiles(files, input.goal).slice(0, Math.min(8, input.workspace.max_files_per_task));
+  const selected = mergeRequestedFiles(input.requested_files ?? [], selectFiles(files, input.goal).map((file) => file.relative_path))
+    .slice(0, Math.min(8, input.workspace.max_files_per_task))
+    .map((relative_path) => ({ relative_path }));
   const reads = [];
   for (const file of selected) {
     const read = await input.invoke("repo.read_file", { relative_path: file.relative_path }, input.node_id);
@@ -60,6 +63,10 @@ export async function collectEvidenceBundle(input: {
 function selectFiles(files: readonly { readonly relative_path: string }[], goal: string): readonly { readonly relative_path: string }[] {
   const terms = goal.toLowerCase().split(/\W+/).filter((term) => term.length > 2);
   return [...files].sort((left, right) => score(right.relative_path, terms) - score(left.relative_path, terms));
+}
+
+function mergeRequestedFiles(requested: readonly string[], discovered: readonly string[]): readonly string[] {
+  return [...new Set([...requested.filter((path) => path.length > 0), ...discovered])];
 }
 
 function score(path: string, terms: readonly string[]): number {

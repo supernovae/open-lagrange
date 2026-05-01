@@ -3,14 +3,17 @@ import { dirname, join, resolve } from "node:path";
 import { z } from "zod";
 import { PlanState } from "../planning/plan-state.js";
 import { WorktreeSession } from "./worktree-session.js";
-import { ScopeExpansionRequest } from "./patch-plan.js";
+import { PersistedScopeExpansionRequest } from "./scope-expansion.js";
 
 export const RepositoryScopeExpansionStatus = z.object({
-  request: ScopeExpansionRequest,
+  request: PersistedScopeExpansionRequest,
   approval_request_id: z.string().min(1),
+  request_digest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
   approval_status: z.enum(["requested", "approved", "rejected"]),
+  resume_status: z.enum(["not_ready", "ready", "applied", "blocked"]).optional(),
   suggested_approve_command: z.string().min(1),
   suggested_reject_command: z.string().min(1),
+  suggested_resume_command: z.string().min(1).optional(),
 }).strict();
 
 export const RepositoryPlanStatus = z.object({

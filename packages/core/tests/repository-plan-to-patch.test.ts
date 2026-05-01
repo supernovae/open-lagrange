@@ -13,12 +13,14 @@ import { cleanupWorktreeSession, createWorktreeSession } from "../src/repository
 import { exportFinalPatch } from "../src/repository/patch-exporter.js";
 import { validateRepositoryPatchPlan } from "../src/repository/patch-validator.js";
 import { nextRepairAttempt } from "../src/repository/repair-loop.js";
-import { createRepositoryPlanfile, applyRepositoryPlanfile } from "../src/repository/repository-plan-control.js";
+import { createRepositoryPlanfile, applyRepositoryPlanfile, approveRepositoryScopeRequest, resumeRepositoryPlan } from "../src/repository/repository-plan-control.js";
 import { runVerificationPolicy } from "../src/repository/verification-runner.js";
 import { generatePatchPlanFromEvidence, patchPlanContextSummary } from "../src/repository/model-patch-plan-generator.js";
 import { modelProviderUnavailable } from "../src/repository/patch-plan-generation-errors.js";
 import { normalizeModelPatchPlanOutput } from "../src/repository/patch-plan-output-schema.js";
 import type { RepositoryPatchPlan } from "../src/repository/patch-plan.js";
+import { normalizeScopeExpansionRequest, scopeExpansionRequestDigest } from "../src/repository/scope-expansion.js";
+import { listBenchmarkScenarios, renderBenchmarkReportMarkdown, runModelRoutingBenchmark } from "../src/evals/index.js";
 
 describe("repository Planfile to patch pipeline", () => {
   it("creates an isolated worktree and keeps the source worktree untouched", () => {
@@ -401,6 +403,120 @@ describe("repository Planfile to patch pipeline", () => {
     }
   });
 
+  it("binds scope expansion approvals to request digests", () => {
+    const request = normalizeScopeExpansionRequest({
+      request: {
+        request_id: "scope-digest",
+        plan_id: "plan",
+        node_id: "patch_repo",
+        reason: "Need CLI file.",
+        requested_files: ["src/cli.ts"],
+        evidence_refs: ["evidence"],
+      },
+      plan_id: "plan",
+      node_id: "patch_repo",
+      work_order_id: "work-order",
+      now: "2026-04-30T12:00:00.000Z",
+    });
+    const changed = normalizeScopeExpansionRequest({
+      request: { ...request, requested_files: ["src/other.ts"] },
+      plan_id: "plan",
+      node_id: "patch_repo",
+      work_order_id: "work-order",
+      now: "2026-04-30T12:00:00.000Z",
+    });
+
+    expect(scopeExpansionRequestDigest(request)).not.toBe(scopeExpansionRequestDigest(changed));
+  });
+
+  it("resumes after approved scope expansion and re-collects requested evidence", async () => {
+    const root = gitFixture({ package_json: true, cli: true });
+    const originalInitCwd = process.env.INIT_CWD;
+    process.env.INIT_CWD = root;
+    let calls = 0;
+    try {
+      const created = await createRepositoryPlanfile({ repo_root: root, goal: "add json output to cli", dry_run: true, verification_command_ids: ["npm_run_typecheck"] });
+      const generator = async (input: Parameters<NonNullable<Parameters<typeof applyRepositoryPlanfile>[0]["patch_plan_generator"]>>[0]): Promise<RepositoryPatchPlan> => {
+        calls += 1;
+        if (calls === 1) {
+          return {
+            patch_plan_id: "patch-scope-resume",
+            plan_id: input.plan_id,
+            node_id: input.node_id,
+            summary: "Need CLI file",
+            rationale: "Request more scope.",
+            evidence_refs: [input.evidence_bundle.evidence_bundle_id],
+            operations: [{
+              operation_id: "op-cli",
+              kind: "insert_after",
+              relative_path: "src/cli.ts",
+              expected_sha256: "1".repeat(64),
+              anchor: "status",
+              content: "\n",
+              rationale: "Needs approved file.",
+            }],
+            expected_changed_files: ["src/cli.ts"],
+            verification_command_ids: ["npm_run_typecheck"],
+            preconditions: [],
+            risk_level: "write",
+            approval_required: true,
+            confidence: 0.5,
+            requires_scope_expansion: true,
+            scope_expansion_request: {
+              request_id: "scope-resume-1",
+              plan_id: input.plan_id,
+              node_id: input.node_id,
+              work_order_id: input.work_order.work_order_id,
+              reason: "Need the CLI entrypoint.",
+              requested_files: ["src/cli.ts"],
+              requested_risk_level: "write",
+              evidence_refs: [input.evidence_bundle.evidence_bundle_id],
+            },
+          };
+        }
+        const file = input.evidence_bundle.files.find((item) => item.path === "src/cli.ts");
+        if (!file) throw new Error("Expected re-collected CLI evidence.");
+        return {
+          patch_plan_id: "patch-scope-resumed",
+          plan_id: input.plan_id,
+          node_id: input.node_id,
+          summary: "Add JSON option",
+          rationale: "Patch approved CLI file.",
+          evidence_refs: [input.evidence_bundle.evidence_bundle_id, file.path],
+          operations: [{
+            operation_id: "op-cli",
+            kind: "insert_after",
+            relative_path: file.path,
+            expected_sha256: file.sha256,
+            anchor: "export function status() {",
+            content: " return JSON.stringify({ status: 'ok' });",
+            rationale: "Small anchor edit.",
+          }],
+          expected_changed_files: [file.path],
+          verification_command_ids: ["npm_run_typecheck"],
+          preconditions: [{ kind: "file_hash", path: file.path, expected_sha256: file.sha256, summary: "CLI hash matches evidence." }],
+          risk_level: "write",
+          approval_required: false,
+          confidence: 0.8,
+          requires_scope_expansion: false,
+        };
+      };
+      const yielded = await applyRepositoryPlanfile({ planfile: created.planfile, patch_plan_generator: generator });
+      expect(yielded.status).toBe("yielded");
+      await approveRepositoryScopeRequest({ request_id: "scope-resume-1", reason: "needed for CLI file" });
+      const resumed = await resumeRepositoryPlan({ plan_id: created.planfile.plan_id, patch_plan_generator: generator });
+
+      expect(resumed.status).toBe("completed");
+      expect(resumed.scope_expansion_requests[0]?.request.status).toBe("applied");
+      expect(resumed.evidence_bundle_ids.length).toBeGreaterThan(0);
+      expect(resumed.changed_files).toContain("src/cli.ts");
+      expect(readFileSync(join(root, "src", "cli.ts"), "utf8")).toContain("return 'ok'");
+    } finally {
+      if (originalInitCwd === undefined) delete process.env.INIT_CWD;
+      else process.env.INIT_CWD = originalInitCwd;
+    }
+  });
+
   it("yields before applying when PatchPlan approval is required", async () => {
     const root = gitFixture({ package_json: true });
     const originalInitCwd = process.env.INIT_CWD;
@@ -470,9 +586,24 @@ describe("repository Planfile to patch pipeline", () => {
     expect(review.pr_summary).toContain("README changed");
     expect(review.test_notes[0]).toContain("passed");
   });
+
+  it("loads benchmark scenarios and renders mock metrics", async () => {
+    const scenarios = listBenchmarkScenarios();
+    expect(scenarios.length).toBeGreaterThan(0);
+    const report = await runModelRoutingBenchmark({
+      benchmark_id: "repo-plan-to-patch",
+      mode: "mock",
+      output_dir: mkdtempSync(join(tmpdir(), "open-lagrange-eval-")),
+      now: "2026-04-30T12:00:00.000Z",
+    });
+
+    expect(report.metrics.length).toBeGreaterThan(0);
+    expect(report.metrics.some((metric) => metric.tokens_input >= 0)).toBe(true);
+    expect(renderBenchmarkReportMarkdown(report)).toContain("Repository Plan-to-Patch Benchmark");
+  });
 });
 
-function gitFixture(options: { readonly package_json?: boolean } = {}): string {
+function gitFixture(options: { readonly package_json?: boolean; readonly cli?: boolean } = {}): string {
   const root = mkdtempSync(join(tmpdir(), "open-lagrange-plan-patch-"));
   git(root, ["init", "-q"]);
   git(root, ["config", "user.email", "test@example.com"]);
@@ -487,7 +618,11 @@ function gitFixture(options: { readonly package_json?: boolean } = {}): string {
       },
     }, null, 2));
   }
-  git(root, ["add", "README.md", ".gitignore", ...(options.package_json ? ["package.json"] : [])]);
+  if (options.cli) {
+    mkdirSync(join(root, "src"), { recursive: true });
+    writeFileSync(join(root, "src", "cli.ts"), "export function status() {\n  return 'ok';\n}\n");
+  }
+  git(root, ["add", "README.md", ".gitignore", ...(options.package_json ? ["package.json"] : []), ...(options.cli ? ["src/cli.ts"] : [])]);
   git(root, ["commit", "-q", "-m", "init"]);
   return root;
 }

@@ -15,6 +15,8 @@ import { RepositoryPlanRunner } from "./repository-plan-runner.js";
 import { readRepositoryPlanStatus, writeRepositoryPlanStatus } from "./repository-status.js";
 import { exportFinalPatch } from "./patch-exporter.js";
 import type { PatchPlanGenerator } from "./model-patch-plan-generator.js";
+import { loadApprovedScopeExpansionForResume, markScopeExpansionApplied } from "./scope-expansion-resume.js";
+import { markScopeExpansionRequest } from "./scope-expansion.js";
 
 export interface CreateRepositoryPlanfileInput {
   readonly repo_root: string;
@@ -157,6 +159,26 @@ export async function cleanupRepositoryPlan(planId: string) {
   return { plan_id: planId, cleaned: true, worktree_path: cleaned.worktree_path };
 }
 
+export async function approveApprovalRequest(input: {
+  readonly approval_id: string;
+  readonly reason: string;
+  readonly approved_by?: string;
+  readonly now?: string;
+}) {
+  const now = input.now ?? new Date().toISOString();
+  return await getStateStore().approveRequest(input.approval_id, input.approved_by ?? "human-local", now, input.reason) ?? { approval_id: input.approval_id, status: "missing" };
+}
+
+export async function rejectApprovalRequest(input: {
+  readonly approval_id: string;
+  readonly reason: string;
+  readonly rejected_by?: string;
+  readonly now?: string;
+}) {
+  const now = input.now ?? new Date().toISOString();
+  return await getStateStore().rejectRequest(input.approval_id, input.rejected_by ?? "human-local", now, input.reason) ?? { approval_id: input.approval_id, status: "missing" };
+}
+
 export async function approveRepositoryScopeRequest(input: {
   readonly request_id: string;
   readonly reason: string;
@@ -166,7 +188,7 @@ export async function approveRepositoryScopeRequest(input: {
   const now = input.now ?? new Date().toISOString();
   const decision = await getStateStore().approveRequest(input.request_id, input.approved_by ?? "human-local", now, input.reason);
   const envelope = await getStateStore().getApprovalContinuationEnvelope(input.request_id);
-  if (envelope?.kind === "scope_expansion") updateScopeStatus(envelope.project_id, input.request_id, "approved");
+  if (envelope?.kind === "scope_expansion") updateScopeStatus(envelope.project_id, input.request_id, "approved", now);
   return decision ?? { request_id: input.request_id, status: "missing" };
 }
 
@@ -179,19 +201,58 @@ export async function rejectRepositoryScopeRequest(input: {
   const now = input.now ?? new Date().toISOString();
   const decision = await getStateStore().rejectRequest(input.request_id, input.rejected_by ?? "human-local", now, input.reason);
   const envelope = await getStateStore().getApprovalContinuationEnvelope(input.request_id);
-  if (envelope?.kind === "scope_expansion") updateScopeStatus(envelope.project_id, input.request_id, "rejected");
+  if (envelope?.kind === "scope_expansion") updateScopeStatus(envelope.project_id, input.request_id, "rejected", now);
   return decision ?? { request_id: input.request_id, status: "missing" };
 }
 
-function updateScopeStatus(planId: string, requestId: string, approvalStatus: "approved" | "rejected"): void {
+export async function resumeRepositoryPlan(input: {
+  readonly plan_id: string;
+  readonly patch_plan_generator?: PatchPlanGenerator;
+  readonly now?: string;
+}) {
+  const now = input.now ?? new Date().toISOString();
+  const context = await loadApprovedScopeExpansionForResume(input.plan_id);
+  const session = WorktreeSession.parse(context.status.worktree_session);
+  const approvedStatus = updateScopeStatus(context.status.plan_id, context.request.request_id, "approved", now) ?? context.status;
+  const result = await new RepositoryPlanRunner({
+    store: inMemoryPlanStateStore,
+    planfile: context.planfile,
+    session,
+    initial_status: approvedStatus,
+    resume_from_node_id: context.request.node_id,
+    approved_scope_request: context.request,
+    expanded_files: context.requested_files,
+    expanded_capabilities: context.requested_capabilities,
+    expanded_verification_commands: context.requested_verification_commands,
+    retain_worktree: session.retain_on_failure ?? true,
+    ...(input.patch_plan_generator ? { patch_plan_generator: input.patch_plan_generator } : {}),
+    now,
+  }).run();
+  return markScopeExpansionApplied({ status: result.status, request_id: context.request.request_id, now });
+}
+
+export function listPendingRepositoryScopeRequests(planId?: string) {
+  if (!planId) return [];
   const status = readRepositoryPlanStatus(planId);
-  if (!status) return;
-  writeRepositoryPlanStatus({
+  return status?.scope_expansion_requests.filter((item) => item.request.status === "pending_approval") ?? [];
+}
+
+function updateScopeStatus(planId: string, requestId: string, approvalStatus: "approved" | "rejected", now = new Date().toISOString()) {
+  const status = readRepositoryPlanStatus(planId);
+  if (!status) return undefined;
+  return writeRepositoryPlanStatus({
     ...status,
     scope_expansion_requests: status.scope_expansion_requests.map((item) =>
-      item.approval_request_id === requestId || item.request.request_id === requestId ? { ...item, approval_status: approvalStatus } : item,
+      item.approval_request_id === requestId || item.request.request_id === requestId
+        ? {
+            ...item,
+            approval_status: approvalStatus,
+            resume_status: approvalStatus === "approved" ? "ready" : "blocked",
+            request: markScopeExpansionRequest(item.request, approvalStatus, now),
+          }
+        : item,
     ),
-    updated_at: new Date().toISOString(),
+    updated_at: now,
   });
 }
 

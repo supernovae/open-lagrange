@@ -1,4 +1,7 @@
 import { z } from "zod";
+import { ScopeExpansionRequest as ScopeExpansionRequestSchema, type ScopeExpansionRequest as ScopeExpansionRequestType } from "./scope-expansion.js";
+
+const ScopeExpansionRequest = ScopeExpansionRequestSchema;
 
 export const PatchPrecondition = z.object({
   kind: z.enum(["file_hash", "file_exists", "file_absent", "text_present"]),
@@ -6,19 +9,6 @@ export const PatchPrecondition = z.object({
   expected_sha256: z.string().regex(/^[a-f0-9]{64}$/).optional(),
   text: z.string().optional(),
   summary: z.string().min(1),
-}).strict();
-
-export const ScopeExpansionRequest = z.object({
-  request_id: z.string().min(1),
-  plan_id: z.string().min(1),
-  node_id: z.string().min(1),
-  reason: z.string().min(1),
-  requested_files: z.array(z.string().min(1)).optional(),
-  requested_capabilities: z.array(z.string().min(1)).optional(),
-  requested_verification_commands: z.array(z.string().min(1)).optional(),
-  requested_risk_level: z.enum(["read", "write", "destructive", "external_side_effect"]).optional(),
-  evidence_refs: z.array(z.string().min(1)),
-  latest_failure_refs: z.array(z.string().min(1)).optional(),
 }).strict();
 
 export const PatchPolicy = z.object({
@@ -64,7 +54,8 @@ export const RepositoryPatchPlan = z.object({
 }).strict();
 
 export type PatchPrecondition = z.infer<typeof PatchPrecondition>;
-export type ScopeExpansionRequest = z.infer<typeof ScopeExpansionRequest>;
+export { ScopeExpansionRequest };
+export type ScopeExpansionRequest = ScopeExpansionRequestType;
 export type PatchPolicy = z.infer<typeof PatchPolicy>;
 export type RepositoryPatchOperation = z.infer<typeof RepositoryPatchOperation>;
 export type RepositoryPatchPlan = z.infer<typeof RepositoryPatchPlan>;

@@ -10,7 +10,8 @@ import { listDemos, openDemo, runDemo } from "@open-lagrange/core/demos";
 import { runCoreDoctor } from "@open-lagrange/core/doctor";
 import { getPackHealth, inspectPack, listInspectablePacks, runPackSmoke, validateRegisteredPack } from "@open-lagrange/core/packs";
 import { applyPlanfile as applyLocalPlanfile, generateGoalFrame, generatePlanfile, parsePlanfileMarkdown, parsePlanfileYaml, renderPlanfileMarkdown, renderPlanMermaid, validatePlanfile, withCanonicalPlanDigest } from "@open-lagrange/core/planning";
-import { applyRepositoryPlanfile as applyLocalRepositoryPlanfile, approveRepositoryScopeRequest, cleanupRepositoryPlan as cleanupLocalRepositoryPlan, createRepositoryPlanfile, exportRepositoryPlanPatch as exportLocalRepositoryPlanPatch, getRepositoryPlanStatus as getLocalRepositoryPlanStatus, rejectRepositoryScopeRequest } from "@open-lagrange/core/repository";
+import { applyRepositoryPlanfile as applyLocalRepositoryPlanfile, approveApprovalRequest, approveRepositoryScopeRequest, cleanupRepositoryPlan as cleanupLocalRepositoryPlan, createRepositoryPlanfile, exportRepositoryPlanPatch as exportLocalRepositoryPlanPatch, getRepositoryPlanStatus as getLocalRepositoryPlanStatus, rejectApprovalRequest, rejectRepositoryScopeRequest, resumeRepositoryPlan } from "@open-lagrange/core/repository";
+import { compareBenchmarkRun, listBenchmarkScenarios, listModelRouteConfigs, renderBenchmarkReport, runModelRoutingBenchmark } from "@open-lagrange/core/evals";
 import { runResearchBriefCommand, runResearchExportCommand, runResearchFetchCommand, runResearchSearchCommand } from "@open-lagrange/core/research";
 import { buildGeneratedPackFromMarkdown, generateSkillFrame, generateWorkflowSkill, installGeneratedPack, parseSkillfileMarkdown, parseWorkflowSkillMarkdown, previewWorkflowSkillRun, scaffoldGeneratedPack, validateGeneratedPack, validateWorkflowSkill } from "@open-lagrange/core/skills";
 import { createPlatformClientFromCurrentProfile } from "@open-lagrange/platform-client";
@@ -120,6 +121,24 @@ program
   .argument("<approvalRequestId>", "Approval request ID")
   .action((approvalRequestId: string) => {
     console.log(approvalTokenForRequest(approvalRequestId));
+  });
+
+const approval = program.command("approval").description("Approve or reject local approval requests.");
+
+approval.command("approve")
+  .argument("<approvalId>", "Approval request ID")
+  .requiredOption("--reason <reason>", "Approval reason")
+  .option("--approved-by <approvedBy>", "Approver identifier", "human-local")
+  .action(async (approvalId: string, options: { readonly reason: string; readonly approvedBy: string }) => {
+    console.log(JSON.stringify(await approveApprovalRequest({ approval_id: approvalId, reason: options.reason, approved_by: options.approvedBy }), null, 2));
+  });
+
+approval.command("reject")
+  .argument("<approvalId>", "Approval request ID")
+  .requiredOption("--reason <reason>", "Rejection reason")
+  .option("--rejected-by <rejectedBy>", "Reviewer identifier", "human-local")
+  .action(async (approvalId: string, options: { readonly reason: string; readonly rejectedBy: string }) => {
+    console.log(JSON.stringify(await rejectApprovalRequest({ approval_id: approvalId, reason: options.reason, rejected_by: options.rejectedBy }), null, 2));
   });
 
 program.command("run-demo").description("Submit the README summary demo.").action(async () => {
@@ -493,6 +512,10 @@ repo.command("status").argument("<planId>", "Plan ID, task ID, or task run ID").
   else console.log(JSON.stringify(status, null, 2));
 });
 
+repo.command("resume").argument("<planId>", "Repository plan ID").action(async (planId: string) => {
+  console.log(JSON.stringify(await resumeRepositoryPlan({ plan_id: planId }), null, 2));
+});
+
 repo.command("diff").argument("<taskId>", "Task ID or task run ID").action(async (taskId: string) => {
   console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).getArtifact("diff", { task_id: taskId, type: "diff" }), null, 2));
 });
@@ -537,6 +560,57 @@ repoScope.command("reject")
   .action(async (requestId: string, options: { readonly reason: string; readonly rejectedBy: string }) => {
     console.log(JSON.stringify(await rejectRepositoryScopeRequest({ request_id: requestId, reason: options.reason, rejected_by: options.rejectedBy }), null, 2));
   });
+
+const evalCommand = program.command("eval").description("Run repository evaluation harnesses.");
+
+evalCommand.command("list").action(() => {
+  console.log(JSON.stringify(listBenchmarkScenarios(), null, 2));
+});
+
+evalCommand.command("scenarios").action(() => {
+  console.log(JSON.stringify(listBenchmarkScenarios(), null, 2));
+});
+
+evalCommand.command("routes").action(() => {
+  console.log(JSON.stringify(listModelRouteConfigs(), null, 2));
+});
+
+evalCommand.command("run")
+  .argument("<benchmarkId>", "Benchmark ID")
+  .option("--mock-models", "Use deterministic fixture model outputs", false)
+  .option("--live-models", "Use configured live model providers", false)
+  .option("--scenario <scenarioId>", "Run one scenario")
+  .option("--route <routeId>", "Run one model route")
+  .option("--max-scenarios <count>", "Limit number of scenarios", parsePositiveInt)
+  .option("--retain-worktrees", "Keep eval fixture workspaces", false)
+  .option("--yes", "Acknowledge live provider cost", false)
+  .option("--output-dir <path>", "Write benchmark artifacts to a selected directory")
+  .action(async (benchmarkId: string, options: { readonly mockModels: boolean; readonly liveModels: boolean; readonly scenario?: string; readonly route?: string; readonly maxScenarios?: number; readonly retainWorktrees: boolean; readonly yes: boolean; readonly outputDir?: string }) => {
+    if (benchmarkId !== "repo-plan-to-patch") throw new Error(`Unknown benchmark: ${benchmarkId}`);
+    const mode = options.liveModels ? "live" : "mock";
+    if (!options.liveModels && !options.mockModels) {
+      console.error("No model mode specified. Defaulting to --mock-models.");
+    }
+    if (options.liveModels && !options.yes) throw new Error("Live model evals may call configured providers. Re-run with --yes to acknowledge cost.");
+    console.log(JSON.stringify(await runModelRoutingBenchmark({
+      benchmark_id: benchmarkId,
+      mode,
+      ...(options.scenario ? { scenario_id: options.scenario } : {}),
+      ...(options.route ? { route_id: options.route } : {}),
+      ...(options.maxScenarios === undefined ? {} : { max_scenarios: options.maxScenarios }),
+      retain_worktrees: options.retainWorktrees,
+      yes: options.yes,
+      ...(options.outputDir ? { output_dir: cliPath(options.outputDir) } : {}),
+    }), null, 2));
+  });
+
+evalCommand.command("report").argument("<runId>", "Benchmark run ID").action((runId: string) => {
+  console.log(renderBenchmarkReport(runId));
+});
+
+evalCommand.command("compare").argument("<runId>", "Benchmark run ID").action((runId: string) => {
+  console.log(compareBenchmarkRun(runId));
+});
 
 repo.command("approve").argument("<taskId>", "Task ID or task run ID").requiredOption("--reason <reason>", "Approval reason").requiredOption("--approval-token <approvalToken>", "Approval token").option("--approved-by <approvedBy>", "Approver identifier", "human-local").action(async (taskId: string, options: { readonly reason: string; readonly approvalToken: string; readonly approvedBy: string }) => {
   console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).approveTask(taskId, { decided_by: options.approvedBy, reason: options.reason, approval_token: options.approvalToken }), null, 2));

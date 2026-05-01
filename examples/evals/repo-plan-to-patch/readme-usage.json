@@ -1,0 +1,20 @@
+{
+  "scenario_id": "readme-usage-example",
+  "title": "Update README usage",
+  "description": "Update README with one usage example.",
+  "goal": "update README with a usage example",
+  "expected_changed_files": ["README.md"],
+  "verification_command_ids": ["npm_run_typecheck"],
+  "success_criteria": {
+    "patch_applies": true,
+    "verification_must_pass": true,
+    "required_files_changed": ["README.md"],
+    "forbidden_files_changed": ["src/cli.ts", "src/index.ts"],
+    "required_output_patterns": ["usage"],
+    "forbidden_output_patterns": []
+  },
+  "fixture_files": {
+    "package.json": "{\"scripts\":{\"typecheck\":\"node -e \\\"process.exit(0)\\\"\"}}\n",
+    "README.md": "# Demo\n"
+  }
+}

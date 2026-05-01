@@ -88,6 +88,7 @@ function planSummary(project: ProjectRunStatus | undefined): PlanViewSummary | u
       approval_requirements: [],
       evidence_bundles: livePlan.evidence_bundle_ids,
       scope_expansion_requests: livePlan.scope_expansion_request_ids,
+      scope_expansion_details: livePlan.scope_expansion_details,
       patch_validation_reports: livePlan.patch_validation_report_ids,
       changed_files: livePlan.changed_files,
       patch_artifacts: livePlan.patch_artifact_ids,
@@ -110,6 +111,7 @@ function planSummary(project: ProjectRunStatus | undefined): PlanViewSummary | u
     approval_requirements: approvalSummaries(project?.task_statuses ?? []).map((approval) => `${approval.task_id}: ${approval.requested_risk_level}`),
     evidence_bundles: artifactSummaries(project, project?.task_statuses[0]).filter((artifact) => artifact.artifact_type === "evidence_bundle").map((artifact) => artifact.artifact_id),
     scope_expansion_requests: artifactSummaries(project, project?.task_statuses[0]).filter((artifact) => artifact.artifact_type === "scope_expansion_request").map((artifact) => artifact.artifact_id),
+    scope_expansion_details: [],
     patch_validation_reports: artifactSummaries(project, project?.task_statuses[0]).filter((artifact) => artifact.artifact_type === "patch_validation_report").map((artifact) => artifact.artifact_id),
     changed_files: changedFiles(project?.task_statuses[0]).map((file) => file.path),
     patch_artifacts: artifactSummaries(project, project?.task_statuses[0]).filter((artifact) => artifact.artifact_type === "diff").map((artifact) => artifact.artifact_id),
@@ -133,6 +135,7 @@ function livePlanExecution(project: ProjectRunStatus | undefined): {
   readonly nodes: readonly { readonly node_id: string; readonly status: string; readonly capability?: string }[];
   readonly evidence_bundle_ids: readonly string[];
   readonly scope_expansion_request_ids: readonly string[];
+  readonly scope_expansion_details: readonly string[];
   readonly patch_validation_report_ids: readonly string[];
   readonly changed_files: readonly string[];
   readonly patch_artifact_ids: readonly string[];
@@ -175,6 +178,7 @@ function livePlanExecution(project: ProjectRunStatus | undefined): {
     nodes,
     evidence_bundle_ids: arrayStrings(record.evidence_bundle_ids),
     scope_expansion_request_ids: arrayStrings(record.scope_expansion_request_ids),
+    scope_expansion_details: scopeExpansionDetails(record.scope_expansion_requests),
     patch_validation_report_ids: arrayStrings(record.patch_validation_report_ids),
     changed_files: arrayStrings(record.changed_files),
     patch_artifact_ids: arrayStrings(record.patch_artifact_ids),
@@ -184,6 +188,20 @@ function livePlanExecution(project: ProjectRunStatus | undefined): {
     warnings: arrayStrings(record.warnings),
     errors: arrayStrings(record.errors),
   };
+}
+
+function scopeExpansionDetails(value: unknown): readonly string[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((entry) => {
+    const item = entry && typeof entry === "object" ? entry as Record<string, unknown> : {};
+    const request = item.request && typeof item.request === "object" ? item.request as Record<string, unknown> : {};
+    const requestId = stringField(request.request_id) ?? stringField(item.approval_request_id) ?? "scope";
+    const status = stringField(request.status) ?? stringField(item.approval_status) ?? "unknown";
+    const digest = stringField(item.request_digest);
+    const files = arrayStrings(request.requested_files).join(", ") || "none";
+    const resume = stringField(item.resume_status);
+    return `${requestId}: ${status}${resume ? `/${resume}` : ""}; files: ${files}${digest ? `; digest: ${digest.slice(0, 12)}` : ""}`;
+  });
 }
 
 export function sortTimeline(items: readonly ReconciliationTimelineItem[]): readonly ReconciliationTimelineItem[] {

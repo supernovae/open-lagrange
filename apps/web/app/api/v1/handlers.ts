@@ -1,4 +1,4 @@
-import { applyPlanfile, applyRepositoryPlanfile, approvePlan, approveTask, cleanupRepositoryPlan, createMockDelegationContext, DEFAULT_EXECUTION_BOUNDS, deterministicProjectId, deterministicRepositoryTaskRunId, exportRepositoryPlanPatch, getCapabilitiesSummary, getPlanExecutionStatus, getProjectStatus, getRepositoryPlanStatus, getRuntimeHealth, getTaskStatus, listRegisteredPacks, rejectPlan, rejectTask, requestArtifact, routeIntent, submitProject, submitRepositoryTask, submitUserFrameEvent, UserFrameEvent } from "@open-lagrange/core/interface";
+import { applyPlanfile, applyRepositoryPlanfile, approvePlan, approveRepositoryScopeRequest, approveTask, cleanupRepositoryPlan, createMockDelegationContext, DEFAULT_EXECUTION_BOUNDS, deterministicProjectId, deterministicRepositoryTaskRunId, exportRepositoryPlanPatch, getCapabilitiesSummary, getPlanExecutionStatus, getProjectStatus, getRepositoryPlanStatus, getRuntimeHealth, getTaskStatus, listPendingRepositoryScopeRequests, listRegisteredPacks, rejectPlan, rejectRepositoryScopeRequest, rejectTask, requestArtifact, resumeRepositoryPlan, routeIntent, submitProject, submitRepositoryTask, submitUserFrameEvent, UserFrameEvent } from "@open-lagrange/core/interface";
 import { approvalTokenForRequest } from "@open-lagrange/core/approval";
 import { z } from "zod";
 import { SubmitJobPayload } from "../jobs/schema";
@@ -160,6 +160,35 @@ export async function handleRepositoryPlanReview(planId: string): Promise<unknow
 
 export function handleCleanupRepositoryPlan(planId: string): Promise<unknown> {
   return cleanupRepositoryPlan(planId);
+}
+
+export function handleResumeRepositoryPlan(planId: string): Promise<unknown> {
+  return resumeRepositoryPlan({ plan_id: planId });
+}
+
+export function handlePendingRepositoryScopeRequests(planId: string): unknown {
+  return {
+    plan_id: planId,
+    scope_expansion_requests: listPendingRepositoryScopeRequests(planId),
+  };
+}
+
+export function handleApproveRepositoryScopeRequest(requestId: string, raw: unknown): Promise<unknown> {
+  const payload = z.object({ approved_by: z.string().min(1).max(128).optional(), reason: z.string().min(1).max(2_000) }).strict().parse(raw);
+  return approveRepositoryScopeRequest({
+    request_id: requestId,
+    reason: payload.reason,
+    ...(payload.approved_by ? { approved_by: payload.approved_by } : {}),
+  });
+}
+
+export function handleRejectRepositoryScopeRequest(requestId: string, raw: unknown): Promise<unknown> {
+  const payload = z.object({ rejected_by: z.string().min(1).max(128).optional(), reason: z.string().min(1).max(2_000) }).strict().parse(raw);
+  return rejectRepositoryScopeRequest({
+    request_id: requestId,
+    reason: payload.reason,
+    ...(payload.rejected_by ? { rejected_by: payload.rejected_by } : {}),
+  });
 }
 
 export async function handleResumePlan(planId: string): Promise<unknown> {

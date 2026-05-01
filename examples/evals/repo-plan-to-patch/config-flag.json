@@ -1,0 +1,20 @@
+{
+  "scenario_id": "config-flag",
+  "title": "Add small config flag",
+  "description": "Add a verbose config flag and preserve the existing config.",
+  "goal": "add a verbose config flag",
+  "expected_changed_files": ["src/config.ts"],
+  "verification_command_ids": ["npm_run_typecheck"],
+  "success_criteria": {
+    "patch_applies": true,
+    "verification_must_pass": true,
+    "required_files_changed": ["src/config.ts"],
+    "forbidden_files_changed": [],
+    "required_output_patterns": ["verbose", "false"],
+    "forbidden_output_patterns": []
+  },
+  "fixture_files": {
+    "package.json": "{\"scripts\":{\"typecheck\":\"tsc --noEmit\"},\"devDependencies\":{\"typescript\":\"latest\"}}\n",
+    "src/config.ts": "export interface Config { name: string; }\nexport const defaults: Config = { name: 'demo' };\n"
+  }
+}

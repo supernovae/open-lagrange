@@ -169,6 +169,28 @@ npm run cli -- repo patch <plan_id> --output final.patch
 
 This path is real local runtime execution. The Planfile is validated, repository capabilities are invoked through PackRegistry and CapabilityStepRunner, evidence is recorded, PatchPlans are generated from bounded evidence, file writes happen only in `.open-lagrange/worktrees/<plan_id>/`, verification commands are allowlisted, and the final patch is exported as a reviewable artifact against the original base commit. Authoritative apply yields if no model provider is configured.
 
+If a PatchPlan requests more scope, approve or reject the exact request and resume:
+
+```bash
+npm run cli -- repo scope approve <request_id> --reason "needed for the requested file"
+npm run cli -- repo resume <plan_id>
+```
+
+Run the model routing benchmark with deterministic fixture outputs:
+
+```bash
+npm run cli -- eval list
+npm run cli -- eval routes
+npm run cli -- eval run repo-plan-to-patch --mock-models
+npm run cli -- eval report <run_id>
+```
+
+Run provider-backed evals explicitly:
+
+```bash
+npm run cli -- eval run repo-plan-to-patch --live-models --yes --max-scenarios 1
+```
+
 Build a Workflow Skill from ordinary Markdown:
 
 ```bash
