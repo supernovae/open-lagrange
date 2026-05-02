@@ -4,7 +4,7 @@ import { explainSystem, getCapabilitiesSummary, routeIntent } from "@open-lagran
 import { listDemos, runDemo } from "@open-lagrange/core/demos";
 import type { DemoRunResult } from "@open-lagrange/core/demos";
 import { inspectPack } from "@open-lagrange/core/packs";
-import { acceptDefaultAnswers, answerQuestion, applyPlanfile, composeInitialPlan, composePlanfileFromIntent, derivePlanRequirements, getPlanBuilderSession, listPlanBuilderSessions, listPlanLibrary, listScheduleRecords, parsePlanfileMarkdown, parsePlanfileYaml, saveReadyPlanfile, simulatePlan, validatePlan, validatePlanfile, withCanonicalPlanDigest } from "@open-lagrange/core/planning";
+import { acceptDefaultAnswers, answerQuestion, applyPlanfile, composeInitialPlan, composePlanfileFromIntent, derivePlanRequirements, diffPlanfileMarkdown, getPlanBuilderSession, importBuilderPlanfileFromMarkdown, listPlanBuilderSessions, listPlanLibrary, listScheduleRecords, parsePlanfileMarkdown, parsePlanfileYaml, reconcilePlanfileMarkdown, renderPlanfileMarkdown, saveReadyPlanfile, simulatePlan, updateBuilderPlanfileFromMarkdown, validatePlan, validatePlanfile, withCanonicalPlanDigest } from "@open-lagrange/core/planning";
 import { runResearchBriefCommand, runResearchExportCommand, runResearchFetchCommand, runResearchSearchCommand, runResearchSummarizeUrlCommand, type ResearchCommandResult } from "@open-lagrange/core/research";
 import { buildGeneratedPackFromMarkdown, generateSkillFrame, generateWorkflowSkill, parseSkillfileMarkdown } from "@open-lagrange/core/skills";
 import type { TuiUserFrameEvent, UserFrameEvent, UserFrameEventResult } from "@open-lagrange/core/interface";
@@ -95,6 +95,46 @@ async function submitLocalOrRemoteEvent(event: TuiUserFrameEvent): Promise<UserF
   if (event.type === "plan_builder.save") {
     const result = saveReadyPlanfile(requireBuilderSession(event.session_id), localPath(event.output_path));
     return { status: "completed", message: `Planfile saved: ${result.path}`, output: result };
+  }
+  if (event.type === "plan_builder.edit") {
+    const session = requireBuilderSession(event.session_id);
+    if (!session.current_planfile) return { status: "failed", message: `Plan Builder session has no Planfile: ${session.session_id}` };
+    const path = join(".open-lagrange", "plan-builder", session.session_id, "editable.plan.md");
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, renderPlanfileMarkdown(session.current_planfile), "utf8");
+    const profile = await getCurrentProfile().catch(() => undefined);
+    const webUrl = `${profile?.webUrl ?? "http://localhost:3000"}?plan_builder_session=${encodeURIComponent(session.session_id)}`;
+    return {
+      status: "completed",
+      message: [
+        "Planfile editor ready",
+        `Session: ${session.session_id}`,
+        event.preferred_surface === "web" ? `Web editor: ${webUrl}` : `Local file: ${path}`,
+        event.preferred_surface === "web" ? "Use the web Plan Builder to reconcile edits." : "Edit the file, then run:",
+        event.preferred_surface === "web" ? "" : `/update-plan ${path}`,
+        "",
+        `Web editor: ${webUrl}`,
+        `Local file: ${path}`,
+      ].filter(Boolean).join("\n"),
+      output: { session_id: session.session_id, path, web_url: webUrl },
+    };
+  }
+  if (event.type === "plan_builder.update_planfile") {
+    const session = requireBuilderSession(event.session_id);
+    const report = await updateBuilderPlanfileFromMarkdown({ session_id: session.session_id, markdown: await readPlanfileEditMarkdown(event.path), update_source: "tui" });
+    return { status: report.validation_status === "passed" && report.simulation_status !== "unsafe" && report.simulation_status !== "invalid" ? "completed" : "failed", message: planfileUpdateMessage(report), output: report };
+  }
+  if (event.type === "plan_builder.import_planfile") {
+    const session = importBuilderPlanfileFromMarkdown({ markdown: await readPlanfileEditMarkdown(event.path), update_source: "tui", original_input: `Imported from ${event.path}` });
+    return { status: session.status === "yielded" ? "failed" : "completed", message: builderMessage(session), output: session };
+  }
+  if (event.type === "plan_builder.reconcile_planfile") {
+    const report = reconcilePlanfileMarkdown({ markdown: await readPlanfileEditMarkdown(event.path) });
+    return { status: report.validation_status === "passed" ? "completed" : "failed", message: planfileUpdateMessage(report), output: report };
+  }
+  if (event.type === "plan_builder.diff_planfiles") {
+    const result = diffPlanfileMarkdown(await readPlanfileEditMarkdown(event.old_path), await readPlanfileEditMarkdown(event.new_path));
+    return { status: "completed", message: ["Planfile diff", `Status: ${result.diff_status}`, ...planfileDiffLines(result.diff)].join("\n"), output: result };
   }
   if (event.type === "plan_builder.run") {
     const session = requireBuilderSession(event.session_id);
@@ -273,6 +313,11 @@ function helpText(): string {
     "- /accept-defaults",
     "- /validate",
     "- /save <path>",
+    "- /edit-plan",
+    "- /update-plan <path>",
+    "- /import-plan <path>",
+    "- /reconcile <path>",
+    "- /plan-diff <old> <new>",
     "- /check <planfile>",
     "- /library",
     "- /providers",
@@ -364,10 +409,49 @@ function builderMessage(session: ReturnType<typeof requireBuilderSession>): stri
   ].join("\n");
 }
 
+function planfileUpdateMessage(report: Awaited<ReturnType<typeof updateBuilderPlanfileFromMarkdown>> | ReturnType<typeof reconcilePlanfileMarkdown>): string {
+  return [
+    "Planfile reconciliation",
+    `Parse: ${report.parse_status}`,
+    `Diff: ${report.diff_status}`,
+    `Validation: ${report.validation_status}`,
+    `Simulation: ${report.simulation_status}`,
+    `Builder: ${report.builder_status}`,
+    `Artifacts: ${report.artifact_refs.length}`,
+    ...(report.diff ? ["", "Diff:", ...planfileDiffLines(report.diff)] : []),
+    ...(report.validation_errors.length > 0 ? ["", "Errors:", ...report.validation_errors.map((error) => `- ${error.code}: ${error.message}`)] : []),
+    ...(report.questions.length > 0 ? ["", "Questions:", ...report.questions.map((question) => `- ${question.question_id}: ${question.question}`)] : []),
+  ].join("\n");
+}
+
+function planfileDiffLines(diff: NonNullable<Awaited<ReturnType<typeof updateBuilderPlanfileFromMarkdown>>["diff"]>): string[] {
+  const changedNodes = diff.nodes_changed.map((node) => `${node.node_id} (${node.changed_fields.join(", ")})`);
+  const riskIncreases = diff.risk_changes.filter((change) => change.increased).map((change) => `${change.target}: ${change.before} -> ${change.after}`);
+  return [
+    `- Nodes added: ${lineList(diff.nodes_added.map((node) => node.id))}`,
+    `- Nodes removed: ${lineList(diff.nodes_removed.map((node) => node.id))}`,
+    `- Nodes changed: ${lineList(changedNodes)}`,
+    `- Capabilities added: ${lineList(diff.capabilities_added)}`,
+    `- Capabilities removed: ${lineList(diff.capabilities_removed)}`,
+    `- Risk increases: ${lineList(riskIncreases)}`,
+    `- Approval changes: ${lineList(diff.approval_changes.map((change) => `${change.target}: ${String(change.before)} -> ${String(change.after)}`))}`,
+    `- Requirements changed: ${lineList(diff.requirements_changed.map((change) => change.kind))}`,
+    `- Schedule changed: ${diff.schedule_changed ? "yes" : "no"}`,
+    `- Parameters changed: ${lineList((diff.parameters_changed ?? []).map((change) => change.name))}`,
+  ];
+}
+
 async function loadLocalPlanfile(path: string) {
   const local = localPath(path);
   const text = await readFile(local, "utf8");
   return local.endsWith(".yaml") || local.endsWith(".yml") ? parsePlanfileYaml(text) : parsePlanfileMarkdown(text);
+}
+
+async function readPlanfileEditMarkdown(path: string): Promise<string> {
+  const local = localPath(path);
+  const text = await readFile(local, "utf8");
+  if (local.endsWith(".yaml") || local.endsWith(".yml")) return renderPlanfileMarkdown(withCanonicalPlanDigest(parsePlanfileYaml(text)));
+  return text;
 }
 
 function hasMissingRequirements(report: ReturnType<typeof derivePlanRequirements>): boolean {

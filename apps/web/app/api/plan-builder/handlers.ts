@@ -1,5 +1,5 @@
 import { listModelRouteConfigs } from "@open-lagrange/core/evals";
-import { acceptDefaultAnswers, answerQuestion, applyPlanfile, composeInitialPlan, createScheduleRecord, getPlanBuilderSession, revisePlan, saveReadyPlanfile, simulatePlan, stabilizePlan, validatePlan } from "@open-lagrange/core/planning";
+import { acceptDefaultAnswers, answerQuestion, applyPlanfile, composeInitialPlan, createScheduleRecord, diffPlanfileMarkdown, getPlanBuilderSession, importBuilderPlanfileFromMarkdown, reconcilePlanfileMarkdown, renderPlanfileMarkdown, revisePlan, saveReadyPlanfile, simulatePlan, stabilizePlan, updateBuilderPlanfileFromMarkdown, validatePlan } from "@open-lagrange/core/planning";
 import { z } from "zod";
 
 export const StartSessionPayload = z.object({
@@ -33,39 +33,60 @@ export const SchedulePayload = z.object({
   timezone: z.string().min(1).optional(),
 }).strict();
 
+export const UpdatePlanfilePayload = z.object({
+  markdown: z.string().min(1),
+  allow_risk_increase: z.boolean().default(false),
+  allow_new_capabilities: z.boolean().default(false),
+  allow_schedule_change: z.boolean().default(false),
+}).strict();
+
+export const ImportPlanfilePayload = z.object({
+  markdown: z.string().min(1),
+}).strict();
+
+export const ReconcilePayload = z.object({
+  markdown: z.string().min(1),
+}).strict();
+
+export const DiffPayload = z.object({
+  old_markdown: z.string().min(1),
+  new_markdown: z.string().min(1),
+}).strict();
+
 export async function startPlanBuilderSession(raw: unknown): Promise<unknown> {
   const payload = StartSessionPayload.parse(raw);
-  return composeInitialPlan({
+  return sessionResponse(await composeInitialPlan({
     ...(payload.skills_markdown ? { skills_markdown: payload.skills_markdown, prompt_source: "skills_file" } : { prompt: payload.prompt ?? "" }),
     context: {
       ...(payload.repo_path ? { repo_path: payload.repo_path } : {}),
       ...(payload.provider_id ? { provider_preference: payload.provider_id } : {}),
     },
-  });
+  }));
 }
 
 export function readPlanBuilderSession(sessionId: string): unknown {
-  return getPlanBuilderSession(sessionId) ?? { status: "missing", session_id: sessionId };
+  const session = getPlanBuilderSession(sessionId);
+  return session ? sessionResponse(session) : { status: "missing", session_id: sessionId };
 }
 
 export function answerPlanBuilderQuestion(sessionId: string, raw: unknown): unknown {
   const payload = AnswerPayload.parse(raw);
-  return answerQuestion(requireSession(sessionId), payload.question_id, payload.answer);
+  return sessionResponse(answerQuestion(requireSession(sessionId), payload.question_id, payload.answer));
 }
 
 export async function acceptPlanBuilderDefaults(sessionId: string): Promise<unknown> {
-  return stabilizePlan(acceptDefaultAnswers(requireSession(sessionId), { persist: false }));
+  return sessionResponse(await stabilizePlan(acceptDefaultAnswers(requireSession(sessionId), { persist: false })));
 }
 
 export async function revisePlanBuilderSession(sessionId: string, raw: unknown): Promise<unknown> {
   const payload = RevisePayload.parse(raw);
   const route = payload.model_route ? modelRouteById(payload.model_route) : undefined;
   const revised = await revisePlan(requireSession(sessionId), { ...(payload.prompt ? { reason: payload.prompt } : {}), ...(route ? { route } : {}), persist: false });
-  return stabilizePlan(revised, { ...(route ? { route } : {}) });
+  return sessionResponse(await stabilizePlan(revised, { ...(route ? { route } : {}) }));
 }
 
 export function validatePlanBuilderSession(sessionId: string): unknown {
-  return validatePlan(simulatePlan(requireSession(sessionId)));
+  return sessionResponse(validatePlan(simulatePlan(requireSession(sessionId))));
 }
 
 export function savePlanBuilderPlanfile(sessionId: string, raw: unknown): unknown {
@@ -93,6 +114,35 @@ export function schedulePlanBuilderPlanfile(sessionId: string, raw: unknown): un
   });
 }
 
+export async function updatePlanBuilderPlanfile(sessionId: string, raw: unknown): Promise<unknown> {
+  const payload = UpdatePlanfilePayload.parse(raw);
+  return updateBuilderPlanfileFromMarkdown({
+    session_id: sessionId,
+    markdown: payload.markdown,
+    update_source: "web",
+    options: {
+      allow_risk_increase: payload.allow_risk_increase,
+      allow_new_capabilities: payload.allow_new_capabilities,
+      allow_schedule_change: payload.allow_schedule_change,
+    },
+  });
+}
+
+export function importPlanBuilderPlanfile(_sessionId: string, raw: unknown): unknown {
+  const payload = ImportPlanfilePayload.parse(raw);
+  return importBuilderPlanfileFromMarkdown({ markdown: payload.markdown, update_source: "web" });
+}
+
+export function reconcilePlanBuilderPlanfile(raw: unknown): unknown {
+  const payload = ReconcilePayload.parse(raw);
+  return reconcilePlanfileMarkdown({ markdown: payload.markdown });
+}
+
+export function diffPlanBuilderPlanfiles(raw: unknown): unknown {
+  const payload = DiffPayload.parse(raw);
+  return diffPlanfileMarkdown(payload.old_markdown, payload.new_markdown);
+}
+
 function requireSession(sessionId: string) {
   const session = getPlanBuilderSession(sessionId);
   if (!session) throw new Error(`Plan Builder session not found: ${sessionId}`);
@@ -103,6 +153,13 @@ function requireReadySession(sessionId: string) {
   const session = requireSession(sessionId);
   if (!session.current_planfile || (session.status !== "ready" && session.status !== "approved")) throw new Error(`Plan Builder session is not ready: ${sessionId}`);
   return { ...session, current_planfile: session.current_planfile };
+}
+
+function sessionResponse(session: ReturnType<typeof requireSession>): unknown {
+  return {
+    ...session,
+    ...(session.current_planfile ? { planfile_markdown: renderPlanfileMarkdown(session.current_planfile) } : {}),
+  };
 }
 
 function modelRouteById(routeId: string) {

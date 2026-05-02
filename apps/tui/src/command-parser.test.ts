@@ -163,18 +163,30 @@ describe("TUI input parsing", () => {
     const defaults = parseUserInput("/accept-defaults", {});
     const validate = parseUserInput("/validate", {});
     const save = parseUserInput("/save .open-lagrange/plans/example.plan.md", {});
+    const edit = parseUserInput("/edit-plan", {});
+    const webEdit = parseUserInput("/edit-plan --web", {});
+    const update = parseUserInput("/update-plan .open-lagrange/plan-builder/example/editable.plan.md", {});
+    const diff = parseUserInput("/plan-diff old.plan.md new.plan.md", {});
 
     expect(start.kind).toBe("command");
     expect(answer.kind).toBe("command");
     expect(defaults.kind).toBe("command");
     expect(validate.kind).toBe("command");
     expect(save.kind).toBe("command");
-    if (start.kind !== "command" || answer.kind !== "command" || defaults.kind !== "command" || validate.kind !== "command" || save.kind !== "command") return;
+    expect(edit.kind).toBe("command");
+    expect(webEdit.kind).toBe("command");
+    expect(update.kind).toBe("command");
+    expect(diff.kind).toBe("command");
+    if (start.kind !== "command" || answer.kind !== "command" || defaults.kind !== "command" || validate.kind !== "command" || save.kind !== "command" || edit.kind !== "command" || webEdit.kind !== "command" || update.kind !== "command" || diff.kind !== "command") return;
     expect(start.event).toMatchObject({ type: "plan_builder.start", prompt: "research supply chain security", repo_path: "." });
     expect(answer.event).toMatchObject({ type: "plan_builder.answer", question_id: "question_1", answer: "08:00" });
     expect(defaults.event).toMatchObject({ type: "plan_builder.accept_defaults" });
     expect(validate.event).toMatchObject({ type: "plan_builder.validate" });
     expect(save.event).toMatchObject({ type: "plan_builder.save", output_path: ".open-lagrange/plans/example.plan.md" });
+    expect(edit.event).toMatchObject({ type: "plan_builder.edit", preferred_surface: "local_file" });
+    expect(webEdit.event).toMatchObject({ type: "plan_builder.edit", preferred_surface: "web" });
+    expect(update.event).toMatchObject({ type: "plan_builder.update_planfile", path: ".open-lagrange/plan-builder/example/editable.plan.md" });
+    expect(diff.event).toMatchObject({ type: "plan_builder.diff_planfiles", old_path: "old.plan.md", new_path: "new.plan.md" });
   });
 
   it("maps natural language skills file requests to pack build suggestions", () => {

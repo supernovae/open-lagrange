@@ -1,8 +1,8 @@
 import { ZodError } from "zod";
-import { stableHash, stableStringify } from "../util/hash.js";
 import type { CapabilitySnapshot } from "../schemas/capabilities.js";
 import type { PlanValidationIssue, PlanValidationResult } from "./plan-errors.js";
 import { Planfile, type Planfile as PlanfileType, type PlanNode } from "./planfile-schema.js";
+import { canonicalPlanSha256 } from "./planfile-canonicalize.js";
 
 const SAFE_NODE_ID = /^[a-z][a-z0-9_-]{1,63}$/;
 const WRITE_RISKS = new Set(["write", "destructive", "external_side_effect"]);
@@ -109,8 +109,7 @@ export function validatePlanfile(input: unknown, options: PlanValidationOptions 
 }
 
 export function canonicalPlanDigest(plan: PlanfileType): string {
-  const { canonical_plan_digest: _digest, updated_at: _updatedAt, ...stable } = plan;
-  return stableHash(JSON.parse(stableStringify(stable)) as unknown);
+  return canonicalPlanSha256(plan);
 }
 
 export function withCanonicalPlanDigest(plan: PlanfileType): PlanfileType {

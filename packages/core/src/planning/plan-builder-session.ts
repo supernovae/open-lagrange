@@ -7,6 +7,7 @@ import { PlannerQuestion } from "./plan-builder-question.js";
 import { PlanBuilderStatus } from "./plan-builder-status.js";
 import { PlanRevision } from "./plan-revision.js";
 import { PlanSimulationReport } from "./plan-simulation.js";
+import { PlanfileRevision } from "./planfile-update-report.js";
 import { Planfile } from "./planfile-schema.js";
 
 export const PlanValidationReportSchema = z.custom<PlanValidationResult>();
@@ -22,6 +23,7 @@ export const PlanBuilderSession = z.object({
   pending_questions: z.array(PlannerQuestion),
   answered_questions: z.array(PlannerQuestion),
   revision_history: z.array(PlanRevision),
+  planfile_revision_history: z.array(PlanfileRevision).default([]),
   status: PlanBuilderStatus,
   yield_reason: z.string().min(1).optional(),
   created_at: z.string().datetime(),

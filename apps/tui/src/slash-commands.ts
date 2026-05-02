@@ -46,6 +46,15 @@ export function parseSlashCommand(input: string, context: SlashCommandContext = 
   if (command === "revise" && text) return { kind: "event", command, pane: "chat", event: { type: "plan_builder.start", prompt: text, ...(context.repo_path ? { repo_path: context.repo_path } : {}) } };
   if (command === "validate") return { kind: "event", command, pane: "chat", event: { type: "plan_builder.validate" } };
   if (command === "save" && text) return { kind: "event", command, pane: "chat", event: { type: "plan_builder.save", output_path: text } };
+  if (command === "edit-plan") return { kind: "event", command, pane: "chat", event: { type: "plan_builder.edit", preferred_surface: rest.includes("--web") || rest.includes("web") ? "web" : "local_file" } };
+  if (command === "update-plan" && text) return { kind: "event", command, pane: "chat", event: { type: "plan_builder.update_planfile", path: text } };
+  if (command === "import-plan" && text) return { kind: "event", command, pane: "chat", event: { type: "plan_builder.import_planfile", path: text } };
+  if (command === "reconcile" && text) return { kind: "event", command, pane: "chat", event: { type: "plan_builder.reconcile_planfile", path: text } };
+  if (command === "plan-diff") {
+    const [oldPath, newPath] = rest;
+    if (oldPath && newPath) return { kind: "event", command, pane: "chat", event: { type: "plan_builder.diff_planfiles", old_path: oldPath, new_path: newPath } };
+    return { kind: "error", command, error: "Usage: /plan-diff <old_planfile> <new_planfile>" };
+  }
   if (command === "check" && text) return { kind: "event", command, pane: "chat", event: { type: "plan.check", planfile: text } };
   if (command === "library") return { kind: "event", command, pane: "chat", event: { type: "plan.library" } };
   if (command === "providers") return { kind: "event", command, pane: "chat", event: { type: "provider.list" } };

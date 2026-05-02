@@ -64,6 +64,7 @@ export async function composeInitialPlan(input: ComposeInitialPlanInput): Promis
     pending_questions: pending,
     answered_questions: [],
     revision_history: [],
+    planfile_revision_history: [],
     status,
     ...(status === "yielded" ? { yield_reason: "Planfile validation failed and requires semantic revision." } : {}),
     created_at: now,

@@ -36,6 +36,12 @@ export const ArtifactKind = z.enum([
   "worktree_session",
   "model_call",
   "raw_log",
+  "edited_planfile_snapshot",
+  "planfile_update_report",
+  "planfile_diff",
+  "regenerated_planfile",
+  "validation_report",
+  "simulation_report",
 ]);
 
 export const ArtifactRole = z.enum(["primary_output", "supporting_evidence", "debug_log", "intermediate", "superseded"]);

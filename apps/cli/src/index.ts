@@ -10,7 +10,7 @@ import { exportArtifact, listArtifacts, listArtifactsForPlan, listRunArtifacts, 
 import { listDemos, openDemo, runDemo } from "@open-lagrange/core/demos";
 import { runCoreDoctor } from "@open-lagrange/core/doctor";
 import { getPackHealth, inspectPack, listInspectablePacks, runPackSmoke, validateRegisteredPack } from "@open-lagrange/core/packs";
-import { acceptDefaultAnswers, addPlanLibraryEntry, answerQuestion, applyPlanfile as applyLocalPlanfile, composeInitialPlan, composePlanfileFromIntent, createScheduleRecord, derivePlanRequirements, generateGoalFrame, generatePlanfile, getPlanBuilderSession, getScheduleRecord, instantiatePlanTemplate, listPlanBuilderSessions, listPlanLibrary, listScheduleRecords, parsePlanfileMarkdown, parsePlanfileYaml, renderPlanfileMarkdown, renderPlanMermaid, revisePlan, savePlanBuilderSession, saveReadyPlanfile, simulatePlan, stabilizePlan, syncPlanLibrary, validatePlan, validatePlanfile, withCanonicalPlanDigest } from "@open-lagrange/core/planning";
+import { acceptDefaultAnswers, addPlanLibraryEntry, answerQuestion, applyPlanfile as applyLocalPlanfile, composeInitialPlan, composePlanfileFromIntent, createScheduleRecord, derivePlanRequirements, diffPlanfileMarkdown, generateGoalFrame, generatePlanfile, getPlanBuilderSession, getScheduleRecord, importBuilderPlanfileFromMarkdown, instantiatePlanTemplate, listPlanBuilderSessions, listPlanLibrary, listScheduleRecords, parsePlanfileMarkdown, parsePlanfileYaml, reconcilePlanfileMarkdown, renderPlanfileMarkdown, renderPlanMermaid, revisePlan, savePlanBuilderSession, saveReadyPlanfile, simulatePlan, stabilizePlan, syncPlanLibrary, updateBuilderPlanfileFromMarkdown, validatePlan, validatePlanfile, withCanonicalPlanDigest } from "@open-lagrange/core/planning";
 import { applyRepositoryPlanfile as applyLocalRepositoryPlanfile, approveApprovalRequest, approveRepositoryScopeRequest, cleanupRepositoryPlan as cleanupLocalRepositoryPlan, createRepositoryPlanfile, explainRepositoryPlan, exportRepositoryPlanPatch as exportLocalRepositoryPlanPatch, getRepositoryPlanStatus as getLocalRepositoryPlanStatus, listRepositoryModelCalls, rejectApprovalRequest, rejectRepositoryScopeRequest, resumeRepositoryPlan, runRepositoryDoctor } from "@open-lagrange/core/repository";
 import { compareBenchmarkRun, listBenchmarkScenarios, listModelRouteConfigs, renderBenchmarkReport, runModelRoutingBenchmark } from "@open-lagrange/core/evals";
 import { runResearchBriefCommand, runResearchExportCommand, runResearchFetchCommand, runResearchSearchCommand, runResearchSummarizeUrlCommand } from "@open-lagrange/core/research";
@@ -949,6 +949,64 @@ planBuilder.command("status").argument("<sessionId>", "Plan Builder session ID")
   console.log(JSON.stringify(session, null, 2));
 });
 
+planBuilder.command("update")
+  .argument("<sessionId>", "Plan Builder session ID")
+  .requiredOption("--file <path>", "Edited Planfile Markdown or YAML path")
+  .option("--allow-risk-increase", "Accept risk increases in the edited Planfile", false)
+  .option("--allow-new-capabilities", "Accept newly referenced capabilities in the edited Planfile", false)
+  .option("--allow-schedule-change", "Accept schedule changes in the edited Planfile", false)
+  .action(async (sessionId: string, options: { readonly file: string; readonly allowRiskIncrease: boolean; readonly allowNewCapabilities: boolean; readonly allowScheduleChange: boolean }) => {
+    const markdown = await readPlanfileEditMarkdown(options.file);
+    const report = await updateBuilderPlanfileFromMarkdown({
+      session_id: sessionId,
+      markdown,
+      update_source: "cli",
+      options: {
+        allow_risk_increase: options.allowRiskIncrease,
+        allow_new_capabilities: options.allowNewCapabilities,
+        allow_schedule_change: options.allowScheduleChange,
+      },
+    });
+    console.log(JSON.stringify(report, null, 2));
+    if (report.parse_status !== "passed" || report.validation_status === "failed" || report.simulation_status === "invalid" || report.simulation_status === "unsafe") process.exitCode = 1;
+  });
+
+planBuilder.command("edit")
+  .argument("<sessionId>", "Plan Builder session ID")
+  .option("--allow-risk-increase", "Accept risk increases in the edited Planfile", false)
+  .option("--allow-new-capabilities", "Accept newly referenced capabilities in the edited Planfile", false)
+  .option("--allow-schedule-change", "Accept schedule changes in the edited Planfile", false)
+  .action(async (sessionId: string, options: { readonly allowRiskIncrease: boolean; readonly allowNewCapabilities: boolean; readonly allowScheduleChange: boolean }) => {
+    const session = requireBuilderSession(sessionId);
+    if (!session.current_planfile) throw new Error(`Plan Builder session has no current Planfile: ${sessionId}`);
+    const editPath = join(".open-lagrange", "plan-builder", sessionId, "editable.plan.md");
+    await mkdir(dirname(editPath), { recursive: true });
+    await writeFile(editPath, renderPlanfileMarkdown(session.current_planfile), "utf8");
+    await runEditor(editPath);
+    const report = await updateBuilderPlanfileFromMarkdown({
+      session_id: sessionId,
+      markdown: await readFile(editPath, "utf8"),
+      update_source: "external_file",
+      options: {
+        allow_risk_increase: options.allowRiskIncrease,
+        allow_new_capabilities: options.allowNewCapabilities,
+        allow_schedule_change: options.allowScheduleChange,
+      },
+    });
+    console.log(JSON.stringify({ edit_path: editPath, report }, null, 2));
+    if (report.parse_status !== "passed" || report.validation_status === "failed" || report.simulation_status === "invalid" || report.simulation_status === "unsafe") process.exitCode = 1;
+  });
+
+planBuilder.command("import")
+  .argument("<planfile>", "Planfile Markdown or YAML path")
+  .action(async (path: string) => {
+    console.log(JSON.stringify(importBuilderPlanfileFromMarkdown({
+      markdown: await readPlanfileEditMarkdown(path),
+      update_source: "cli",
+      original_input: `Imported from ${path}`,
+    }), null, 2));
+  });
+
 planBuilder.command("answer")
   .argument("<sessionId>", "Plan Builder session ID")
   .argument("<questionId>", "Question ID")
@@ -1112,6 +1170,28 @@ plan.command("render").argument("<planfile>", "Planfile Markdown or YAML path").
   console.log(markdown);
 });
 
+plan.command("diff")
+  .argument("<oldPlanfile>", "Previous Planfile Markdown or YAML path")
+  .argument("<newPlanfile>", "New Planfile Markdown or YAML path")
+  .action(async (oldPlanfile: string, newPlanfile: string) => {
+    const result = diffPlanfileMarkdown(await readPlanfileEditMarkdown(oldPlanfile), await readPlanfileEditMarkdown(newPlanfile));
+    console.log(JSON.stringify(result, null, 2));
+    if (result.diff_status === "changed") process.exitCode = 1;
+  });
+
+plan.command("reconcile")
+  .argument("<planfile>", "Planfile Markdown or YAML path")
+  .option("--render", "Print regenerated Markdown instead of the JSON report", false)
+  .action(async (path: string, options: { readonly render: boolean }) => {
+    const report = reconcilePlanfileMarkdown({ markdown: await readPlanfileEditMarkdown(path) });
+    if (options.render && report.regenerated_markdown) {
+      console.log(report.regenerated_markdown);
+      return;
+    }
+    console.log(JSON.stringify(report, null, 2));
+    if (report.parse_status !== "passed" || report.validation_status === "failed" || report.simulation_status === "invalid" || report.simulation_status === "unsafe") process.exitCode = 1;
+  });
+
 plan.command("apply").argument("<planfile>", "Planfile Markdown or YAML path").option("--live", "Execute through the local runtime path", false).action(async (path: string, options: { readonly live: boolean }) => {
   const planfile = withCanonicalPlanDigest(await loadLocalPlanfile(path));
   const validation = validatePlanfile(planfile);
@@ -1252,6 +1332,25 @@ function runtimeOption(value: string | undefined): "docker" | "podman" | undefin
 async function loadLocalPlanfile(path: string) {
   const text = await readFile(path, "utf8");
   return path.endsWith(".yaml") || path.endsWith(".yml") ? parsePlanfileYaml(text) : parsePlanfileMarkdown(text);
+}
+
+async function readPlanfileEditMarkdown(path: string): Promise<string> {
+  const local = cliPath(path);
+  const text = await readFile(local, "utf8");
+  if (local.endsWith(".yaml") || local.endsWith(".yml")) return renderPlanfileMarkdown(withCanonicalPlanDigest(parsePlanfileYaml(text)));
+  return text;
+}
+
+async function runEditor(path: string): Promise<void> {
+  const editor = process.env.EDITOR || "vi";
+  await new Promise<void>((resolvePromise, rejectPromise) => {
+    const child = spawn(editor, [path], { stdio: "inherit", shell: true });
+    child.on("error", rejectPromise);
+    child.on("exit", (code) => {
+      if (code === 0) resolvePromise();
+      else rejectPromise(new Error(`Editor exited with code ${code ?? "unknown"}.`));
+    });
+  });
 }
 
 function secretProvider(value: string): SecretRef["provider"] {
