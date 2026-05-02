@@ -4,7 +4,7 @@ import { explainSystem, getCapabilitiesSummary, routeIntent } from "@open-lagran
 import { listDemos, runDemo } from "@open-lagrange/core/demos";
 import type { DemoRunResult } from "@open-lagrange/core/demos";
 import { inspectPack } from "@open-lagrange/core/packs";
-import { composePlanfileFromIntent, derivePlanRequirements, listPlanLibrary, listScheduleRecords, parsePlanfileMarkdown, parsePlanfileYaml, validatePlanfile, withCanonicalPlanDigest } from "@open-lagrange/core/planning";
+import { acceptDefaultAnswers, answerQuestion, applyPlanfile, composeInitialPlan, composePlanfileFromIntent, derivePlanRequirements, getPlanBuilderSession, listPlanBuilderSessions, listPlanLibrary, listScheduleRecords, parsePlanfileMarkdown, parsePlanfileYaml, saveReadyPlanfile, simulatePlan, validatePlan, validatePlanfile, withCanonicalPlanDigest } from "@open-lagrange/core/planning";
 import { runResearchBriefCommand, runResearchExportCommand, runResearchFetchCommand, runResearchSearchCommand, runResearchSummarizeUrlCommand, type ResearchCommandResult } from "@open-lagrange/core/research";
 import { buildGeneratedPackFromMarkdown, generateSkillFrame, generateWorkflowSkill, parseSkillfileMarkdown } from "@open-lagrange/core/skills";
 import type { TuiUserFrameEvent, UserFrameEvent, UserFrameEventResult } from "@open-lagrange/core/interface";
@@ -63,6 +63,43 @@ async function submitLocalOrRemoteEvent(event: TuiUserFrameEvent): Promise<UserF
       return { status: "completed", message: planComposeMessage(composed, path), output: { ...composed, path } };
     }
     return { status: "completed", message: planComposeMessage(composed), output: composed };
+  }
+  if (event.type === "plan_builder.start") {
+    const profile = await getCurrentProfile().catch(() => undefined);
+    const session = await composeInitialPlan({
+      prompt: event.prompt,
+      ...(profile ? { runtime_profile: profile } : {}),
+      context: {
+        ...(event.repo_path ? { repo_path: localPath(event.repo_path) } : {}),
+        ...(event.provider_id ? { provider_preference: event.provider_id } : {}),
+      },
+    });
+    return { status: "completed", message: builderMessage(session), output: session };
+  }
+  if (event.type === "plan_builder.status") {
+    const session = requireBuilderSession(event.session_id);
+    return { status: "completed", message: builderMessage(session), output: session };
+  }
+  if (event.type === "plan_builder.answer") {
+    const session = answerQuestion(requireBuilderSession(event.session_id), event.question_id, event.answer);
+    return { status: "completed", message: builderMessage(session), output: session };
+  }
+  if (event.type === "plan_builder.accept_defaults") {
+    const session = validatePlan(simulatePlan(acceptDefaultAnswers(requireBuilderSession(event.session_id))));
+    return { status: session.status === "ready" ? "completed" : "failed", message: builderMessage(session), output: session };
+  }
+  if (event.type === "plan_builder.validate") {
+    const session = validatePlan(simulatePlan(requireBuilderSession(event.session_id)));
+    return { status: session.status === "ready" ? "completed" : "failed", message: builderMessage(session), output: session };
+  }
+  if (event.type === "plan_builder.save") {
+    const result = saveReadyPlanfile(requireBuilderSession(event.session_id), localPath(event.output_path));
+    return { status: "completed", message: `Planfile saved: ${result.path}`, output: result };
+  }
+  if (event.type === "plan_builder.run") {
+    const session = requireBuilderSession(event.session_id);
+    if (!session.current_planfile || (session.status !== "ready" && session.status !== "approved")) return { status: "failed", message: `Plan Builder session is not ready: ${session.session_id}` };
+    return { status: "completed", message: `Planfile run submitted: ${session.current_planfile.plan_id}`, output: await applyPlanfile({ planfile: session.current_planfile, live: event.live }) };
   }
   if (event.type === "plan.check") {
     const planfile = withCanonicalPlanDigest(await loadLocalPlanfile(event.planfile));
@@ -151,6 +188,11 @@ async function submitLocalOrRemoteEvent(event: TuiUserFrameEvent): Promise<UserF
     const schedules = listScheduleRecords();
     return { status: "completed", message: `Schedules loaded: ${schedules.length} record(s).`, output: { schedules } };
   }
+  if (event.type === "plan_builder.schedule") {
+    const session = requireBuilderSession(event.session_id);
+    if (!session.current_planfile || (session.status !== "ready" && session.status !== "approved")) return { status: "failed", message: `Plan Builder session is not ready: ${session.session_id}` };
+    return { status: "completed", message: `Schedule details captured for ${session.current_planfile.plan_id}: ${event.cadence}${event.time_of_day ? ` at ${event.time_of_day}` : ""}`, output: { session_id: session.session_id, cadence: event.cadence, time_of_day: event.time_of_day } };
+  }
   if (event.type === "research.providers") {
     const providers = await currentSearchProviderConfigs();
     return {
@@ -226,6 +268,11 @@ function helpText(): string {
     "- /status",
     "- /doctor",
     "- /compose <goal>",
+    "- /builder start <goal>",
+    "- /answer <question_id> <answer>",
+    "- /accept-defaults",
+    "- /validate",
+    "- /save <path>",
     "- /check <planfile>",
     "- /library",
     "- /providers",
@@ -291,6 +338,30 @@ function providerLine(result: Awaited<ReturnType<typeof composePlanfileFromInten
   const parameterRecord = result.planfile.execution_context?.parameters;
   const provider = parameterRecord && typeof parameterRecord === "object" ? (parameterRecord as Record<string, unknown>).provider_id : undefined;
   return `Provider: ${typeof provider === "string" && provider.length > 0 ? provider : result.warnings.some((warning) => warning.includes("SEARCH_PROVIDER_NOT_CONFIGURED")) ? "not configured" : "configured"}`;
+}
+
+function requireBuilderSession(sessionId: string | undefined) {
+  if (sessionId && sessionId !== "latest") {
+    const session = getPlanBuilderSession(sessionId);
+    if (!session) throw new Error(`Plan Builder session not found: ${sessionId}`);
+    return session;
+  }
+  const latest = listPlanBuilderSessions().at(-1);
+  if (!latest) throw new Error("No Plan Builder session is available.");
+  return latest;
+}
+
+function builderMessage(session: ReturnType<typeof requireBuilderSession>): string {
+  return [
+    `Plan Builder: ${session.session_id}`,
+    `Status: ${session.status}`,
+    `Plan: ${session.current_planfile?.plan_id ?? "none"}`,
+    `Simulation: ${session.simulation_report?.status ?? "none"}`,
+    `Validation: ${session.validation_report?.ok === true ? "passed" : session.validation_report?.ok === false ? "failed" : "none"}`,
+    `Pending questions: ${session.pending_questions.length}`,
+    ...session.pending_questions.map((question) => `- ${question.question_id}: ${question.question}`),
+    ...(session.yield_reason ? [`Yielded: ${session.yield_reason}`] : []),
+  ].join("\n");
 }
 
 async function loadLocalPlanfile(path: string) {

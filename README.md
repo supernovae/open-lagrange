@@ -41,6 +41,7 @@ shortcuts, but `plan compose`, `plan check`, `run`, `artifact`, `pack`, and
 ## What You Can Try Now
 
 - **Planfiles**: turn a vague goal into a reviewable Markdown plan with typed YAML execution data.
+- **Collaborative Plan Builder**: iteratively compose, simulate, validate, question, revise, and save stable Planfiles.
 - **Repository Task Pack**: inspect a repo, collect evidence, create patch plans, apply changes in an isolated worktree, verify, review, and export a final patch.
 - **Workflow Skill Builder**: bring a `skills.md` file, frame it, match it to existing packs, and generate a Planfile-backed Workflow Skill.
 - **Generated Capability Packs**: when existing packs are insufficient, generate a reviewable local pack scaffold and validation report.

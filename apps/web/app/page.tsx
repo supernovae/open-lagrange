@@ -1,225 +1,223 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
-interface ProjectResponse {
-  readonly project_id?: string;
-  readonly project_run_id?: string;
-  readonly hatchet_run_id?: string;
-  readonly status_url?: string;
-  readonly status?: { readonly status?: string; readonly final_message?: string; readonly observations?: readonly Item[]; readonly errors?: readonly Item[] };
-  readonly task_statuses?: readonly TaskStatus[];
+interface BuilderQuestion {
+  readonly question_id: string;
+  readonly severity: string;
+  readonly question: string;
+  readonly why_it_matters: string;
+  readonly default_assumption?: string;
+  readonly choices: readonly string[];
 }
 
-interface TaskStatus {
-  readonly project_id: string;
-  readonly task_id: string;
-  readonly task_run_id: string;
+interface BuilderSession {
+  readonly session_id: string;
   readonly status: string;
-  readonly final_message?: string;
-  readonly observations: readonly Item[];
-  readonly errors: readonly Item[];
-  readonly repository_status?: {
-    readonly current_phase: string;
-    readonly changed_files: readonly string[];
-    readonly diff_summary?: string;
-    readonly review_report?: { readonly pr_title: string; readonly pr_summary: string; readonly test_notes: readonly string[]; readonly risk_notes: readonly string[] };
-    readonly approval_request?: ApprovalRequest;
-  };
-  readonly result?: { readonly approval_request?: ApprovalRequest };
-}
-
-interface ApprovalRequest {
-  readonly approval_request_id: string;
-}
-
-interface Item {
-  readonly summary?: string;
-  readonly message?: string;
-  readonly code?: string;
+  readonly yield_reason?: string;
+  readonly current_intent_frame?: { readonly domain?: string; readonly action?: string; readonly interpreted_goal?: string; readonly output_expectation?: { readonly kind?: string }; readonly schedule_intent?: { readonly requested?: boolean; readonly cadence?: string; readonly time_of_day?: string } };
+  readonly current_planfile?: { readonly plan_id?: string; readonly status?: string; readonly nodes?: readonly { readonly id: string; readonly title: string }[] };
+  readonly simulation_report?: { readonly status?: string; readonly required_packs?: readonly string[]; readonly required_providers?: readonly string[]; readonly approval_requirements?: readonly string[]; readonly warnings?: readonly string[]; readonly predicted_artifacts?: readonly string[] };
+  readonly validation_report?: { readonly ok?: boolean; readonly issues?: readonly { readonly code?: string; readonly message?: string; readonly severity?: string }[] };
+  readonly pending_questions: readonly BuilderQuestion[];
 }
 
 export default function Page(): React.ReactNode {
-  const [goal, setGoal] = useState("Create a short README summary for this repository.");
-  const [repoRoot, setRepoRoot] = useState("");
-  const [applyPatch, setApplyPatch] = useState(false);
+  const [prompt, setPrompt] = useState("Every morning, make me a cited brief on open source container security.");
+  const [skillsMarkdown, setSkillsMarkdown] = useState("");
+  const [session, setSession] = useState<BuilderSession | undefined>();
+  const [selectedQuestion, setSelectedQuestion] = useState("");
+  const [answer, setAnswer] = useState("");
+  const [modelRoute, setModelRoute] = useState("");
+  const [outputPath, setOutputPath] = useState(".open-lagrange/plans/plan-builder-output.plan.md");
+  const [scheduleTime, setScheduleTime] = useState("08:00");
   const [apiToken, setApiToken] = useState("");
-  const [projectId, setProjectId] = useState("");
-  const [approvalToken, setApprovalToken] = useState("");
-  const [status, setStatus] = useState<ProjectResponse | undefined>();
-  const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
 
-  async function submit(): Promise<void> {
+  const selected = useMemo(() => session?.pending_questions.find((question) => question.question_id === selectedQuestion) ?? session?.pending_questions[0], [selectedQuestion, session]);
+  const mermaid = useMemo(() => mermaidSource(session), [session]);
+
+  async function compose(): Promise<void> {
+    await call("/api/plan-builder/sessions", { prompt, ...(skillsMarkdown.trim() ? { skills_markdown: skillsMarkdown } : {}) }, setSession);
+  }
+
+  async function refresh(): Promise<void> {
+    if (!session) return;
+    await fetchSession(session.session_id);
+  }
+
+  async function answerQuestion(): Promise<void> {
+    if (!session || !selected) return;
+    await call(`/api/plan-builder/sessions/${session.session_id}/answer`, { question_id: selected.question_id, answer: answer || selected.default_assumption || selected.choices[0] || "accepted" }, setSession);
+    setAnswer("");
+  }
+
+  async function sessionAction(action: "accept-defaults" | "revise" | "validate" | "save" | "run" | "schedule"): Promise<void> {
+    if (!session) return;
+    const body = action === "save"
+      ? { output_path: outputPath }
+      : action === "revise"
+        ? { ...(modelRoute.trim() ? { model_route: modelRoute.trim() } : {}) }
+      : action === "schedule"
+        ? { cadence: "daily", time_of_day: scheduleTime }
+        : {};
+    await call(`/api/plan-builder/sessions/${session.session_id}/${action}`, body, (data) => {
+      if (isBuilderSession(data)) setSession(data);
+      setMessage(JSON.stringify(data, null, 2));
+    });
+  }
+
+  async function call<T>(url: string, body: unknown, onData: (data: T) => void): Promise<void> {
     setBusy(true);
     setMessage("");
     try {
-      const response = await fetch("/api/jobs", {
-        method: "POST",
-        headers: apiHeaders(apiToken),
-        body: JSON.stringify({ goal }),
-      });
-      const data = await response.json() as ProjectResponse;
-      setStatus(data);
-      setProjectId(data.project_id ?? "");
+      const response = await fetch(url, { method: "POST", headers: apiHeaders(apiToken), body: JSON.stringify(body) });
+      const data = await response.json() as T;
+      onData(data);
+      if (!response.ok) setMessage(JSON.stringify(data, null, 2));
     } finally {
       setBusy(false);
     }
   }
 
-  async function submitRepository(): Promise<void> {
-    setBusy(true);
-    setMessage("");
-    try {
-      const response = await fetch("/api/repository/jobs", {
-        method: "POST",
-        headers: apiHeaders(apiToken),
-        body: JSON.stringify({ goal, repo_root: repoRoot, dry_run: !applyPatch, apply: applyPatch }),
-      });
-      const data = await response.json() as { readonly task_run_id?: string; readonly error?: string };
-      setProjectId(data.task_run_id ?? "");
-      setMessage(data.task_run_id ? `Repository task: ${data.task_run_id}` : data.error ?? "Repository task submitted");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function poll(id = projectId): Promise<void> {
-    if (!id) return;
+  async function fetchSession(sessionId: string): Promise<void> {
     setBusy(true);
     try {
-      const response = await fetch(`/api/jobs/${encodeURIComponent(id)}`, { headers: apiHeaders(apiToken) });
-      setStatus(await response.json() as ProjectResponse);
+      const response = await fetch(`/api/plan-builder/sessions/${sessionId}`, { headers: apiHeaders(apiToken) });
+      setSession(await response.json() as BuilderSession);
     } finally {
       setBusy(false);
     }
   }
-
-  async function decide(taskRunId: string, decision: "approve" | "reject"): Promise<void> {
-    setBusy(true);
-    setMessage("");
-    try {
-      const response = await fetch(`/api/tasks/${encodeURIComponent(taskRunId)}/${decision}`, {
-        method: "POST",
-        headers: apiHeaders(apiToken),
-        body: JSON.stringify(decision === "approve"
-          ? { approved_by: "human-local", reason: "Approved from web UI", approval_token: approvalToken }
-          : { rejected_by: "human-local", reason: "Rejected from web UI", approval_token: approvalToken }),
-      });
-      const data = await response.json() as { readonly continuation_run_id?: string; readonly error?: string };
-      setMessage(data.continuation_run_id ? `Continuation run: ${data.continuation_run_id}` : data.error ?? "Decision recorded");
-      await poll();
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  const tasks = status?.task_statuses ?? [];
 
   return (
-    <main className="shell">
+    <main className="shell wide">
       <section className="toolbar">
         <div>
-          <h1>Open Lagrange</h1>
-          <p>Open Lagrange is an agentic control plane for submitting goals, inspecting reconciliation status, and approving bounded task continuations.</p>
+          <h1>Plan Builder</h1>
+          <p>Collaboratively turn prompts and skills files into validated, editable Planfiles.</p>
         </div>
-        <button type="button" onClick={() => poll()} disabled={busy || !projectId}>Refresh</button>
+        <button type="button" onClick={refresh} disabled={busy || !session}>Refresh</button>
       </section>
 
-      <section className="panel">
-        <label htmlFor="goal">Goal</label>
-        <textarea id="goal" value={goal} onChange={(event) => setGoal(event.target.value)} rows={4} />
-        <div className="actions">
-        <button type="button" onClick={submit} disabled={busy || !goal.trim()}>Submit</button>
-        <input value={projectId} onChange={(event) => setProjectId(event.target.value)} placeholder="project ID or run ID" />
-        <input value={apiToken} onChange={(event) => setApiToken(event.target.value)} placeholder="API bearer token" />
-      </div>
-      </section>
+      <section className="builderGrid">
+        <div className="panel builderPrimary">
+          <h2>Prompt / Source</h2>
+          <label htmlFor="prompt">Prompt</label>
+          <textarea id="prompt" value={prompt} onChange={(event) => setPrompt(event.target.value)} rows={5} />
+          <label htmlFor="skills">skills.md import</label>
+          <textarea id="skills" value={skillsMarkdown} onChange={(event) => setSkillsMarkdown(event.target.value)} rows={5} placeholder="Optional skills.md content" />
+          <input value={apiToken} onChange={(event) => setApiToken(event.target.value)} placeholder="API bearer token" />
+          <input value={modelRoute} onChange={(event) => setModelRoute(event.target.value)} placeholder="planner route for revision, optional" />
+          <div className="actions">
+            <button type="button" onClick={compose} disabled={busy || !prompt.trim()}>Compose</button>
+            <button type="button" onClick={() => sessionAction("revise")} disabled={busy || !session}>Revise</button>
+            <button type="button" onClick={() => sessionAction("validate")} disabled={busy || !session}>Validate</button>
+            <button type="button" onClick={() => sessionAction("accept-defaults")} disabled={busy || !session}>Accept Defaults</button>
+          </div>
+        </div>
 
-      <section className="panel">
-        <h2>Repository Task Pack</h2>
-        <input value={repoRoot} onChange={(event) => setRepoRoot(event.target.value)} placeholder="/path/to/repository" />
-        <label className="check">
-          <input type="checkbox" checked={applyPatch} onChange={(event) => setApplyPatch(event.target.checked)} />
-          Apply after policy checks
-        </label>
-        <input value={approvalToken} onChange={(event) => setApprovalToken(event.target.value)} placeholder="approval token" />
-        <button type="button" onClick={submitRepository} disabled={busy || !goal.trim() || !repoRoot.trim()}>Run Repository Task</button>
-      </section>
-
-      {status ? (
-        <section className="panel">
-          <h2>Project</h2>
+        <div className="panel">
+          <h2>IntentFrame</h2>
           <dl className="grid">
-            <dt>Project ID</dt><dd>{status.project_id ?? "pending"}</dd>
-            <dt>Project Run ID</dt><dd>{status.project_run_id ?? "pending"}</dd>
-            <dt>Hatchet Run ID</dt><dd>{status.hatchet_run_id ?? "pending"}</dd>
-            <dt>Status</dt><dd>{status.status?.status ?? "accepted"}</dd>
+            <dt>Session</dt><dd>{session?.session_id ?? "none"}</dd>
+            <dt>Status</dt><dd>{session?.status ?? "idle"}</dd>
+            <dt>Domain</dt><dd>{session?.current_intent_frame?.domain ?? "unknown"}</dd>
+            <dt>Action</dt><dd>{session?.current_intent_frame?.action ?? "unknown"}</dd>
+            <dt>Output</dt><dd>{session?.current_intent_frame?.output_expectation?.kind ?? "unknown"}</dd>
+            <dt>Schedule</dt><dd>{session?.current_intent_frame?.schedule_intent?.requested ? `${session.current_intent_frame.schedule_intent.cadence ?? "requested"} ${session.current_intent_frame.schedule_intent.time_of_day ?? ""}` : "none"}</dd>
           </dl>
-          {status.status?.final_message ? <p>{status.status.final_message}</p> : null}
-        </section>
-      ) : null}
+          <p>{session?.current_intent_frame?.interpreted_goal}</p>
+          {session?.yield_reason ? <p className="warning">{session.yield_reason}</p> : null}
+        </div>
 
-      {message ? <section className="notice">{message}</section> : null}
-
-      <section className="panel">
-        <h2>Tasks</h2>
-        {tasks.length === 0 ? <p>No task status records yet.</p> : null}
-        {tasks.map((task) => (
-          <article className="task" key={task.task_run_id}>
-            <div className="taskHead">
-              <strong>{task.task_id}</strong>
-              <span>{task.status}</span>
+        <div className="panel">
+          <h2>Pending Questions</h2>
+          {session?.pending_questions.length ? session.pending_questions.map((question) => (
+            <button className="questionButton" type="button" key={question.question_id} onClick={() => setSelectedQuestion(question.question_id)}>
+              {question.severity}: {question.question}
+            </button>
+          )) : <p>No pending questions.</p>}
+          {selected ? (
+            <div className="questionDetail">
+              <h3>{selected.question}</h3>
+              <p>{selected.why_it_matters}</p>
+              <p>Default: {selected.default_assumption ?? "none"}</p>
+              <input value={answer} onChange={(event) => setAnswer(event.target.value)} placeholder={selected.choices.join(" / ")} />
+              <button type="button" onClick={answerQuestion} disabled={busy}>Answer</button>
             </div>
-            <p>{task.final_message}</p>
-            {task.repository_status ? (
-              <div>
-                <p>Repository phase: {task.repository_status.current_phase}</p>
-                {task.repository_status.changed_files.length > 0 ? <p>Changed: {task.repository_status.changed_files.join(", ")}</p> : null}
-                {task.repository_status.diff_summary ? <pre>{task.repository_status.diff_summary}</pre> : null}
-                {task.repository_status.review_report ? (
-                  <div>
-                    <h3>{task.repository_status.review_report.pr_title}</h3>
-                    <p>{task.repository_status.review_report.pr_summary}</p>
-                    <ItemList title="Verification" items={task.repository_status.review_report.test_notes.map((summary) => ({ summary }))} />
-                    <ItemList title="Risk" items={task.repository_status.review_report.risk_notes.map((summary) => ({ summary }))} />
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-            {task.status === "requires_approval" ? (
-              <div className="actions">
-                <span>Approval request: {task.result?.approval_request?.approval_request_id ?? task.repository_status?.approval_request?.approval_request_id ?? "pending"}</span>
-                <button type="button" onClick={() => decide(task.task_run_id, "approve")} disabled={busy}>Approve</button>
-                <button type="button" onClick={() => decide(task.task_run_id, "reject")} disabled={busy}>Reject</button>
-              </div>
-            ) : null}
-            <ItemList title="Observations" items={task.observations} />
-            <ItemList title="Errors" items={task.errors} />
-          </article>
-        ))}
+          ) : null}
+        </div>
+
+        <div className="panel">
+          <h2>Simulation / Requirements</h2>
+          <dl className="grid">
+            <dt>Status</dt><dd>{session?.simulation_report?.status ?? "none"}</dd>
+            <dt>Packs</dt><dd>{list(session?.simulation_report?.required_packs)}</dd>
+            <dt>Providers</dt><dd>{list(session?.simulation_report?.required_providers)}</dd>
+            <dt>Approvals</dt><dd>{list(session?.simulation_report?.approval_requirements)}</dd>
+            <dt>Artifacts</dt><dd>{list(session?.simulation_report?.predicted_artifacts)}</dd>
+          </dl>
+          <List title="Warnings" items={session?.simulation_report?.warnings ?? []} />
+        </div>
+
+        <div className="panel">
+          <h2>Validation</h2>
+          <p>{session?.validation_report?.ok === true ? "Passed" : session?.validation_report?.ok === false ? "Failed" : "Not run"}</p>
+          <List title="Issues" items={(session?.validation_report?.issues ?? []).map((issue) => `${issue.severity ?? "issue"} ${issue.code ?? ""}: ${issue.message ?? ""}`)} />
+        </div>
+
+        <div className="panel builderPrimary">
+          <h2>Planfile</h2>
+          <textarea value={JSON.stringify(session?.current_planfile ?? {}, null, 2)} readOnly rows={18} />
+          <div className="actions">
+            <input value={outputPath} onChange={(event) => setOutputPath(event.target.value)} />
+            <button type="button" onClick={() => sessionAction("save")} disabled={busy || !session}>Save</button>
+            <button type="button" onClick={() => sessionAction("run")} disabled={busy || !session}>Run Now</button>
+          </div>
+        </div>
+
+        <div className="panel builderPrimary">
+          <h2>DAG</h2>
+          <pre>{mermaid}</pre>
+          <p>Graph rendering can be added later; this panel shows Mermaid source now.</p>
+          <div className="actions">
+            <input value={scheduleTime} onChange={(event) => setScheduleTime(event.target.value)} />
+            <button type="button" onClick={() => sessionAction("schedule")} disabled={busy || !session}>Schedule Daily</button>
+          </div>
+        </div>
       </section>
+
+      {message ? <section className="notice"><pre>{message}</pre></section> : null}
     </main>
   );
 }
 
 function apiHeaders(apiToken: string): HeadersInit {
-  return {
-    "content-type": "application/json",
-    ...(apiToken ? { authorization: `Bearer ${apiToken}` } : {}),
-  };
+  return { "content-type": "application/json", ...(apiToken ? { authorization: `Bearer ${apiToken}` } : {}) };
 }
 
-function ItemList({ title, items }: { readonly title: string; readonly items: readonly Item[] }): React.ReactNode {
+function isBuilderSession(value: unknown): value is BuilderSession {
+  return Boolean(value && typeof value === "object" && "session_id" in value);
+}
+
+function list(values: readonly string[] | undefined): string {
+  return values && values.length > 0 ? values.join(", ") : "none";
+}
+
+function List({ title, items }: { readonly title: string; readonly items: readonly string[] }): React.ReactNode {
   if (items.length === 0) return null;
   return (
     <div>
       <h3>{title}</h3>
-      <ul>
-        {items.map((item, index) => (
-          <li key={`${title}-${index}`}>{item.code ? `${item.code}: ` : ""}{item.summary ?? item.message}</li>
-        ))}
-      </ul>
+      <ul>{items.map((item, index) => <li key={`${title}-${index}`}>{item}</li>)}</ul>
     </div>
   );
+}
+
+function mermaidSource(session: BuilderSession | undefined): string {
+  const nodes = session?.current_planfile?.nodes ?? [];
+  if (nodes.length === 0) return "flowchart TD\n  empty[No Planfile yet]";
+  return ["flowchart TD", ...nodes.map((node) => `  ${node.id}[${node.title.replace(/[\[\]]/g, "")}]`)].join("\n");
 }

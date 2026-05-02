@@ -30,6 +30,22 @@ export function parseSlashCommand(input: string, context: SlashCommandContext = 
   if (command === "status") return { kind: "event", command, pane: "chat", event: { type: "status.show" } };
   if (command === "doctor") return { kind: "event", command, pane: "chat", event: { type: "doctor.run" } };
   if (command === "compose" && text) return { kind: "event", command, pane: "chat", event: { type: "plan.compose", prompt: text, write: false, ...(context.repo_path ? { repo_path: context.repo_path } : {}) } };
+  if (command === "builder") {
+    const [subcommand, ...valueParts] = rest;
+    const value = valueParts.join(" ").trim();
+    if (subcommand === "start" && value) return { kind: "event", command, pane: "chat", event: { type: "plan_builder.start", prompt: value, ...(context.repo_path ? { repo_path: context.repo_path } : {}) } };
+    if (subcommand === "status") return { kind: "event", command, pane: "chat", event: { type: "plan_builder.status", session_id: value || "latest" } };
+    return { kind: "error", command, error: "Usage: /builder start <goal> or /builder status <session_id>" };
+  }
+  if (command === "answer") {
+    const [questionId, ...answerParts] = rest;
+    if (questionId && answerParts.length > 0) return { kind: "event", command, pane: "chat", event: { type: "plan_builder.answer", question_id: questionId, answer: answerParts.join(" ") } };
+    return { kind: "error", command, error: "Usage: /answer <question_id> <answer>" };
+  }
+  if (command === "accept-defaults") return { kind: "event", command, pane: "chat", event: { type: "plan_builder.accept_defaults" } };
+  if (command === "revise" && text) return { kind: "event", command, pane: "chat", event: { type: "plan_builder.start", prompt: text, ...(context.repo_path ? { repo_path: context.repo_path } : {}) } };
+  if (command === "validate") return { kind: "event", command, pane: "chat", event: { type: "plan_builder.validate" } };
+  if (command === "save" && text) return { kind: "event", command, pane: "chat", event: { type: "plan_builder.save", output_path: text } };
   if (command === "check" && text) return { kind: "event", command, pane: "chat", event: { type: "plan.check", planfile: text } };
   if (command === "library") return { kind: "event", command, pane: "chat", event: { type: "plan.library" } };
   if (command === "providers") return { kind: "event", command, pane: "chat", event: { type: "provider.list" } };

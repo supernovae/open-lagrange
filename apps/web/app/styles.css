@@ -74,6 +74,20 @@ p {
   padding: 32px 0;
 }
 
+.shell.wide {
+  width: min(1400px, calc(100vw - 32px));
+}
+
+.builderGrid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.builderPrimary {
+  grid-column: span 2;
+}
+
 .toolbar,
 .actions,
 .taskHead {
@@ -122,6 +136,25 @@ p {
   padding: 0.2rem 0.55rem;
 }
 
+.questionButton {
+  width: 100%;
+  background: #fff;
+  border-color: #cbc8bd;
+  color: #141414;
+  margin-bottom: 8px;
+  text-align: left;
+}
+
+.questionDetail {
+  border-top: 1px solid #dedbd1;
+  margin-top: 12px;
+  padding-top: 12px;
+}
+
+.warning {
+  color: #8a4b00;
+}
+
 @media (max-width: 720px) {
   .toolbar,
   .actions,
@@ -132,5 +165,13 @@ p {
 
   .grid {
     grid-template-columns: 1fr;
+  }
+
+  .builderGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .builderPrimary {
+    grid-column: span 1;
   }
 }

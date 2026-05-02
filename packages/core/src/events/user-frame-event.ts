@@ -7,6 +7,14 @@ export const TuiUserFrameEvent = z.discriminatedUnion("type", [
   z.object({ type: z.literal("capability.list") }).strict(),
   z.object({ type: z.literal("intent.classify"), text: z.string().min(1) }).strict(),
   z.object({ type: z.literal("plan.compose"), prompt: z.string().min(1), repo_path: z.string().optional(), provider_id: z.string().min(1).optional(), write: z.boolean().default(false) }).strict(),
+  z.object({ type: z.literal("plan_builder.start"), prompt: z.string().min(1), repo_path: z.string().optional(), provider_id: z.string().min(1).optional() }).strict(),
+  z.object({ type: z.literal("plan_builder.status"), session_id: z.string().min(1) }).strict(),
+  z.object({ type: z.literal("plan_builder.answer"), session_id: z.string().min(1).optional(), question_id: z.string().min(1), answer: z.string().min(1) }).strict(),
+  z.object({ type: z.literal("plan_builder.accept_defaults"), session_id: z.string().min(1).optional() }).strict(),
+  z.object({ type: z.literal("plan_builder.validate"), session_id: z.string().min(1).optional() }).strict(),
+  z.object({ type: z.literal("plan_builder.save"), session_id: z.string().min(1).optional(), output_path: z.string().min(1) }).strict(),
+  z.object({ type: z.literal("plan_builder.run"), session_id: z.string().min(1).optional(), live: z.boolean().default(false) }).strict(),
+  z.object({ type: z.literal("plan_builder.schedule"), session_id: z.string().min(1).optional(), cadence: z.enum(["daily", "weekly", "cron"]).default("daily"), time_of_day: z.string().min(1).optional() }).strict(),
   z.object({ type: z.literal("plan.create"), goal: z.string().min(1), target: z.enum(["generic", "repo"]).default("generic"), repo_path: z.string().optional(), dry_run: z.boolean().default(true) }).strict(),
   z.object({ type: z.literal("plan.check"), planfile: z.string().min(1) }).strict(),
   z.object({ type: z.literal("plan.library") }).strict(),
@@ -45,6 +53,7 @@ export type FlowId =
   | "packs"
   | "demos"
   | "plan_compose"
+  | "plan_builder"
   | "plan_check"
   | "plan_library"
   | "repository_plan"
@@ -69,6 +78,13 @@ export type FlowId =
 export const WorkflowStartingEventTypes = new Set<TuiUserFrameEvent["type"]>([
   "plan.create",
   "plan.compose",
+  "plan_builder.start",
+  "plan_builder.answer",
+  "plan_builder.accept_defaults",
+  "plan_builder.validate",
+  "plan_builder.save",
+  "plan_builder.run",
+  "plan_builder.schedule",
   "plan.apply",
   "repo.run",
   "skill.frame",

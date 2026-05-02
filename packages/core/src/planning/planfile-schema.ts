@@ -7,7 +7,7 @@ import { PlanArtifactRef } from "./plan-artifacts.js";
 export const PLANFILE_SCHEMA_VERSION = "open-lagrange.plan.v1" as const;
 
 export const PlanMode = z.enum(["dry_run", "apply"]);
-export const PlanStatus = z.enum(["draft", "validated", "pending", "running", "completed", "failed", "yielded"]);
+export const PlanStatus = z.enum(["draft", "validated", "ready", "approved", "pending", "running", "completed", "failed", "yielded"]);
 export const PlanNodeKind = z.enum([
   "frame",
   "inspect",
@@ -58,6 +58,14 @@ export const VerificationPolicy = z.object({
   allowed_command_ids: z.array(z.string().min(1)),
 }).strict();
 
+export const PlanfileLifecycle = z.object({
+  builder_session_id: z.string().min(1).optional(),
+  questions_answered: z.number().int().min(0).optional(),
+  assumptions: z.array(z.string().min(1)).optional(),
+  validation_status: z.enum(["unknown", "passed", "failed"]).optional(),
+  simulation_status: z.enum(["unknown", "ready", "needs_input", "missing_requirements", "invalid", "unsafe"]).optional(),
+}).strict();
+
 export const Planfile = z.object({
   schema_version: z.literal(PLANFILE_SCHEMA_VERSION),
   plan_id: z.string().min(1),
@@ -69,6 +77,7 @@ export const Planfile = z.object({
   approval_policy: ApprovalPolicy,
   verification_policy: VerificationPolicy,
   execution_context: z.record(z.string(), z.unknown()).optional(),
+  lifecycle: PlanfileLifecycle.optional(),
   artifact_refs: z.array(PlanArtifactRef),
   created_at: z.string().datetime(),
   updated_at: z.string().datetime(),
@@ -83,4 +92,5 @@ export type PlanNode = z.infer<typeof PlanNode>;
 export type PlanEdge = z.infer<typeof PlanEdge>;
 export type ApprovalPolicy = z.infer<typeof ApprovalPolicy>;
 export type VerificationPolicy = z.infer<typeof VerificationPolicy>;
+export type PlanfileLifecycle = z.infer<typeof PlanfileLifecycle>;
 export type Planfile = z.infer<typeof Planfile>;

@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 
 export const metadata = {
   title: "Open Lagrange",
-  description: "Open Lagrange is an agentic control plane for deterministic reconciliation around cognitive artifacts.",
+  description: "Open Lagrange is a control plane for deterministic reconciliation around cognitive artifacts.",
 };
 
 export default function RootLayout({ children }: { readonly children: ReactNode }): ReactNode {

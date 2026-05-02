@@ -15,6 +15,8 @@ export function HelpPane(): React.ReactElement {
       <Text>ctrl+r refresh   ctrl+q quit   esc help</Text>
       <Text>ctrl+s start runtime   ctrl+d doctor   ctrl+l logs</Text>
       <Text>/compose &lt;goal&gt;  /check &lt;planfile&gt;  /library</Text>
+      <Text>/builder start &lt;goal&gt;  /answer &lt;id&gt; &lt;answer&gt;</Text>
+      <Text>/accept-defaults  /validate  /save &lt;path&gt;</Text>
       <Text>/run list  /run outputs latest  /artifacts</Text>
       <Text>/providers /packs /schedule</Text>
       <Text>/plan repo &lt;goal&gt;  /repo run &lt;goal&gt;</Text>

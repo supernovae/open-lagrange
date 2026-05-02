@@ -157,6 +157,26 @@ describe("TUI input parsing", () => {
     expect(schedule.event).toMatchObject({ type: "schedule.list" });
   });
 
+  it("maps Plan Builder commands to session events", () => {
+    const start = parseUserInput("/builder start research supply chain security", { repo_path: "." });
+    const answer = parseUserInput("/answer question_1 08:00", {});
+    const defaults = parseUserInput("/accept-defaults", {});
+    const validate = parseUserInput("/validate", {});
+    const save = parseUserInput("/save .open-lagrange/plans/example.plan.md", {});
+
+    expect(start.kind).toBe("command");
+    expect(answer.kind).toBe("command");
+    expect(defaults.kind).toBe("command");
+    expect(validate.kind).toBe("command");
+    expect(save.kind).toBe("command");
+    if (start.kind !== "command" || answer.kind !== "command" || defaults.kind !== "command" || validate.kind !== "command" || save.kind !== "command") return;
+    expect(start.event).toMatchObject({ type: "plan_builder.start", prompt: "research supply chain security", repo_path: "." });
+    expect(answer.event).toMatchObject({ type: "plan_builder.answer", question_id: "question_1", answer: "08:00" });
+    expect(defaults.event).toMatchObject({ type: "plan_builder.accept_defaults" });
+    expect(validate.event).toMatchObject({ type: "plan_builder.validate" });
+    expect(save.event).toMatchObject({ type: "plan_builder.save", output_path: ".open-lagrange/plans/example.plan.md" });
+  });
+
   it("maps natural language skills file requests to pack build suggestions", () => {
     const parsed = parseUserInput("build a pack from skills.md", {});
 

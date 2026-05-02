@@ -10,7 +10,7 @@ import { exportArtifact, listArtifacts, listArtifactsForPlan, listRunArtifacts, 
 import { listDemos, openDemo, runDemo } from "@open-lagrange/core/demos";
 import { runCoreDoctor } from "@open-lagrange/core/doctor";
 import { getPackHealth, inspectPack, listInspectablePacks, runPackSmoke, validateRegisteredPack } from "@open-lagrange/core/packs";
-import { addPlanLibraryEntry, applyPlanfile as applyLocalPlanfile, composePlanfileFromIntent, createScheduleRecord, derivePlanRequirements, generateGoalFrame, generatePlanfile, getScheduleRecord, instantiatePlanTemplate, listPlanLibrary, listScheduleRecords, parsePlanfileMarkdown, parsePlanfileYaml, renderPlanfileMarkdown, renderPlanMermaid, syncPlanLibrary, validatePlanfile, withCanonicalPlanDigest } from "@open-lagrange/core/planning";
+import { acceptDefaultAnswers, addPlanLibraryEntry, answerQuestion, applyPlanfile as applyLocalPlanfile, composeInitialPlan, composePlanfileFromIntent, createScheduleRecord, derivePlanRequirements, generateGoalFrame, generatePlanfile, getPlanBuilderSession, getScheduleRecord, instantiatePlanTemplate, listPlanBuilderSessions, listPlanLibrary, listScheduleRecords, parsePlanfileMarkdown, parsePlanfileYaml, renderPlanfileMarkdown, renderPlanMermaid, revisePlan, savePlanBuilderSession, saveReadyPlanfile, simulatePlan, stabilizePlan, syncPlanLibrary, validatePlan, validatePlanfile, withCanonicalPlanDigest } from "@open-lagrange/core/planning";
 import { applyRepositoryPlanfile as applyLocalRepositoryPlanfile, approveApprovalRequest, approveRepositoryScopeRequest, cleanupRepositoryPlan as cleanupLocalRepositoryPlan, createRepositoryPlanfile, explainRepositoryPlan, exportRepositoryPlanPatch as exportLocalRepositoryPlanPatch, getRepositoryPlanStatus as getLocalRepositoryPlanStatus, listRepositoryModelCalls, rejectApprovalRequest, rejectRepositoryScopeRequest, resumeRepositoryPlan, runRepositoryDoctor } from "@open-lagrange/core/repository";
 import { compareBenchmarkRun, listBenchmarkScenarios, listModelRouteConfigs, renderBenchmarkReport, runModelRoutingBenchmark } from "@open-lagrange/core/evals";
 import { runResearchBriefCommand, runResearchExportCommand, runResearchFetchCommand, runResearchSearchCommand, runResearchSummarizeUrlCommand } from "@open-lagrange/core/research";
@@ -856,13 +856,27 @@ plan.command("compose")
   .argument("<prompt>", "Natural language goal to compose into a Planfile")
   .option("--repo <path>", "Repository path for repository work")
   .option("--provider <provider>", "Preferred research search provider")
+  .option("--interactive", "Create a collaborative Plan Builder session", false)
   .option("--write", "Write Markdown Planfile to .open-lagrange/plans/<plan_id>.plan.md", false)
   .option("--schedule <cadence>", "Capture a schedule candidate: daily, weekly, or cron")
   .option("--at <time>", "Schedule time, for example 08:00")
   .option("--timezone <timezone>", "Schedule timezone", Intl.DateTimeFormat().resolvedOptions().timeZone ?? "local")
   .option("--yes", "Create the schedule record when --schedule is provided", false)
-  .action(async (prompt: string, options: { readonly repo?: string; readonly provider?: string; readonly write: boolean; readonly schedule?: string; readonly at?: string; readonly timezone?: string; readonly yes: boolean }) => {
+  .action(async (prompt: string, options: { readonly repo?: string; readonly provider?: string; readonly interactive: boolean; readonly write: boolean; readonly schedule?: string; readonly at?: string; readonly timezone?: string; readonly yes: boolean }) => {
     const currentProfile = await getCurrentProfile().catch(() => undefined);
+    if (options.interactive) {
+      const session = await composeInitialPlan({
+        prompt,
+        ...(currentProfile ? { runtime_profile: currentProfile } : {}),
+        context: {
+          ...(options.repo ? { repo_path: cliPath(options.repo) } : {}),
+          ...(options.provider ? { provider_preference: options.provider } : {}),
+          ...(options.schedule ? { schedule_preference: { cadence: scheduleCadence(options.schedule), ...(options.at ? { time_of_day: options.at } : {}), ...(options.timezone ? { timezone: options.timezone } : {}) } } : {}),
+        },
+      });
+      console.log(JSON.stringify(session, null, 2));
+      return;
+    }
     const composed = await composePlanfileFromIntent({
       prompt,
       ...(currentProfile ? { runtime_profile: currentProfile } : {}),
@@ -901,6 +915,99 @@ plan.command("compose")
       return;
     }
     console.log(composed.markdown);
+  });
+
+const planBuilder = plan.command("builder").description("Collaboratively compose, check, revise, and save Planfiles.");
+
+planBuilder.command("start")
+  .argument("[prompt]", "Natural language goal")
+  .option("--skills <path>", "Import a skills.md file")
+  .option("--repo <path>", "Repository path for repository work")
+  .option("--provider <provider>", "Preferred research search provider")
+  .option("--schedule <cadence>", "Capture a schedule candidate: daily, weekly, or cron")
+  .option("--at <time>", "Schedule time, for example 08:00")
+  .action(async (prompt: string | undefined, options: { readonly skills?: string; readonly repo?: string; readonly provider?: string; readonly schedule?: string; readonly at?: string }) => {
+    const currentProfile = await getCurrentProfile().catch(() => undefined);
+    const session = await composeInitialPlan({
+      ...(options.skills ? { skills_markdown: await readFile(cliPath(options.skills), "utf8"), prompt_source: "skills_file" } : { prompt: prompt ?? "" }),
+      ...(currentProfile ? { runtime_profile: currentProfile } : {}),
+      context: {
+        ...(options.repo ? { repo_path: cliPath(options.repo) } : {}),
+        ...(options.provider ? { provider_preference: options.provider } : {}),
+        ...(options.schedule ? { schedule_preference: { cadence: scheduleCadence(options.schedule), ...(options.at ? { time_of_day: options.at } : {}) } } : {}),
+      },
+    });
+    console.log(JSON.stringify(session, null, 2));
+  });
+
+planBuilder.command("list").action(() => {
+  console.log(JSON.stringify({ sessions: listPlanBuilderSessions() }, null, 2));
+});
+
+planBuilder.command("status").argument("<sessionId>", "Plan Builder session ID").action((sessionId: string) => {
+  const session = requireBuilderSession(sessionId);
+  console.log(JSON.stringify(session, null, 2));
+});
+
+planBuilder.command("answer")
+  .argument("<sessionId>", "Plan Builder session ID")
+  .argument("<questionId>", "Question ID")
+  .argument("<answer>", "Answer text")
+  .action((sessionId: string, questionId: string, answer: string) => {
+    console.log(JSON.stringify(answerQuestion(requireBuilderSession(sessionId), questionId, answer), null, 2));
+  });
+
+planBuilder.command("accept-defaults").argument("<sessionId>", "Plan Builder session ID").action(async (sessionId: string) => {
+  const session = savePlanBuilderSession(await stabilizePlan(acceptDefaultAnswers(requireBuilderSession(sessionId), { persist: false }), { persist: false }));
+  console.log(JSON.stringify(session, null, 2));
+});
+
+planBuilder.command("revise")
+  .argument("<sessionId>", "Plan Builder session ID")
+  .option("--prompt <prompt>", "Revision reason or updated intent")
+  .option("--model-route <routeId>", "Planner model route ID")
+  .action(async (sessionId: string, options: { readonly prompt?: string; readonly modelRoute?: string }) => {
+    const route = options.modelRoute ? modelRouteById(options.modelRoute) : undefined;
+    const revised = await revisePlan(requireBuilderSession(sessionId), { ...(options.prompt ? { reason: options.prompt } : {}), ...(route ? { route } : {}), persist: false });
+    const session = await stabilizePlan(revised, { ...(route ? { route } : {}), persist: true });
+    console.log(JSON.stringify(session, null, 2));
+  });
+
+planBuilder.command("validate").argument("<sessionId>", "Plan Builder session ID").action((sessionId: string) => {
+  const session = validatePlan(simulatePlan(requireBuilderSession(sessionId), { persist: false }));
+  console.log(JSON.stringify(session, null, 2));
+});
+
+planBuilder.command("save")
+  .argument("<sessionId>", "Plan Builder session ID")
+  .requiredOption("--output <path>", "Output Planfile Markdown path")
+  .action((sessionId: string, options: { readonly output: string }) => {
+    console.log(JSON.stringify(saveReadyPlanfile(requireBuilderSession(sessionId), cliPath(options.output)), null, 2));
+  });
+
+planBuilder.command("run").argument("<sessionId>", "Plan Builder session ID").option("--live", "Execute through the local runtime path", false).action(async (sessionId: string, options: { readonly live: boolean }) => {
+  const session = requireReadyBuilderSession(sessionId);
+  console.log(JSON.stringify(await applyLocalPlanfile({ planfile: session.current_planfile, live: options.live }), null, 2));
+});
+
+planBuilder.command("schedule")
+  .argument("<sessionId>", "Plan Builder session ID")
+  .option("--daily", "Run daily", false)
+  .option("--weekly", "Run weekly", false)
+  .option("--cron <expr>", "Record a cron cadence expression")
+  .option("--at <time>", "Schedule time, for example 08:00")
+  .option("--timezone <timezone>", "Schedule timezone", Intl.DateTimeFormat().resolvedOptions().timeZone ?? "local")
+  .action((sessionId: string, options: { readonly daily: boolean; readonly weekly: boolean; readonly cron?: string; readonly at?: string; readonly timezone?: string }) => {
+    const session = requireReadyBuilderSession(sessionId);
+    const path = join(".open-lagrange", "plans", `${session.current_planfile.plan_id}.plan.md`);
+    saveReadyPlanfile(session, path);
+    console.log(JSON.stringify(createScheduleRecord({
+      planfile: session.current_planfile,
+      planfile_path: path,
+      cadence: scheduleCadence(options.cron ? "cron" : options.weekly ? "weekly" : "daily"),
+      ...(options.at ? { time_of_day: options.at } : {}),
+      ...(options.timezone ? { timezone: options.timezone } : {}),
+    }), null, 2));
   });
 
 plan.command("create")
@@ -1216,6 +1323,26 @@ function formatPlanExplanation(input: {
 
 function lineList(values: readonly string[]): string {
   return values.length > 0 ? values.join(", ") : "none";
+}
+
+function requireBuilderSession(sessionId: string) {
+  const session = getPlanBuilderSession(sessionId);
+  if (!session) throw new Error(`Plan Builder session not found: ${sessionId}`);
+  return session;
+}
+
+function requireReadyBuilderSession(sessionId: string) {
+  const session = requireBuilderSession(sessionId);
+  if ((session.status !== "ready" && session.status !== "approved") || !session.current_planfile) {
+    throw new Error(`Plan Builder session is not ready: ${sessionId}`);
+  }
+  return { ...session, current_planfile: session.current_planfile };
+}
+
+function modelRouteById(routeId: string) {
+  const route = listModelRouteConfigs().find((item) => item.route_id === routeId);
+  if (!route) throw new Error(`Unknown model route: ${routeId}`);
+  return route;
 }
 
 function scheduleCadence(value: string): "daily" | "weekly" | "cron" {
