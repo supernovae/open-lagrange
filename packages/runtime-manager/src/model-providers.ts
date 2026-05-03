@@ -64,10 +64,10 @@ export async function configureCurrentProfileModelProvider(input: ConfigureModel
     },
   };
   const secretRefs = { ...(profile.secretRefs ?? {}) };
-  if (secretRefKey && descriptor.api_key_env && !secretRefs[secretRefKey]) {
+  if (secretRefKey && (descriptor.api_key_env || input.secret_ref) && !secretRefs[secretRefKey]) {
     secretRefs[secretRefKey] = secretRef({
       provider: "os-keychain",
-      name: modelProviderSecretName(key) ?? `${secretRefKey}-api-key`,
+      name: input.secret_ref ? `${secretRefKey}-api-key` : modelProviderSecretName(key) ?? `${secretRefKey}-api-key`,
       scope: "profile",
       profile_name: profile.name,
       description: `${descriptor.display_name} API key for model provider access.`,

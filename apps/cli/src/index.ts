@@ -88,7 +88,7 @@ program.command("doctor").description("Run local or remote profile checks.").act
   console.log(JSON.stringify(await runCoreDoctor(), null, 2));
 });
 
-program.command("logs").description("Show local runtime logs.").argument("[service]", "api, worker, web, hatchet, or compose service").action(async (service: string | undefined) => {
+program.command("logs").description("Show local runtime logs.").argument("[service]", "api, worker, web, hatchet, all, or a compose service").action(async (service: string | undefined) => {
   console.log(await tailLogs(service));
 });
 
@@ -375,7 +375,12 @@ secrets.command("set")
   .option("--provider <provider>", "os-keychain or env", "os-keychain")
   .option("--from-stdin", "Read secret value from stdin", false)
   .action(async (name: string, options: { readonly provider: string; readonly fromStdin: boolean }) => {
-    const value = options.fromStdin ? await readStdin() : await promptSecretValue(`Secret value for ${name}: `);
+    const value = requireSecretInput(
+      options.fromStdin ? await readStdin() : await promptSecretValue(`Secret value for ${name}: `),
+      options.fromStdin
+        ? `No secret value was read from stdin for ${name}. Check that the environment variable you pipe is set.`
+        : `Secret value cannot be empty for ${name}.`,
+    );
     console.log(JSON.stringify(await setCurrentProfileSecret({ name, value, provider: secretProvider(options.provider) }), null, 2));
   });
 
@@ -409,7 +414,12 @@ secrets.command("status").action(async () => {
 const auth = program.command("auth").description("Manage profile authentication.");
 
 auth.command("login").option("--from-stdin", "Read token from stdin", false).action(async (options: { readonly fromStdin: boolean }) => {
-  const value = options.fromStdin ? await readStdin() : await promptSecretValue("Open Lagrange token: ");
+  const value = requireSecretInput(
+    options.fromStdin ? await readStdin() : await promptSecretValue("Open Lagrange token: "),
+    options.fromStdin
+      ? "No token was read from stdin. Check that the environment variable you pipe is set."
+      : "Open Lagrange token cannot be empty.",
+  );
   console.log(JSON.stringify(await setCurrentProfileSecret({ name: "open_lagrange_token", value, provider: "os-keychain" }), null, 2));
 });
 
@@ -418,10 +428,16 @@ auth.command("logout").action(async () => {
 });
 
 auth.command("status").action(async () => {
+  const profile = await getCurrentProfile().catch(() => undefined);
+  if (!profile) {
+    console.log(JSON.stringify({ status: "missing_profile", message: "Run open-lagrange init before configuring auth." }, null, 2));
+    return;
+  }
   try {
     console.log(JSON.stringify(await describeCurrentProfileSecret("open_lagrange_token"), null, 2));
-  } catch {
-    console.log(JSON.stringify({ status: "missing_profile", message: "Run open-lagrange init before configuring auth." }, null, 2));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.log(JSON.stringify({ status: "unknown", profile: profile.name, message }, null, 2));
   }
 });
 
@@ -1321,7 +1337,28 @@ skill.command("run")
     console.log(JSON.stringify(previewWorkflowSkillRun({ workflow_skill: workflowSkill }), null, 2));
   });
 
-await program.parseAsync(process.argv);
+class CliUsageError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CliUsageError";
+  }
+}
+
+function requireSecretInput(value: string, message: string): string {
+  if (value.trim().length === 0) throw new CliUsageError(message);
+  return value;
+}
+
+try {
+  await program.parseAsync(process.argv);
+} catch (error) {
+  if (error instanceof CliUsageError) {
+    console.error(`error: ${error.message}`);
+    process.exitCode = 1;
+  } else {
+    throw error;
+  }
+}
 
 function runtimeOption(value: string | undefined): "docker" | "podman" | undefined {
   if (value === "docker" || value === "podman") return value;

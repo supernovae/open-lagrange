@@ -1,4 +1,4 @@
-import { SecretError, missingSecret } from "./secret-errors.js";
+import { SecretError, invalidSecretValue, missingSecret } from "./secret-errors.js";
 import type { SecretProvider } from "./secret-provider.js";
 import { redactSecretRef } from "./secret-redaction.js";
 import { assertCanDescribeSecret, assertCanMutateSecret, assertCanResolveRawSecret } from "./secret-policy.js";
@@ -28,6 +28,7 @@ export class SecretManager {
   async setSecret(refInput: SecretRef, value: string, contextInput: SecretAccessContext): Promise<void> {
     const ref = SecretRef.parse(refInput);
     const context = SecretAccessContext.parse(contextInput);
+    if (value.trim().length === 0) throw invalidSecretValue(ref);
     assertCanMutateSecret(ref, context);
     await this.providerFor(ref).setSecret(ref, value, context);
   }

@@ -20,10 +20,19 @@ export async function initRuntime(input: { readonly runtime?: "docker" | "podman
   const detected = await detectRuntime(input.runtime);
   const runtime = input.runtime ?? detected?.kind ?? "podman";
   await writeComposeTemplate(paths.composePath);
+  const existing = await loadConfig().catch(() => undefined);
+  const existingLocal = existing?.profiles.local;
+  const local = managedLocalProfile({
+    runtime,
+    composeFile: paths.composePath,
+    ...(existingLocal && existingLocal.mode === "local" ? { existing: existingLocal } : {}),
+    withSearch: input.withSearch ?? false,
+  });
   const config = {
     currentProfile: "local",
     profiles: {
-      local: defaultLocalProfile({ runtime, composeFile: paths.composePath, ...(input.withSearch === undefined ? {} : { withSearch: input.withSearch }) }),
+      ...(existing?.profiles ?? {}),
+      local,
     },
   };
   await saveConfig(config);
@@ -157,9 +166,12 @@ async function ensureBootstrapProfile(runtime: "docker" | "podman", forceInit: b
     if (existing && existing.mode === "local" && existing.ownership !== "managed-by-cli") {
       throw new Error("A local profile already exists but is externally managed. Use a managed local profile for bootstrap.");
     }
-    const local = existing && existing.mode === "local"
-      ? withOptionalSearch({ ...existing, runtimeManager: runtime, composeFile: existing.composeFile ?? paths.composePath }, withSearch)
-      : defaultLocalProfile({ runtime, composeFile: paths.composePath, withSearch });
+    const local = managedLocalProfile({
+      runtime,
+      composeFile: existing?.composeFile ?? paths.composePath,
+      ...(existing && existing.mode === "local" ? { existing } : {}),
+      withSearch,
+    });
     const next: RuntimeConfig = { ...config, currentProfile: "local", profiles: { ...config.profiles, local } };
     await saveConfig(next);
     if (!(await composeFileExists(local.composeFile ?? paths.composePath))) await writeComposeTemplate(local.composeFile ?? paths.composePath);
@@ -190,11 +202,12 @@ async function runtimeEnv(profile: RuntimeProfile): Promise<NodeJS.ProcessEnv> {
   const packPaths = getProfilePackPaths(profile.name);
   await mkdir(packPaths.trustedLocalDir, { recursive: true });
   const authToken = await resolveProfileAuthToken(profile);
+  const searchEnv = localSearchRuntimeEnv(profile);
   return {
     ...process.env,
     ...await modelProviderRuntimeEnv(profile),
     ...(authToken ? { OPEN_LAGRANGE_API_TOKEN: authToken } : {}),
-    ...(hasLocalSearxng(profile) ? { COMPOSE_PROFILES: "search" } : {}),
+    ...(searchEnv ? { COMPOSE_PROFILES: "search", ...searchEnv } : {}),
     OPEN_LAGRANGE_PROFILE: profile.name,
     OPEN_LAGRANGE_PROFILE_PACKS_DIR: packPaths.packsDir,
   };
@@ -214,8 +227,47 @@ function withOptionalSearch(profile: RuntimeProfile, withSearch: boolean): Runti
   };
 }
 
+function managedLocalProfile(input: {
+  readonly runtime: "docker" | "podman";
+  readonly composeFile: string;
+  readonly existing?: RuntimeProfile;
+  readonly withSearch: boolean;
+}): RuntimeProfile {
+  const base = defaultLocalProfile({ runtime: input.runtime, composeFile: input.composeFile, withSearch: input.withSearch });
+  const existing = input.existing;
+  if (!existing) return base;
+  return withOptionalSearch({
+    ...base,
+    ...existing,
+    name: "local",
+    mode: "local",
+    ownership: existing.ownership,
+    runtimeManager: input.runtime,
+    composeFile: input.composeFile,
+    apiUrl: base.apiUrl,
+    hatchetUrl: base.hatchetUrl,
+    workerUrl: base.workerUrl,
+    webUrl: base.webUrl,
+    secretRefs: { ...(base.secretRefs ?? {}), ...(existing.secretRefs ?? {}) },
+    modelProviders: { ...(base.modelProviders ?? {}), ...(existing.modelProviders ?? {}) },
+    ...(existing.auth ? { auth: existing.auth } : {}),
+    ...(existing.activeModelProvider ? { activeModelProvider: existing.activeModelProvider } : {}),
+    ...(existing.searchProviders ? { searchProviders: existing.searchProviders } : {}),
+  }, input.withSearch);
+}
+
 function hasLocalSearxng(profile: RuntimeProfile): boolean {
   return Boolean(profile.searchProviders?.some((provider) => provider.kind === "searxng" && provider.enabled !== false && provider.baseUrl === "http://localhost:8088"));
+}
+
+function localSearchRuntimeEnv(profile: RuntimeProfile): Record<string, string> | undefined {
+  const provider = profile.searchProviders?.find((item) => item.kind === "searxng" && item.enabled !== false && item.baseUrl === "http://localhost:8088");
+  if (!provider) return undefined;
+  return {
+    OPEN_LAGRANGE_SEARCH_PROVIDER: provider.id,
+    OPEN_LAGRANGE_SEARCH_KIND: provider.kind,
+    OPEN_LAGRANGE_SEARCH_BASE_URL: "http://searxng:8080",
+  };
 }
 
 function bootstrapSteps(status: RuntimeStatusType): BootstrapStep[] {

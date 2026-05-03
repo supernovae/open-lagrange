@@ -1,3 +1,4 @@
+import { proxyApiRoute, shouldProxyApiRoute } from "../../proxy";
 import { getTaskStatus } from "@open-lagrange/core/interface";
 import { handleRouteError, json } from "../../http";
 
@@ -5,6 +6,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(_request: Request, context: { params: Promise<{ taskId: string }> }): Promise<Response> {
+  if (shouldProxyApiRoute()) return proxyApiRoute(_request);
   try {
     const { taskId } = await context.params;
     const status = await getTaskStatus(taskId);

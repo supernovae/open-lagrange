@@ -1,3 +1,4 @@
+import { proxyApiRoute, shouldProxyApiRoute } from "../proxy";
 import { createMockDelegationContext, DEFAULT_EXECUTION_BOUNDS, submitProject } from "@open-lagrange/core/interface";
 import { handleRouteError, json, parseJson, requireMutationSecurity } from "../http";
 import { SubmitJobPayload } from "./schema";
@@ -6,6 +7,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request): Promise<Response> {
+  if (shouldProxyApiRoute()) return proxyApiRoute(request);
   try {
     requireMutationSecurity(request);
     const payload = await parseJson(request, SubmitJobPayload);

@@ -201,7 +201,16 @@ export default function Page(): React.ReactNode {
   const mermaid = useMemo(() => mermaidSource(session), [session]);
   const title = navItems.find((item) => item.id === activeView)?.label ?? "Workbench";
 
+  function updateApiToken(value: string): void {
+    updateApiTokenValue(value, setApiToken);
+  }
+
+  function currentApiToken(): string {
+    return apiToken || window.localStorage.getItem("open-lagrange-api-token") || "";
+  }
+
   useEffect(() => {
+    setApiToken(window.localStorage.getItem("open-lagrange-api-token") ?? "");
     const params = new URLSearchParams(window.location.search);
     const sessionId = params.get("plan_builder_session");
     if (sessionId) {
@@ -224,7 +233,10 @@ export default function Page(): React.ReactNode {
   }
 
   async function refreshWorkbench(): Promise<void> {
-    await getJson("/api/workbench", (data: WorkbenchData) => setWorkbench(data));
+    await getJson("/api/workbench", (data: WorkbenchData) => {
+      setWorkbench(data);
+      setMessage(`Workbench refreshed: ${runtimeLine(data.runtime)}`);
+    });
   }
 
   async function refreshSession(): Promise<void> {
@@ -269,7 +281,7 @@ export default function Page(): React.ReactNode {
     setBusy(true);
     setMessage("");
     try {
-      const response = await fetch(url, { headers: apiHeaders(apiToken) });
+      const response = await fetch(url, { headers: apiHeaders(currentApiToken()) });
       const data = await readResponseBody(response);
       if (!response.ok) {
         setMessage(requestFailureMessage(url, response.status, data));
@@ -287,7 +299,7 @@ export default function Page(): React.ReactNode {
     setBusy(true);
     setMessage("");
     try {
-      const response = await fetch(url, { method: "POST", headers: apiHeaders(apiToken), body: JSON.stringify(body) });
+      const response = await fetch(url, { method: "POST", headers: apiHeaders(currentApiToken()), body: JSON.stringify(body) });
       const data = await readResponseBody(response);
       if (!response.ok) {
         setMessage(requestFailureMessage(url, response.status, data));
@@ -324,7 +336,11 @@ export default function Page(): React.ReactNode {
       ? "The bearer token did not match OPEN_LAGRANGE_API_TOKEN in the web runtime."
       : error === "API_AUTH_NOT_CONFIGURED"
         ? "The web runtime does not have OPEN_LAGRANGE_API_TOKEN configured."
-        : "Check the web runtime logs for the request trace.";
+        : error === "SESSION_NOT_READY"
+          ? "The Plan Builder session still has blocking questions or missing requirements."
+          : error === "SESSION_NOT_FOUND"
+            ? "The Plan Builder session was not found in this runtime."
+          : "Check the web runtime logs for the request trace.";
     return [`HTTP ${status} ${error}`, `Route: ${url}`, hint, "", JSON.stringify(data, null, 2)].join("\n");
   }
 
@@ -361,7 +377,7 @@ export default function Page(): React.ReactNode {
             <h1>{title}</h1>
           </div>
           <div className="topbarActions">
-            <input value={apiToken} onChange={(event) => setApiToken(event.target.value)} placeholder="API bearer token" />
+            <input value={apiToken} onChange={(event) => updateApiToken(event.target.value)} placeholder="API bearer token" />
             <button className="secondaryButton" type="button" onClick={refreshWorkbench} disabled={busy}>Refresh</button>
           </div>
         </header>
@@ -477,6 +493,7 @@ function PlannerView(input: {
   readonly reconcileEdits: () => Promise<void>;
   readonly sessionAction: (action: "accept-defaults" | "revise" | "validate" | "save" | "run" | "schedule") => Promise<void>;
 }): React.ReactNode {
+  const ready = isReadySession(input.session);
   return (
     <div className="plannerGrid">
       <section className="panel spanTwo">
@@ -560,8 +577,8 @@ function PlannerView(input: {
         <textarea className="codeEditor" value={input.planMarkdown || JSON.stringify(input.session?.current_planfile ?? {}, null, 2)} onChange={(event) => input.setPlanMarkdown(event.target.value)} rows={20} />
         <div className="buttonRow">
           <input value={input.outputPath} onChange={(event) => input.setOutputPath(event.target.value)} />
-          <button className="secondaryButton" type="button" onClick={() => input.sessionAction("save")} disabled={input.busy || !input.session}>Save</button>
-          <button className="secondaryButton" type="button" onClick={() => input.sessionAction("run")} disabled={input.busy || !input.session}>Run Now</button>
+          <button className="secondaryButton" type="button" onClick={() => input.sessionAction("save")} disabled={input.busy || !ready}>Save</button>
+          <button className="secondaryButton" type="button" onClick={() => input.sessionAction("run")} disabled={input.busy || !ready}>Run Now</button>
         </div>
       </section>
 
@@ -569,7 +586,7 @@ function PlannerView(input: {
         <h2>DAG</h2>
         <pre>{input.updateReport?.mermaid ?? input.mermaid}</pre>
         <input value={input.scheduleTime} onChange={(event) => input.setScheduleTime(event.target.value)} />
-        <button className="secondaryButton fullWidth" type="button" onClick={() => input.sessionAction("schedule")} disabled={input.busy || !input.session}>Schedule Daily</button>
+        <button className="secondaryButton fullWidth" type="button" onClick={() => input.sessionAction("schedule")} disabled={input.busy || !ready}>Schedule Daily</button>
       </section>
 
       <section className="panel spanThree">
@@ -728,8 +745,18 @@ function apiHeaders(apiToken: string): HeadersInit {
   return { "content-type": "application/json", ...(apiToken ? { authorization: `Bearer ${apiToken}` } : {}) };
 }
 
+function updateApiTokenValue(value: string, setApiToken: (value: string) => void): void {
+  setApiToken(value);
+  if (value) window.localStorage.setItem("open-lagrange-api-token", value);
+  else window.localStorage.removeItem("open-lagrange-api-token");
+}
+
 function isBuilderSession(value: unknown): value is BuilderSession {
   return Boolean(value && typeof value === "object" && "session_id" in value);
+}
+
+function isReadySession(session: BuilderSession | undefined): boolean {
+  return Boolean(session?.current_planfile && (session.status === "ready" || session.status === "approved"));
 }
 
 function list(values: readonly string[] | undefined): string {

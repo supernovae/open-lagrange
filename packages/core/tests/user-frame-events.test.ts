@@ -1,15 +1,18 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { inMemoryApprovalStore } from "../src/approval/approval-store.js";
 import { inMemoryStatusStore } from "../src/status/status-store.js";
 import { setStateStoreForTests } from "../src/storage/state-store.js";
-import { submitUserFrameEvent } from "../src/user-frame-events.js";
+import { getRuntimeHealth, submitUserFrameEvent } from "../src/user-frame-events.js";
 
 function useMemoryStore(): void {
   setStateStoreForTests({ ...inMemoryStatusStore, ...inMemoryApprovalStore });
 }
 
 describe("user frame events", () => {
-  afterEach(() => setStateStoreForTests(undefined));
+  afterEach(() => {
+    setStateStoreForTests(undefined);
+    vi.unstubAllEnvs();
+  });
 
   it("records goal refinements as project observations", async () => {
     useMemoryStore();
@@ -67,5 +70,15 @@ describe("user frame events", () => {
 
     expect(result.status).toBe("completed");
     expect(result.message).toContain("Project is requires_approval");
+  });
+
+  it("reports local OpenAI-compatible model providers as configured without a key", async () => {
+    vi.stubEnv("OPEN_LAGRANGE_MODEL_PROVIDER", "local");
+    vi.stubEnv("OPEN_LAGRANGE_MODEL_BASE_URL", "https://coder.kybern.dev/v1");
+    vi.stubEnv("OPEN_LAGRANGE_MODEL", "core");
+
+    const health = await getRuntimeHealth();
+
+    expect(health.model).toBe("configured");
   });
 });

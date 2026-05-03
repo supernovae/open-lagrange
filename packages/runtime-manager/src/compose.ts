@@ -69,7 +69,8 @@ export async function composeDown(profile: RuntimeProfile): Promise<void> {
 export async function composeLogs(profile: RuntimeProfile, service?: string): Promise<string> {
   const runtime = await detectRuntime(profile.runtimeManager === "docker" || profile.runtimeManager === "podman" ? profile.runtimeManager : undefined);
   if (!runtime) throw new Error("Docker or Podman compose was not found.");
-  const { stdout } = await execFileAsync(runtime.command[0] ?? "", [...runtime.command.slice(1), "-f", profile.composeFile ?? getRuntimePaths().composePath, "logs", "--tail", "200", ...(service ? [serviceName(service)] : [])], { cwd: process.cwd(), env: runtimeEnv(process.env, runtime), maxBuffer: 2_000_000 });
+  const composeService = service ? serviceName(service) : undefined;
+  const { stdout } = await execFileAsync(runtime.command[0] ?? "", [...runtime.command.slice(1), "-f", profile.composeFile ?? getRuntimePaths().composePath, "logs", "--tail", "200", ...(composeService ? [composeService] : [])], { cwd: process.cwd(), env: runtimeEnv(process.env, runtime), maxBuffer: 2_000_000 });
   return stdout;
 }
 
@@ -156,10 +157,12 @@ function enhanceComposeError(error: unknown, composeFile: string): Error {
   return Object.assign(new Error(message), { cause: error });
 }
 
-function serviceName(service: string): string {
-  if (service === "api") return "open-lagrange-api";
-  if (service === "worker") return "open-lagrange-worker";
-  if (service === "web") return "open-lagrange-web";
-  if (service === "hatchet") return "hatchet-dashboard";
-  return service;
+function serviceName(service: string): string | undefined {
+  const normalized = service.trim();
+  if (!normalized || normalized === "all" || normalized === "compose") return undefined;
+  if (normalized === "api") return "open-lagrange-api";
+  if (normalized === "worker") return "open-lagrange-worker";
+  if (normalized === "web") return "open-lagrange-web";
+  if (normalized === "hatchet") return "hatchet-dashboard";
+  return normalized;
 }

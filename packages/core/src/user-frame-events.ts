@@ -13,6 +13,7 @@ import { TuiUserFrameEvent } from "./events/user-frame-event.js";
 import { routeIntent } from "./chat-pack/intent-router.js";
 import { getCapabilitiesSummary } from "./chat-pack/capability-discovery.js";
 import { explainSystem } from "./chat-pack/system-explainer.js";
+import { hasConfiguredModelProvider } from "./model-providers/index.js";
 
 export const ArtifactType = z.enum(["diff", "review", "verification", "plan", "artifact_json"]);
 
@@ -366,7 +367,7 @@ export async function getRuntimeHealth(input: { readonly api_url?: string; reado
     hatchet,
     packs: packRegistry.listPacks().length,
     pack_health: getPackHealth(),
-    model: process.env.OPENAI_API_KEY || process.env.AI_GATEWAY_API_KEY ? "configured" : "not_configured",
+    model: hasConfiguredModelProvider() ? "configured" : "not_configured",
     remote_auth: "missing",
     secret_provider: "env",
   };

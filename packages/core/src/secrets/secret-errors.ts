@@ -5,7 +5,8 @@ export type SecretErrorCode =
   | "SECRET_PROVIDER_UNAVAILABLE"
   | "SECRET_PROVIDER_READ_ONLY"
   | "SECRET_POLICY_DENIED"
-  | "SECRET_PROVIDER_UNKNOWN";
+  | "SECRET_PROVIDER_UNKNOWN"
+  | "SECRET_VALUE_INVALID";
 
 export class SecretError extends Error {
   constructor(
@@ -28,4 +29,8 @@ export function providerUnavailable(provider: string, detail?: string): SecretEr
 
 export function readOnlyProvider(provider: string): SecretError {
   return new SecretError("SECRET_PROVIDER_READ_ONLY", `${provider} does not support writes`);
+}
+
+export function invalidSecretValue(ref?: SecretRef): SecretError {
+  return new SecretError("SECRET_VALUE_INVALID", "Secret value cannot be empty.", ref);
 }

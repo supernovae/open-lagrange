@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 const buckets = new Map<string, { readonly resetAt: number; count: number }>();
+const csp = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; object-src 'none'";
 
 export function middleware(request: NextRequest): NextResponse {
   const auth = authorize(request);
@@ -10,6 +11,9 @@ export function middleware(request: NextRequest): NextResponse {
     const limited = rateLimit(request);
     if (limited) return withSecurityHeaders(limited);
   }
+
+  const proxied = proxyToApi(request);
+  if (proxied) return withSecurityHeaders(proxied);
 
   return withSecurityHeaders(NextResponse.next());
 }
@@ -40,11 +44,23 @@ function rateLimit(request: NextRequest): NextResponse | undefined {
   return bucket.count > max ? NextResponse.json({ error: "RATE_LIMITED" }, { status: 429 }) : undefined;
 }
 
+function proxyToApi(request: NextRequest): NextResponse | undefined {
+  const apiUrl = process.env.OPEN_LAGRANGE_API_URL;
+  if (!apiUrl) return undefined;
+  const path = request.nextUrl.pathname.startsWith("/v1/")
+    ? `/api${request.nextUrl.pathname}`
+    : request.nextUrl.pathname;
+  if (!path.startsWith("/api/")) return undefined;
+  const target = new URL(path, apiUrl);
+  target.search = request.nextUrl.search;
+  return NextResponse.rewrite(target);
+}
+
 function withSecurityHeaders(response: NextResponse): NextResponse {
   response.headers.set("X-Content-Type-Options", "nosniff");
   response.headers.set("X-Frame-Options", "DENY");
   response.headers.set("Referrer-Policy", "no-referrer");
-  response.headers.set("Content-Security-Policy", "default-src 'self'; frame-ancestors 'none'; base-uri 'self'; object-src 'none'");
+  response.headers.set("Content-Security-Policy", csp);
   if (process.env.NODE_ENV === "production") {
     response.headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
   }

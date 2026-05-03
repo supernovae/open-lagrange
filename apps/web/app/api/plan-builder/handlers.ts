@@ -1,6 +1,8 @@
 import { listModelRouteConfigs } from "@open-lagrange/core/evals";
-import { acceptDefaultAnswers, answerQuestion, applyPlanfile, composeInitialPlan, createScheduleRecord, diffPlanfileMarkdown, getPlanBuilderSession, importBuilderPlanfileFromMarkdown, reconcilePlanfileMarkdown, renderPlanfileMarkdown, revisePlan, saveReadyPlanfile, simulatePlan, stabilizePlan, updateBuilderPlanfileFromMarkdown, validatePlan } from "@open-lagrange/core/planning";
+import { acceptDefaultAnswers, answerQuestion, applyPlanfile, composeInitialPlan, createScheduleRecord, diffPlanfileMarkdown, getPlanBuilderSession, importBuilderPlanfileFromMarkdown, reconcilePlanfileMarkdown, renderPlanfileMarkdown, revisePlan, saveReadyPlanfile, simulatePlan, stabilizePlan, updateBuilderPlanfileFromMarkdown, validatePlan, type RuntimeProfileForComposition } from "@open-lagrange/core/planning";
+import { getCurrentProfile } from "@open-lagrange/runtime-manager";
 import { z } from "zod";
+import { HttpError } from "../http";
 
 export const StartSessionPayload = z.object({
   prompt: z.string().min(1).optional(),
@@ -57,6 +59,7 @@ export async function startPlanBuilderSession(raw: unknown): Promise<unknown> {
   const payload = StartSessionPayload.parse(raw);
   return sessionResponse(await composeInitialPlan({
     ...(payload.skills_markdown ? { skills_markdown: payload.skills_markdown, prompt_source: "skills_file" } : { prompt: payload.prompt ?? "" }),
+    runtime_profile: await planningRuntimeProfile(),
     context: {
       ...(payload.repo_path ? { repo_path: payload.repo_path } : {}),
       ...(payload.provider_id ? { provider_preference: payload.provider_id } : {}),
@@ -69,29 +72,41 @@ export function readPlanBuilderSession(sessionId: string): unknown {
   return session ? sessionResponse(session) : { status: "missing", session_id: sessionId };
 }
 
-export function answerPlanBuilderQuestion(sessionId: string, raw: unknown): unknown {
+export async function answerPlanBuilderQuestion(sessionId: string, raw: unknown): Promise<unknown> {
   const payload = AnswerPayload.parse(raw);
-  return sessionResponse(answerQuestion(requireSession(sessionId), payload.question_id, payload.answer));
+  const answered = answerQuestion(requireSession(sessionId), payload.question_id, payload.answer, { persist: false });
+  return sessionResponse(await stabilizePlan(answered, { runtime_profile: await planningRuntimeProfile() }));
 }
 
 export async function acceptPlanBuilderDefaults(sessionId: string): Promise<unknown> {
-  return sessionResponse(await stabilizePlan(acceptDefaultAnswers(requireSession(sessionId), { persist: false })));
+  return sessionResponse(await stabilizePlan(acceptDefaultAnswers(requireSession(sessionId), { persist: false }), { runtime_profile: await planningRuntimeProfile() }));
 }
 
 export async function revisePlanBuilderSession(sessionId: string, raw: unknown): Promise<unknown> {
   const payload = RevisePayload.parse(raw);
   const route = payload.model_route ? modelRouteById(payload.model_route) : undefined;
   const revised = await revisePlan(requireSession(sessionId), { ...(payload.prompt ? { reason: payload.prompt } : {}), ...(route ? { route } : {}), persist: false });
-  return sessionResponse(await stabilizePlan(revised, { ...(route ? { route } : {}) }));
+  return sessionResponse(await stabilizePlan(revised, { runtime_profile: await planningRuntimeProfile(), ...(route ? { route } : {}) }));
 }
 
-export function validatePlanBuilderSession(sessionId: string): unknown {
-  return sessionResponse(validatePlan(simulatePlan(requireSession(sessionId))));
+export async function validatePlanBuilderSession(sessionId: string): Promise<unknown> {
+  return sessionResponse(validatePlan(simulatePlan(requireSession(sessionId), { runtime_profile: await planningRuntimeProfile() })));
 }
 
 export function savePlanBuilderPlanfile(sessionId: string, raw: unknown): unknown {
   const payload = SavePayload.parse(raw);
-  return saveReadyPlanfile(requireSession(sessionId), payload.output_path);
+  const session = requireSession(sessionId);
+  if (!session.current_planfile || (session.status !== "ready" && session.status !== "approved")) {
+    throw new HttpError(409, {
+      error: "SESSION_NOT_READY",
+      session_id: sessionId,
+      status: session.status,
+      pending_questions: session.pending_questions,
+      missing_providers: session.simulation_report?.warnings.filter((warning) => warning.startsWith("Missing required provider")) ?? [],
+      message: "Answer blocking questions or validate the Plan Builder session before saving.",
+    });
+  }
+  return saveReadyPlanfile(session, payload.output_path);
 }
 
 export async function runPlanBuilderPlanfile(sessionId: string, raw: unknown): Promise<unknown> {
@@ -120,6 +135,7 @@ export async function updatePlanBuilderPlanfile(sessionId: string, raw: unknown)
     session_id: sessionId,
     markdown: payload.markdown,
     update_source: "web",
+    runtime_profile: await planningRuntimeProfile(),
     options: {
       allow_risk_increase: payload.allow_risk_increase,
       allow_new_capabilities: payload.allow_new_capabilities,
@@ -128,14 +144,14 @@ export async function updatePlanBuilderPlanfile(sessionId: string, raw: unknown)
   });
 }
 
-export function importPlanBuilderPlanfile(_sessionId: string, raw: unknown): unknown {
+export async function importPlanBuilderPlanfile(_sessionId: string, raw: unknown): Promise<unknown> {
   const payload = ImportPlanfilePayload.parse(raw);
-  return importBuilderPlanfileFromMarkdown({ markdown: payload.markdown, update_source: "web" });
+  return importBuilderPlanfileFromMarkdown({ markdown: payload.markdown, update_source: "web", runtime_profile: await planningRuntimeProfile() });
 }
 
-export function reconcilePlanBuilderPlanfile(raw: unknown): unknown {
+export async function reconcilePlanBuilderPlanfile(raw: unknown): Promise<unknown> {
   const payload = ReconcilePayload.parse(raw);
-  return reconcilePlanfileMarkdown({ markdown: payload.markdown });
+  return reconcilePlanfileMarkdown({ markdown: payload.markdown, runtime_profile: await planningRuntimeProfile() });
 }
 
 export function diffPlanBuilderPlanfiles(raw: unknown): unknown {
@@ -145,7 +161,7 @@ export function diffPlanBuilderPlanfiles(raw: unknown): unknown {
 
 function requireSession(sessionId: string) {
   const session = getPlanBuilderSession(sessionId);
-  if (!session) throw new Error(`Plan Builder session not found: ${sessionId}`);
+  if (!session) throw new HttpError(404, { error: "SESSION_NOT_FOUND", session_id: sessionId, message: "Plan Builder session was not found." });
   return session;
 }
 
@@ -166,4 +182,38 @@ function modelRouteById(routeId: string) {
   const route = listModelRouteConfigs().find((item) => item.route_id === routeId);
   if (!route) throw new Error(`Unknown model route: ${routeId}`);
   return route;
+}
+
+async function planningRuntimeProfile(): Promise<RuntimeProfileForComposition> {
+  const profile = await getCurrentProfile().catch(() => undefined);
+  if (profile?.searchProviders?.length) {
+    return {
+      name: profile.name,
+      searchProviders: profile.searchProviders.map((provider) => ({
+        id: provider.id,
+        kind: provider.kind,
+        enabled: provider.enabled !== false,
+      })),
+    };
+  }
+  return envPlanningRuntimeProfile();
+}
+
+function envPlanningRuntimeProfile(): RuntimeProfileForComposition {
+  const searchProvider = envSearchProvider();
+  return {
+    name: process.env.OPEN_LAGRANGE_PROFILE ?? "local",
+    ...(searchProvider ? { searchProviders: [searchProvider] } : {}),
+  };
+}
+
+function envSearchProvider(): NonNullable<RuntimeProfileForComposition["searchProviders"]>[number] | undefined {
+  const id = process.env.OPEN_LAGRANGE_SEARCH_PROVIDER ?? process.env.OPEN_LAGRANGE_SEARCH_PROVIDER_ID;
+  const baseUrl = process.env.OPEN_LAGRANGE_SEARCH_BASE_URL ?? process.env.OPEN_LAGRANGE_SEARXNG_URL;
+  if (!id && !baseUrl) return undefined;
+  return {
+    id: id ?? "local-searxng",
+    kind: process.env.OPEN_LAGRANGE_SEARCH_KIND ?? "searxng",
+    enabled: process.env.OPEN_LAGRANGE_SEARCH_ENABLED !== "false",
+  };
 }

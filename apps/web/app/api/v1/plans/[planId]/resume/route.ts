@@ -1,3 +1,4 @@
+import { proxyApiRoute, shouldProxyApiRoute } from "../../../../proxy";
 import { handleRouteError, json, requireMutationSecurity } from "../../../../http";
 import { handleResumePlan } from "../../../handlers";
 
@@ -5,6 +6,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request, context: { readonly params: Promise<{ readonly planId: string }> }): Promise<Response> {
+  if (shouldProxyApiRoute()) return proxyApiRoute(request);
   try {
     requireMutationSecurity(request);
     const { planId } = await context.params;

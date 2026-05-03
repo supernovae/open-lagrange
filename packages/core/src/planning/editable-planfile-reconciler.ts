@@ -12,6 +12,7 @@ import { simulatePlanfile } from "./plan-simulation.js";
 import { diffPlanfiles, hasStructuredDiffChanges, type PlanfileStructuredDiff } from "./planfile-diff.js";
 import { canonicalPlanSha256 } from "./planfile-canonicalize.js";
 import { PlanfileEditError } from "./planfile-edit-errors.js";
+import type { RuntimeProfileForRequirements } from "./plan-requirements.js";
 import { PlanfileRevision, PlanfileUpdateReport, type PlanfileUpdateReport as PlanfileUpdateReportType } from "./planfile-update-report.js";
 import { renderPlanfileMarkdown } from "./planfile-markdown.js";
 import { parsePlanfileMarkdown, parsePlanfileYaml } from "./planfile-parser.js";
@@ -26,6 +27,7 @@ export const UpdateBuilderPlanfileFromMarkdownInput = z.object({
     principal_id: z.string().min(1).optional(),
     display_name: z.string().min(1).optional(),
   }).strict().optional(),
+  runtime_profile: z.custom<RuntimeProfileForRequirements>().optional(),
   options: z.object({
     allow_risk_increase: z.boolean().optional(),
     allow_new_capabilities: z.boolean().optional(),
@@ -41,27 +43,35 @@ export async function updateBuilderPlanfileFromMarkdown(raw: UpdateBuilderPlanfi
   const session = getPlanBuilderSession(input.session_id);
   if (!session) throw new PlanfileEditError("SESSION_NOT_FOUND", `Plan Builder session not found: ${input.session_id}`);
   if (!session.current_planfile) throw new PlanfileEditError("NO_CURRENT_PLANFILE", `Plan Builder session has no current Planfile: ${input.session_id}`);
-  return reconcileForSession({ session, markdown: input.markdown, update_source: input.update_source, options: input.options });
+  return reconcileForSession({
+    session,
+    markdown: input.markdown,
+    update_source: input.update_source,
+    ...(input.runtime_profile ? { runtime_profile: input.runtime_profile } : {}),
+    ...(input.options ? { options: input.options } : {}),
+  });
 }
 
 export function reconcilePlanfileMarkdown(input: {
   readonly markdown: string;
   readonly session_id?: string;
+  readonly runtime_profile?: RuntimeProfileForRequirements;
 }): PlanfileUpdateReportType {
   const sessionId = input.session_id ?? "standalone";
-  return reconcileStandalone(input.markdown, sessionId);
+  return reconcileStandalone(input.markdown, sessionId, input.runtime_profile);
 }
 
 export function importBuilderPlanfileFromMarkdown(input: {
   readonly markdown: string;
   readonly update_source?: "web" | "tui" | "cli" | "external_file";
   readonly original_input?: string;
+  readonly runtime_profile?: RuntimeProfileForRequirements;
 }): PlanBuilderSession {
   const now = new Date().toISOString();
   const parsed = withCanonicalPlanDigest(parsePlanfileMarkdown(input.markdown));
   const sessionId = parsed.lifecycle?.builder_session_id ?? `builder_${stableHash({ plan_id: parsed.plan_id, digest: parsed.canonical_plan_digest }).slice(0, 18)}`;
   const validation = validatePlanfile(parsed, { capability_snapshot: createCapabilitySnapshotForTask({ now }) });
-  const simulation = simulatePlanfile({ planfile: parsed, validation_report: validation });
+  const simulation = simulatePlanfile({ planfile: parsed, validation_report: validation, ...(input.runtime_profile ? { runtime_profile: input.runtime_profile } : {}) });
   const status = validation.ok && simulation.status === "ready" ? "ready" : simulation.status === "needs_input" || simulation.status === "missing_requirements" ? "needs_input" : "yielded";
   const revision = PlanfileRevision.parse({
     revision_id: `planfile_revision_${stableHash({ session_id: sessionId, digest: parsed.canonical_plan_digest, now }).slice(0, 18)}`,
@@ -116,6 +126,7 @@ async function reconcileForSession(input: {
   readonly session: PlanBuilderSession;
   readonly markdown: string;
   readonly update_source: "web" | "tui" | "cli" | "external_file";
+  readonly runtime_profile?: RuntimeProfileForRequirements;
   readonly options?: UpdateBuilderPlanfileFromMarkdownInput["options"];
 }): Promise<PlanfileUpdateReportType> {
   const now = new Date().toISOString();
@@ -160,7 +171,7 @@ async function reconcileForSession(input: {
     ...validation.issues.filter((issue) => issue.severity === "error").map((issue) => structuredError(issue.code === "UNKNOWN_CAPABILITY" ? "UNKNOWN_CAPABILITY" : issue.code === "APPROVAL_REQUIRED" ? "APPROVAL_REQUIRED" : "INVALID_PLAN", issue.message, now, { path: issue.path })),
     ...safetyErrors,
   ];
-  const simulation = validationErrors.length > 0 ? undefined : simulatePlanfile({ planfile: next, validation_report: validation });
+  const simulation = validationErrors.length > 0 ? undefined : simulatePlanfile({ planfile: next, validation_report: validation, ...(input.runtime_profile ? { runtime_profile: input.runtime_profile } : {}) });
   const accepted = validationErrors.length === 0 && simulation?.status !== "invalid" && simulation?.status !== "unsafe";
   const builderStatus = accepted
     ? simulation?.status === "ready" ? "ready" : "needs_input"
@@ -216,12 +227,12 @@ async function reconcileForSession(input: {
   return withArtifactRefs;
 }
 
-function reconcileStandalone(markdown: string, sessionId: string): PlanfileUpdateReportType {
+function reconcileStandalone(markdown: string, sessionId: string, runtimeProfile?: RuntimeProfileForRequirements): PlanfileUpdateReportType {
   const now = new Date().toISOString();
   try {
     const planfile = withCanonicalPlanDigest(parsePlanfileMarkdown(markdown));
     const validation = validatePlanfile(planfile, { capability_snapshot: createCapabilitySnapshotForTask({ now }) });
-    const simulation = simulatePlanfile({ planfile, validation_report: validation });
+    const simulation = simulatePlanfile({ planfile, validation_report: validation, ...(runtimeProfile ? { runtime_profile: runtimeProfile } : {}) });
     return PlanfileUpdateReport.parse({
       session_id: sessionId,
       new_plan_digest: canonicalPlanSha256(planfile),

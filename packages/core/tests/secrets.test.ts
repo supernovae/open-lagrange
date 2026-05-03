@@ -54,6 +54,20 @@ describe("secrets", () => {
     expect(provider.getSecret).toHaveBeenCalledOnce();
   });
 
+  it("rejects empty secret values before dispatching to providers", async () => {
+    const ref = secretRef({ provider: "external", name: "custom", scope: "profile", profile_name: "local", now });
+    const provider: SecretProvider = {
+      provider: "external",
+      getSecret: vi.fn(async () => ({ value: "custom-value", redacted: "cu********ue", metadata: {} })),
+      setSecret: vi.fn(async () => undefined),
+      deleteSecret: vi.fn(async () => undefined),
+      hasSecret: vi.fn(async () => true),
+    };
+    const manager = new SecretManager({ providers: [provider] });
+    await expect(manager.setSecret(ref, "  \n", { ...context, purpose: "secret_write" })).rejects.toMatchObject({ code: "SECRET_VALUE_INVALID" });
+    expect(provider.setSecret).not.toHaveBeenCalled();
+  });
+
   it("returns typed errors for missing secrets", async () => {
     const provider = new EnvSecretProvider();
     const ref = secretRef({ provider: "env", name: "OPEN_LAGRANGE_MISSING_SECRET", scope: "local", now });

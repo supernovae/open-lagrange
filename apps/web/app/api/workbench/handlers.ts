@@ -2,6 +2,7 @@ import { listArtifacts, listRuns, recentArtifacts } from "@open-lagrange/core/ar
 import { getCapabilitiesSummary } from "@open-lagrange/core/chat-pack";
 import { listPlanBuilderSessions, listScheduleRecords } from "@open-lagrange/core/planning";
 import { getCurrentProfile, getRuntimeStatus } from "@open-lagrange/runtime-manager";
+import { handleRuntimeStatus } from "../v1/handlers";
 
 export async function handleWorkbenchOverview(): Promise<unknown> {
   const [runtime, providers] = await Promise.all([safeRuntimeStatus(), handleWorkbenchProviders()]);
@@ -49,6 +50,7 @@ export function handleWorkbenchApprovals(): unknown {
 
 export async function handleWorkbenchProviders(): Promise<unknown> {
   const profile = await getCurrentProfile().catch(() => undefined);
+  if (!profile) return envWorkbenchProviders();
   return {
     profile: profile?.name ?? "unknown",
     active_model_provider: profile?.activeModelProvider ?? "not_configured",
@@ -68,13 +70,48 @@ export async function handleWorkbenchProviders(): Promise<unknown> {
 
 async function safeRuntimeStatus(): Promise<unknown> {
   try {
-    return await getRuntimeStatus();
+    const status = await getRuntimeStatus();
+    return status.profileName === "missing" ? await handleRuntimeStatus() : status;
   } catch (error) {
-    return {
-      status: "unavailable",
-      message: error instanceof Error ? error.message : String(error),
-    };
+    try {
+      return await handleRuntimeStatus();
+    } catch {
+      return {
+        status: "unavailable",
+        message: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
+}
+
+function envWorkbenchProviders(): unknown {
+  const active = process.env.OPEN_LAGRANGE_MODEL_PROVIDER;
+  const searchProvider = envSearchProvider();
+  return {
+    profile: process.env.OPEN_LAGRANGE_PROFILE ?? "local",
+    active_model_provider: active ?? "not_configured",
+    model_providers: active ? [{
+      id: active,
+      provider: active,
+      configured: Boolean(process.env.OPEN_LAGRANGE_MODEL_BASE_URL || process.env.OPEN_LAGRANGE_MODEL_API_KEY || active === "local"),
+    }] : [],
+    search_providers: searchProvider ? [searchProvider] : [],
+    secret_refs: [
+      ...(process.env.OPEN_LAGRANGE_API_TOKEN ? ["open_lagrange_token"] : []),
+      ...(process.env.OPEN_LAGRANGE_MODEL_API_KEY ? [active ?? "model"] : []),
+    ],
+  };
+}
+
+function envSearchProvider(): { readonly id: string; readonly kind: string; readonly enabled: boolean } | undefined {
+  const id = process.env.OPEN_LAGRANGE_SEARCH_PROVIDER ?? process.env.OPEN_LAGRANGE_SEARCH_PROVIDER_ID;
+  const baseUrl = process.env.OPEN_LAGRANGE_SEARCH_BASE_URL ?? process.env.OPEN_LAGRANGE_SEARXNG_URL;
+  if (!id && !baseUrl) return undefined;
+  return {
+    id: id ?? "local-searxng",
+    kind: process.env.OPEN_LAGRANGE_SEARCH_KIND ?? "searxng",
+    enabled: process.env.OPEN_LAGRANGE_SEARCH_ENABLED !== "false",
+  };
 }
 
 function recentSessions(limit = 12) {

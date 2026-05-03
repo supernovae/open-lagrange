@@ -1,4 +1,5 @@
 import { getSecretManager, secretRef, type SecretAccessContext, type SecretRef, type SecretRefMetadata } from "@open-lagrange/core/secrets";
+import { getModelProviderDescriptor } from "@open-lagrange/core/model-providers";
 import { loadConfig, saveConfig } from "./config.js";
 import { activeModelProviderKey, activeModelProviderProfile } from "./model-providers.js";
 import { getCurrentProfile } from "./profiles.js";
@@ -105,9 +106,11 @@ export async function credentialStatuses(profile: RuntimeProfile): Promise<{
 }> {
   const activeProvider = activeModelProviderKey(profile);
   const providerConfig = activeModelProviderProfile(profile);
+  const descriptor = getModelProviderDescriptor(activeProvider);
   const providerRefKey = providerConfig.api_key_secret_ref;
   const providerRef = providerRefKey ? profile.secretRefs?.[providerRefKey] : undefined;
-  const modelConfigured = Boolean(process.env.OPEN_LAGRANGE_MODEL_API_KEY || process.env.OPENAI_API_KEY || process.env.AI_GATEWAY_API_KEY)
+  const modelConfigured = descriptor.compatibility === "local_openai_compatible"
+    || Boolean(process.env.OPEN_LAGRANGE_MODEL_API_KEY || process.env.OPENAI_API_KEY || process.env.AI_GATEWAY_API_KEY)
     || Boolean(providerRef && await safeHasSecret(providerRef, secretContext(profile, "status")));
   const tokenRef = profile.auth?.tokenRef ?? profile.secretRefs?.open_lagrange_token;
   const authConfigured = profile.auth?.type === "none"

@@ -1,3 +1,4 @@
+import { proxyApiRoute, shouldProxyApiRoute } from "../../../proxy";
 import { rejectTask } from "@open-lagrange/core/interface";
 import { handleRouteError, json, parseJson, requireMutationSecurity } from "../../../http";
 import { RejectPayload } from "../decision-schema";
@@ -6,6 +7,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request, context: { params: Promise<{ taskId: string }> }): Promise<Response> {
+  if (shouldProxyApiRoute()) return proxyApiRoute(request);
   try {
     requireMutationSecurity(request);
     const { taskId } = await context.params;
