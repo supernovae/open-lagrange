@@ -1,1 +1,4 @@
-export { GET, runtime, dynamic } from "../../../../runs/[runId]/events/route";
+export { GET } from "../../../../runs/[runId]/events/route";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
