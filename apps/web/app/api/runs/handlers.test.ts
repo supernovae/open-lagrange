@@ -16,6 +16,18 @@ describe("run API handlers", () => {
     });
   });
 
+  it("normalizes dry-run Planfiles for live run creation", async () => {
+    const result = await handleCreateRun({ source: "planfile", live: true, planfile: planfile() });
+
+    expect(result).toMatchObject({
+      run_id: expect.stringMatching(/^plan_/),
+      state: {
+        markdown_projection: expect.stringContaining("mode: apply"),
+      },
+    });
+    expect(JSON.stringify(result)).toContain("execution_mode: live");
+  });
+
   it("requires an explicit replay mode for node retry", async () => {
     await expect(handleRetryRunNode("missing", "node_a", {})).rejects.toThrow();
   });

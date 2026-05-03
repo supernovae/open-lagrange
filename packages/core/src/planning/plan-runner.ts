@@ -233,7 +233,7 @@ export class PlanRunner {
       delegation_context: this.options.delegation_context,
       idempotency_key: `${plan.plan_id}:${node.id}:${resolved.descriptor.capability_digest}`,
       input_artifact_refs: [...inputArtifactRefs(state, node)],
-      dry_run: plan.mode === "dry_run",
+      dry_run: shouldDryRunNode(plan, node),
       trace_id: this.options.delegation_context.trace_id,
     }, {
       registry,
@@ -296,6 +296,10 @@ function canRunCapabilityStep(node: PlanNode): boolean {
 
 function canCompleteStructuralNode(node: PlanNode): boolean {
   return node.kind === "frame" && node.allowed_capability_refs.length === 0;
+}
+
+function shouldDryRunNode(plan: Planfile, node: PlanNode): boolean {
+  return node.execution_mode ? node.execution_mode === "dry_run" : plan.mode === "dry_run";
 }
 
 function nodeInput(plan: Planfile, nodeId: string): unknown {

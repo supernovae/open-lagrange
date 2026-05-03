@@ -200,7 +200,7 @@ export default function RunConsoleClient({ runId }: { readonly runId: string }):
       }
       setSnapshot(data as RunSnapshot);
       if (!selectedId && (data as RunSnapshot).active_node_id) setSelectedId(String((data as RunSnapshot).active_node_id));
-      if (!quiet) setMessage("Run snapshot refreshed.");
+      if (!quiet) setMessage(snapshotRefreshMessage(data as RunSnapshot));
     } catch (error) {
       if (!quiet) setMessage(error instanceof Error ? error.message : String(error));
     } finally {
@@ -438,6 +438,17 @@ function requestFailureMessage(status: number, data: unknown, route: string, sou
     ? "This is web/API bearer-token auth for the Run Console, not a web search provider error. Check the token field against OPEN_LAGRANGE_API_TOKEN in the web runtime."
     : "Check the web runtime logs for this route.";
   return [`HTTP ${status} ${error}`, `Source: ${source}`, `Route: ${route}`, hint, "", JSON.stringify(data, null, 2)].join("\n");
+}
+
+function snapshotRefreshMessage(snapshot: RunSnapshot): string {
+  const latest = snapshot.timeline.at(-1);
+  return [
+    `Run snapshot: ${snapshot.status}`,
+    snapshot.active_node_id ? `Active node: ${snapshot.active_node_id}` : "Active node: none",
+    latest ? `Latest event: ${latest.type} - ${latest.summary}` : "Latest event: none",
+    `Artifacts: ${snapshot.artifacts.length}`,
+    `Next actions: ${snapshot.next_actions.length}`,
+  ].join("\n");
 }
 
 function updateToken(value: string, setToken: (value: string) => void): void {

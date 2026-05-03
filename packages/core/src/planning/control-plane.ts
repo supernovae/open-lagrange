@@ -42,11 +42,12 @@ export interface RunActionResult {
 export async function applyPlanfile(input: ApplyPlanfileInput): Promise<PlanState> {
   const now = input.now ?? new Date().toISOString();
   const parsed = Planfile.parse(input.planfile);
-  const plan = withCanonicalPlanDigest(Planfile.parse({
+  const basePlan = withCanonicalPlanDigest(Planfile.parse({
     ...parsed,
     status: "validated",
     updated_at: now,
   }));
+  const plan = input.live === true ? liveExecutionPlan(basePlan, now) : basePlan;
   if (input.live === true) return applyLiveLocalPlanfile({ plan, now, ...(input.output_dir ? { output_dir: input.output_dir } : {}), ...(input.run_id ? { run_id: input.run_id } : {}) });
   const snapshot = createCapabilitySnapshotForTask({ allowed_capabilities: [], allowed_scopes: [], max_risk_level: "read", now });
   const validation = validatePlanfile(plan, { capability_snapshot: snapshot });
@@ -81,7 +82,8 @@ export async function applyPlanfile(input: ApplyPlanfileInput): Promise<PlanStat
 export async function createRunFromPlanfile(input: ApplyPlanfileInput): Promise<CreateRunResult> {
   const now = input.now ?? new Date().toISOString();
   const parsed = Planfile.parse(input.planfile);
-  const plan = withCanonicalPlanDigest(Planfile.parse({ ...parsed, status: "validated", updated_at: now }));
+  const basePlan = withCanonicalPlanDigest(Planfile.parse({ ...parsed, status: "validated", updated_at: now }));
+  const plan = input.live === true ? liveExecutionPlan(basePlan, now) : basePlan;
   const runId = input.run_id ?? runIdForPlan(plan, now);
   if (input.live === true) {
     const state = await prepareRunState({ plan, run_id: runId, now, mode: "live" });
@@ -439,6 +441,23 @@ async function submitPlanRunCancelWorkflow(continuationId: string): Promise<stri
   const { planRunCancelWorkflow } = await import("../workflows/plan-run-cancel.js");
   const ref = await planRunCancelWorkflow.runNoWait({ continuation_id: continuationId }, { additionalMetadata: { continuation_id: continuationId } });
   return await ref.runId;
+}
+
+function liveExecutionPlan(plan: PlanfileType, now: string): PlanfileType {
+  return withCanonicalPlanDigest(Planfile.parse({
+    ...plan,
+    mode: "apply",
+    status: "validated",
+    goal_frame: {
+      ...plan.goal_frame,
+      suggested_mode: "apply_with_approval",
+    },
+    nodes: plan.nodes.map((node) => ({
+      ...node,
+      execution_mode: node.execution_mode === undefined || node.execution_mode === "dry_run" ? "live" : node.execution_mode,
+    })),
+    updated_at: now,
+  }));
 }
 
 function runIdForPlan(plan: PlanfileType, now: string): string {

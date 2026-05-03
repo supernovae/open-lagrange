@@ -74,6 +74,39 @@ describe("run console event model", () => {
     ]);
   });
 
+  it("uses node execution mode so live run normalization can execute a dry-run Planfile", async () => {
+    const events: RunEvent[] = [];
+    const store = memoryPlanStore();
+    const plan = withCanonicalPlanDigest(Planfile.parse({
+      ...planfile(),
+      mode: "dry_run",
+      nodes: [
+        node("frame_goal", "frame", []),
+        { ...node("inspect_output", "inspect", ["frame_goal"]), allowed_capability_refs: ["open-lagrange.mock.search_docs"], execution_mode: "live" },
+      ],
+      execution_context: { nodes: { inspect_output: { input: { query: "status" } } } },
+    }));
+    const runner = new PlanRunner({
+      store,
+      capability_snapshot: createCapabilitySnapshotForTask({ allowed_capabilities: ["open-lagrange.mock.search_docs"], allowed_scopes: ["project:read"], max_risk_level: "read", now }),
+      delegation_context: createMockDelegationContext({
+        goal: "test",
+        project_id: plan.plan_id,
+        allowed_scopes: ["project:read"],
+        allowed_capabilities: ["open-lagrange.mock.search_docs"],
+      }),
+      run_id: "run_live_node_mode",
+      emit_run_event: async (event) => { events.push(event); },
+      now: () => now,
+    });
+
+    const result = await runner.runToCompletion(plan);
+
+    expect(result.state.status).toBe("completed");
+    expect(events.map((event) => event.type)).toContain("capability.completed");
+    expect(result.state.node_states.flatMap((item) => item.errors)).not.toContain("Capability step dry run validated capability, schema, and policy without execution.");
+  });
+
   it("emits capability, policy, and artifact events from CapabilityStepRunner", async () => {
     const registry = createPackRegistry().registerPack(testPack());
     const descriptor = registry.listCapabilities({})[0];
