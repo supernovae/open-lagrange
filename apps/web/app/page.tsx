@@ -752,7 +752,13 @@ function updateApiTokenValue(value: string, setApiToken: (value: string) => void
 }
 
 function isBuilderSession(value: unknown): value is BuilderSession {
-  return Boolean(value && typeof value === "object" && "session_id" in value);
+  return Boolean(
+    value
+    && typeof value === "object"
+    && "session_id" in value
+    && "status" in value
+    && Array.isArray((value as { readonly pending_questions?: unknown }).pending_questions),
+  );
 }
 
 function isReadySession(session: BuilderSession | undefined): boolean {
