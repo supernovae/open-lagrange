@@ -42,6 +42,7 @@ shortcuts, but `plan compose`, `plan check`, `run`, `artifact`, `pack`, and
 
 - **Planfiles**: turn a vague goal into a reviewable Markdown plan with typed YAML execution data.
 - **Collaborative Plan Builder**: iteratively compose, simulate, validate, question, revise, and save stable Planfiles.
+- **Run Console**: inspect timelines, active nodes, artifacts, approvals, model calls, errors, next actions, and outputs for a run.
 - **Repository Task Pack**: inspect a repo, collect evidence, create patch plans, apply changes in an isolated worktree, verify, review, and export a final patch.
 - **Workflow Skill Builder**: bring a `skills.md` file, frame it, match it to existing packs, and generate a Planfile-backed Workflow Skill.
 - **Generated Capability Packs**: when existing packs are insufficient, generate a reviewable local pack scaffold and validation report.
@@ -366,6 +367,10 @@ runtime, authority, or owner of the work.
 - [Golden Path demos](docs/golden-path-demos.md)
 - [Artifacts](docs/artifacts.md)
 - [Runs](docs/runs.md)
+- [Run Console](docs/run-console.md)
+- [Run Events](docs/run-events.md)
+- [Web Run Console](docs/web-run-console.md)
+- [TUI Run Console](docs/tui-run-console.md)
 - [Doctor](docs/doctor.md)
 - [Pack inspection](docs/pack-inspection.md)
 - [Planfiles](docs/planfiles.md)

@@ -10,7 +10,7 @@ import { exportArtifact, listArtifacts, listArtifactsForPlan, listRunArtifacts, 
 import { listDemos, openDemo, runDemo } from "@open-lagrange/core/demos";
 import { runCoreDoctor } from "@open-lagrange/core/doctor";
 import { getPackHealth, inspectPack, listInspectablePacks, runPackSmoke, validateRegisteredPack } from "@open-lagrange/core/packs";
-import { acceptDefaultAnswers, addPlanLibraryEntry, answerQuestion, applyPlanfile as applyLocalPlanfile, composeInitialPlan, composePlanfileFromIntent, createScheduleRecord, derivePlanRequirements, diffPlanfileMarkdown, generateGoalFrame, generatePlanfile, getPlanBuilderSession, getScheduleRecord, importBuilderPlanfileFromMarkdown, instantiatePlanTemplate, listPlanBuilderSessions, listPlanLibrary, listScheduleRecords, parsePlanfileMarkdown, parsePlanfileYaml, reconcilePlanfileMarkdown, renderPlanfileMarkdown, renderPlanMermaid, revisePlan, savePlanBuilderSession, saveReadyPlanfile, simulatePlan, stabilizePlan, syncPlanLibrary, updateBuilderPlanfileFromMarkdown, validatePlan, validatePlanfile, withCanonicalPlanDigest } from "@open-lagrange/core/planning";
+import { acceptDefaultAnswers, addPlanLibraryEntry, answerQuestion, applyPlanfile as applyLocalPlanfile, composeInitialPlan, composePlanfileFromIntent, createRunFromPlanfile, createScheduleRecord, derivePlanRequirements, diffPlanfileMarkdown, generateGoalFrame, generatePlanfile, getPlanBuilderSession, getScheduleRecord, importBuilderPlanfileFromMarkdown, instantiatePlanTemplate, listPlanBuilderSessions, listPlanLibrary, listScheduleRecords, parsePlanfileMarkdown, parsePlanfileYaml, reconcilePlanfileMarkdown, renderPlanfileMarkdown, renderPlanMermaid, revisePlan, savePlanBuilderSession, saveReadyPlanfile, simulatePlan, stabilizePlan, syncPlanLibrary, updateBuilderPlanfileFromMarkdown, validatePlan, validatePlanfile, withCanonicalPlanDigest } from "@open-lagrange/core/planning";
 import { applyRepositoryPlanfile as applyLocalRepositoryPlanfile, approveApprovalRequest, approveRepositoryScopeRequest, cleanupRepositoryPlan as cleanupLocalRepositoryPlan, createRepositoryPlanfile, explainRepositoryPlan, exportRepositoryPlanPatch as exportLocalRepositoryPlanPatch, getRepositoryPlanStatus as getLocalRepositoryPlanStatus, listRepositoryModelCalls, rejectApprovalRequest, rejectRepositoryScopeRequest, resumeRepositoryPlan, runRepositoryDoctor } from "@open-lagrange/core/repository";
 import { compareBenchmarkRun, listBenchmarkScenarios, listModelRouteConfigs, renderBenchmarkReport, runModelRoutingBenchmark } from "@open-lagrange/core/evals";
 import { runResearchBriefCommand, runResearchExportCommand, runResearchFetchCommand, runResearchSearchCommand, runResearchSummarizeUrlCommand } from "@open-lagrange/core/research";
@@ -19,6 +19,9 @@ import { buildGeneratedPackFromMarkdown, generateSkillFrame, generateWorkflowSki
 import { createPlatformClientFromCurrentProfile } from "@open-lagrange/platform-client";
 import { addLocalProfile, addRemoteProfile, bootstrapLocalRuntime, configureCurrentProfileModelProvider, deleteCurrentProfileSecret, describeCurrentProfileModelProvider, describeCurrentProfileSecret, getCurrentProfile, getProfilePackPaths, initRuntime, listCurrentProfileModelProviders, listCurrentProfileSecrets, listKnownModelProviders, loadConfig, removeProfile, restartLocalRuntime, setCurrentProfile, setCurrentProfileSecret, startLocalRuntime, stopLocalRuntime, tailLogs, getRuntimeStatus } from "@open-lagrange/runtime-manager";
 import type { SecretRef } from "@open-lagrange/core/secrets";
+import { buildRunSnapshot } from "@open-lagrange/core/runs";
+import { ReplayMode } from "@open-lagrange/core/runs";
+import { getStateStore } from "@open-lagrange/core/storage";
 import { groupedHelpText } from "./help-taxonomy.js";
 
 const program = new Command();
@@ -250,6 +253,66 @@ run.command("show").argument("<runId>", "Run ID, or latest").action((runId: stri
     return;
   }
   console.log(JSON.stringify(result, null, 2));
+});
+
+run.command("status").argument("<runId>", "Run ID").action(async (runId: string) => {
+  const snapshot = await buildRunSnapshot({ run_id: runId });
+  if (!snapshot) {
+    console.log(JSON.stringify({ run_id: runId, status: "missing" }, null, 2));
+    process.exitCode = 1;
+    return;
+  }
+  console.log(JSON.stringify(snapshot, null, 2));
+});
+
+run.command("events").argument("<runId>", "Run ID").action(async (runId: string) => {
+  console.log(JSON.stringify({ run_id: runId, events: await getStateStore().listRunEvents(runId) }, null, 2));
+});
+
+run.command("explain").argument("<runId>", "Run ID").action(async (runId: string) => {
+  const snapshot = await buildRunSnapshot({ run_id: runId });
+  if (!snapshot) {
+    console.log(`Run not found: ${runId}`);
+    process.exitCode = 1;
+    return;
+  }
+  console.log([
+    `${snapshot.plan_title} (${snapshot.run_id})`,
+    `Status: ${snapshot.status}`,
+    snapshot.active_node_id ? `Active node: ${snapshot.active_node_id}` : "Active node: none",
+    `Nodes: ${snapshot.nodes.map((node) => `${node.node_id}=${node.status}`).join(", ")}`,
+    `Artifacts: ${snapshot.artifacts.length}`,
+    `Approvals: ${snapshot.approvals.length}`,
+    `Model calls: ${snapshot.model_calls.length}`,
+    `Next: ${snapshot.next_actions.map((action) => action.command).join(" | ") || "none"}`,
+  ].join("\n"));
+});
+
+run.command("artifacts").argument("<runId>", "Run ID").action(async (runId: string) => {
+  const snapshot = await buildRunSnapshot({ run_id: runId });
+  if (!snapshot) {
+    console.log(JSON.stringify({ run_id: runId, status: "missing" }, null, 2));
+    process.exitCode = 1;
+    return;
+  }
+  console.log(JSON.stringify({ run_id: runId, artifacts: snapshot.artifacts }, null, 2));
+});
+
+run.command("resume").argument("<runId>", "Run ID").action(async (runId: string) => {
+  console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).resumeRun(runId), null, 2));
+});
+
+run.command("retry")
+  .argument("<runId>", "Run ID")
+  .argument("<nodeId>", "Node ID")
+  .requiredOption("--mode <mode>", "Replay mode: reuse-artifacts, refresh-artifacts, or force-new-idempotency-key")
+  .action(async (runId: string, nodeId: string, options: { readonly mode: string }) => {
+    const replay_mode = ReplayMode.parse(options.mode);
+    console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).retryRunNode(runId, nodeId, replay_mode), null, 2));
+  });
+
+run.command("cancel").argument("<runId>", "Run ID").action(async (runId: string) => {
+  console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).cancelRun(runId), null, 2));
 });
 
 run.command("outputs")
@@ -1217,7 +1280,7 @@ plan.command("apply").argument("<planfile>", "Planfile Markdown or YAML path").o
     return;
   }
   if (options.live) {
-    console.log(JSON.stringify(await applyLocalPlanfile({ planfile, live: true }), null, 2));
+    console.log(JSON.stringify(await createRunFromPlanfile({ planfile, live: true }), null, 2));
     return;
   }
   console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).applyPlanfile({ planfile }), null, 2));

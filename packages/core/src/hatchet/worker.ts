@@ -18,6 +18,10 @@ import { applyRepositoryPatchTask, proposeRepositoryPatchTask } from "../tasks/r
 import { getRepositoryDiffTask, runRepositoryVerificationTask } from "../tasks/repository-verify.js";
 import { runCriticTask } from "../tasks/run-critic.js";
 import { projectReconciler } from "../workflows/project-reconciler.js";
+import { planNodeReplayWorkflow } from "../workflows/plan-node-replay.js";
+import { planRunCancelWorkflow } from "../workflows/plan-run-cancel.js";
+import { planRunContinuationWorkflow } from "../workflows/plan-run-continuation.js";
+import { planRunWorkflow } from "../workflows/plan-run-workflow.js";
 import { repositoryTaskContinuation } from "../workflows/repository-task-continuation.js";
 import { repositoryTaskReconciler } from "../workflows/repository-task-reconciler.js";
 import { repositoryVerificationRequest } from "../workflows/repository-verification-request.js";
@@ -29,6 +33,10 @@ export const OPEN_LAGRANGE_WORKER_NAME = "open-lagrange-worker";
 
 export const OPEN_LAGRANGE_WORKFLOWS = [
   projectReconciler,
+  planRunWorkflow,
+  planRunContinuationWorkflow,
+  planNodeReplayWorkflow,
+  planRunCancelWorkflow,
   taskReconciler,
   taskContinuation,
   repositoryTaskReconciler,

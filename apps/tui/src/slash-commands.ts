@@ -127,7 +127,15 @@ export function parseSlashCommand(input: string, context: SlashCommandContext = 
     if (subcommand === "list") return { kind: "event", command, pane: "chat", event: { type: "run.show", run_id: "list", outputs_only: false } };
     if (subcommand === "show") return { kind: "event", command, pane: "chat", event: { type: "run.show", run_id: value ?? "latest", outputs_only: false } };
     if (subcommand === "outputs") return { kind: "event", command, pane: "chat", event: { type: "run.show", run_id: value ?? "latest", outputs_only: true } };
-    return { kind: "error", command, error: "Usage: /run list, /run show <run_id|latest>, or /run outputs <run_id|latest>" };
+    if (subcommand === "status" || subcommand === "events" || subcommand === "explain" || subcommand === "artifacts") return { kind: "event", command, pane: "run", event: { type: "run.show", run_id: value ?? "latest", outputs_only: subcommand === "artifacts" } };
+    if (subcommand === "resume" && value) return { kind: "event", command, pane: "run", event: { type: "run.resume", run_id: value } };
+    if (subcommand === "retry" && value && rest[2]) {
+      const modeIndex = rest.findIndex((part) => part === "--mode");
+      const replay_mode = modeIndex >= 0 ? rest[modeIndex + 1] : undefined;
+      if (replay_mode === "reuse-artifacts" || replay_mode === "refresh-artifacts" || replay_mode === "force-new-idempotency-key") return { kind: "event", command, pane: "run", event: { type: "run.retry", run_id: value, node_id: rest[2], replay_mode } };
+      return { kind: "error", command, error: "Usage: /run retry <run_id> <node_id> --mode reuse-artifacts|refresh-artifacts|force-new-idempotency-key" };
+    }
+    return { kind: "error", command, error: "Usage: /run list, /run show <run_id|latest>, /run status <run_id>, /run events <run_id>, /run explain <run_id>, /run artifacts <run_id>, /run resume <run_id>, /run retry <run_id> <node_id> --mode <mode>, or /run outputs <run_id|latest>" };
   }
   if (command === "artifact") {
     const [subcommand, value] = rest;

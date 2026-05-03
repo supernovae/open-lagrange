@@ -51,6 +51,7 @@ export * from "./repository/workspace.js";
 export * from "./repository/path-policy.js";
 export * from "./repository/command-policy.js";
 export * from "./runtime/index.js";
+export * from "./runs/index.js";
 export * from "./capability-registry/context.js";
 export * from "./capability-registry/open-cot.js";
 export * from "./capability-registry/registry.js";

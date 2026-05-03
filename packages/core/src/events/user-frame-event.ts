@@ -33,6 +33,8 @@ export const TuiUserFrameEvent = z.discriminatedUnion("type", [
   z.object({ type: z.literal("demo.list") }).strict(),
   z.object({ type: z.literal("demo.run"), demo_id: z.string().min(1), dry_run: z.boolean().default(true) }).strict(),
   z.object({ type: z.literal("run.show"), run_id: z.string().min(1).default("latest"), outputs_only: z.boolean().default(false) }).strict(),
+  z.object({ type: z.literal("run.resume"), run_id: z.string().min(1) }).strict(),
+  z.object({ type: z.literal("run.retry"), run_id: z.string().min(1), node_id: z.string().min(1), replay_mode: z.enum(["reuse-artifacts", "refresh-artifacts", "force-new-idempotency-key"]) }).strict(),
   z.object({ type: z.literal("artifact.show"), artifact_id: z.string().min(1) }).strict(),
   z.object({ type: z.literal("research.providers") }).strict(),
   z.object({ type: z.literal("provider.list") }).strict(),

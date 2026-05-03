@@ -1,6 +1,8 @@
 import type { ProjectRunStatus, RuntimeHealth, UserFrameEvent } from "@open-lagrange/core/interface";
 import type { SuggestedFlow, TuiUserFrameEvent } from "@open-lagrange/core/interface";
 import type { TaskStatusSnapshot } from "@open-lagrange/core/interface";
+import type { RunSnapshot } from "@open-lagrange/core/runs";
+import type { ActiveObject } from "./state/active-object.js";
 
 export type PaneId = "home" | "chat" | "timeline" | "tasks" | "plan" | "run" | "approvals" | "diff" | "verification" | "review" | "artifact_json" | "demo" | "research" | "pack_builder" | "doctor" | "capabilities" | "help";
 export type InputMode = "chat" | "command" | "approval_reason" | "rejection_reason" | "scope_adjustment";
@@ -108,7 +110,9 @@ export interface TuiViewModel {
   readonly changedFiles: readonly ChangedFileSummary[];
   readonly verificationResults: readonly VerificationResultSummary[];
   readonly plan?: PlanViewSummary;
+  readonly run?: RunSnapshot;
   readonly skill?: SkillViewSummary;
+  readonly activeObject?: ActiveObject;
   readonly pendingFlow?: SuggestedFlow;
   readonly selectedPane: PaneId;
   readonly scrollOffset: number;

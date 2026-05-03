@@ -66,6 +66,10 @@
       "types": "./dist/runtime/index.d.ts",
       "import": "./dist/runtime/index.js"
     },
+    "./runs": {
+      "types": "./dist/runs/index.d.ts",
+      "import": "./dist/runs/index.js"
+    },
     "./search": {
       "types": "./dist/search/index.d.ts",
       "import": "./dist/search/index.js"
@@ -73,6 +77,10 @@
     "./events": {
       "types": "./dist/events/index.d.ts",
       "import": "./dist/events/index.js"
+    },
+    "./storage": {
+      "types": "./dist/storage/state-store.d.ts",
+      "import": "./dist/storage/state-store.js"
     },
     "./evals": {
       "types": "./dist/evals/index.d.ts",

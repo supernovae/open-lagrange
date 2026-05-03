@@ -11,6 +11,7 @@ import { type Planfile, Planfile as PlanfileSchema, type PlanNode } from "./plan
 import { validatePlanfile, withCanonicalPlanDigest } from "./planfile-validator.js";
 import { compileWorkOrder } from "./work-order-compiler.js";
 import type { WorkOrder } from "./work-order.js";
+import { createRunEvent, type RunEvent } from "../runs/run-event.js";
 
 export type PlanNodeHandler = (workOrder: WorkOrder, context: {
   readonly plan: Planfile;
@@ -39,6 +40,8 @@ export interface PlanRunnerOptions {
   readonly delegation_context?: DelegationContext;
   readonly runtime_config?: Record<string, unknown>;
   readonly record_artifact?: CapabilityStepRunnerOptions["record_artifact"];
+  readonly run_id?: string;
+  readonly emit_run_event?: (event: RunEvent) => Promise<unknown> | unknown;
   readonly now?: () => string;
 }
 
@@ -64,7 +67,12 @@ export class PlanRunner {
       markdown_projection: renderPlanfileMarkdown({ ...plan, status: "pending" }),
       now,
     });
-    return this.options.store.recordPlanState(state);
+    const recorded = await this.options.store.recordPlanState(state);
+    await this.emit("run.created", plan, undefined, {
+      plan_title: plan.goal_frame.interpreted_goal,
+      node_count: plan.nodes.length,
+    });
+    return recorded;
   }
 
   readyNodes(plan: Planfile, state: PlanState): readonly PlanNode[] {
@@ -83,6 +91,7 @@ export class PlanRunner {
     const handler = this.options.handlers?.[node.kind];
     if (!handler) return this.markNode(plan, state, node, "yielded", [], [`No handler registered for ${node.kind}.`]);
     const workOrder = compileWorkOrder({ plan, node_id: node.id, capability_snapshot: this.options.capability_snapshot });
+    await this.emitNodeStarted(plan, node);
     const result = await handler(workOrder, { plan, node, state });
     return this.markNode(plan, state, node, result.status, result.artifacts ?? [], result.errors ?? []);
   }
@@ -93,9 +102,14 @@ export class PlanRunner {
     if (!validation.ok) throw new PlanValidationError(validation.issues);
     let state = await this.options.store.getPlanState(plan.plan_id) ?? await this.load(plan);
     const outputs: Record<string, unknown> = {};
+    await this.emit("run.started", plan, undefined, {
+      plan_title: plan.goal_frame.interpreted_goal,
+      status: state.status,
+    });
     for (let index = 0; index < plan.nodes.length + 2; index += 1) {
       const node = this.readyNodes(plan, state)[0];
       if (!node) break;
+      await this.emitNodeStarted(plan, node);
       state = await this.markNodeRunning(state, node);
       if (canRunCapabilityStep(node)) {
         const result = await this.runCapabilityNode(plan, state, node, outputs);
@@ -119,6 +133,13 @@ export class PlanRunner {
         }
       }
       if (state.status === "completed" || state.status === "failed" || state.status === "yielded") break;
+    }
+    if (state.status === "completed") {
+      await this.emit("run.completed", plan, undefined, { status: state.status });
+    } else if (state.status === "failed") {
+      await this.emit("run.failed", plan, undefined, { status: state.status });
+    } else if (state.status === "yielded") {
+      await this.emit("run.yielded", plan, undefined, { status: state.status });
     }
     return { state, outputs };
   }
@@ -146,7 +167,7 @@ export class PlanRunner {
       artifact_refs: [...plan.artifact_refs, ...artifacts],
       updated_at: now,
     };
-    return this.options.store.recordPlanState({
+    const recorded = await this.options.store.recordPlanState({
       ...state,
       status: nextStatus,
       node_states: nodeStates,
@@ -154,6 +175,22 @@ export class PlanRunner {
       markdown_projection: renderPlanfileMarkdown(projectedPlan),
       updated_at: now,
     });
+    await this.emit(nodeEventForStatus(status), plan, node, {
+      status,
+      title: node.title,
+      kind: node.kind,
+      errors: [...errors],
+    });
+    for (const artifact of artifacts) {
+      await this.emit("artifact.created", plan, node, {
+        artifact_id: artifact.artifact_id,
+        kind: artifact.kind,
+        summary: artifact.summary,
+        path_or_uri: artifact.path_or_uri,
+      }, { artifact_id: artifact.artifact_id });
+    }
+    await this.emitPhaseCompleted(plan, node, status);
+    return recorded;
   }
 
   private async markNodeRunning(state: PlanState, node: PlanNode): Promise<PlanState> {
@@ -195,6 +232,8 @@ export class PlanRunner {
     }, {
       registry,
       now: this.now(),
+      ...(this.options.run_id ? { run_id: this.options.run_id } : {}),
+      ...(this.options.emit_run_event ? { emit_run_event: this.options.emit_run_event } : {}),
       ...(this.options.runtime_config ? { runtime_config: this.options.runtime_config } : {}),
       ...(this.options.record_artifact ? { record_artifact: this.options.record_artifact } : {}),
     });
@@ -203,6 +242,46 @@ export class PlanRunner {
   private now(): string {
     return this.options.now?.() ?? new Date().toISOString();
   }
+
+  private async emitNodeStarted(plan: Planfile, node: PlanNode): Promise<void> {
+    await this.emit("node.started", plan, node, {
+      title: node.title,
+      kind: node.kind,
+      capability_refs: [...node.allowed_capability_refs],
+    });
+    await this.emitPhaseStarted(plan, node);
+  }
+
+  private async emitPhaseStarted(plan: Planfile, node: PlanNode): Promise<void> {
+    if (node.kind === "verify") await this.emit("verification.started", plan, node, { title: node.title });
+    if (node.kind === "repair") await this.emit("repair.started", plan, node, { title: node.title });
+  }
+
+  private async emitPhaseCompleted(plan: Planfile, node: PlanNode, status: "completed" | "failed" | "yielded" | "skipped"): Promise<void> {
+    if (node.kind === "verify") await this.emit("verification.completed", plan, node, { title: node.title, status });
+    if (node.kind === "repair") await this.emit("repair.completed", plan, node, { title: node.title, status });
+  }
+
+  private async emit(type: RunEvent["type"], plan: Planfile, node?: PlanNode, payload: Record<string, unknown> = {}, ids: { readonly artifact_id?: string; readonly approval_id?: string; readonly model_call_artifact_id?: string } = {}): Promise<void> {
+    if (!this.options.run_id || !this.options.emit_run_event) return;
+    await this.options.emit_run_event(createRunEvent({
+      run_id: this.options.run_id,
+      plan_id: plan.plan_id,
+      type,
+      timestamp: this.now(),
+      ...(node ? { node_id: node.id } : {}),
+      ...(ids.artifact_id ? { artifact_id: ids.artifact_id } : {}),
+      ...(ids.approval_id ? { approval_id: ids.approval_id } : {}),
+      ...(ids.model_call_artifact_id ? { model_call_artifact_id: ids.model_call_artifact_id } : {}),
+      payload,
+    }));
+  }
+}
+
+function nodeEventForStatus(status: "completed" | "failed" | "yielded" | "skipped"): RunEvent["type"] {
+  if (status === "completed" || status === "skipped") return "node.completed";
+  if (status === "failed") return "node.failed";
+  return "node.yielded";
 }
 
 function canRunCapabilityStep(node: PlanNode): boolean {

@@ -4,5 +4,13 @@ dist/
 **/.next/
 .env
 runs/
+!packages/core/src/runs/
+!packages/core/src/runs/**
+!apps/web/app/runs/
+!apps/web/app/runs/**
+!apps/web/app/api/runs/
+!apps/web/app/api/runs/**
+!apps/web/app/api/v1/runs/
+!apps/web/app/api/v1/runs/**
 .open-lagrange/
 *.log

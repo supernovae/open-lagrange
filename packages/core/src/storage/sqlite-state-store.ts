@@ -5,6 +5,9 @@ import { ApprovalContinuationContext, ApprovalContinuationEnvelope, ApprovalDeci
 import { approvalTokenForRequest, approvalTokenHash } from "../approval/approval-token.js";
 import { Observation, StructuredError, type Observation as ObservationType, type StructuredError as StructuredErrorType } from "../schemas/open-cot.js";
 import { PlanState } from "../planning/plan-state.js";
+import { NodeAttempt, RunContinuationRecord, RunExecutionRecord, RunUiState } from "../runs/run-control.js";
+import { RunEvent } from "../runs/run-event.js";
+import { eventsAfter } from "../runs/run-event-store.js";
 import { parseTaskStatus, type TaskStatusSnapshot } from "../status/status-store.js";
 import type { OpenLagrangeStateStore } from "./state-store.js";
 
@@ -59,6 +62,47 @@ export function createSqliteStateStore(options: SqliteStateStoreOptions): OpenLa
     );
     create table if not exists plan_states (
       plan_id text primary key,
+      state_json text not null,
+      updated_at text not null
+    );
+    create table if not exists run_events (
+      event_id text primary key,
+      run_id text not null,
+      plan_id text not null,
+      type text not null,
+      event_json text not null,
+      timestamp text not null
+    );
+    create index if not exists run_events_run_id_idx on run_events(run_id, timestamp);
+    create index if not exists run_events_timestamp_idx on run_events(timestamp);
+    create table if not exists run_executions (
+      run_id text primary key,
+      plan_id text not null,
+      status text not null,
+      record_json text not null,
+      updated_at text not null
+    );
+    create table if not exists run_continuations (
+      continuation_id text primary key,
+      run_id text not null,
+      kind text not null,
+      status text not null,
+      record_json text not null,
+      updated_at text not null
+    );
+    create index if not exists run_continuations_run_id_idx on run_continuations(run_id, updated_at);
+    create table if not exists node_attempts (
+      attempt_id text primary key,
+      run_id text not null,
+      node_id text not null,
+      record_json text not null,
+      updated_at text not null
+    );
+    create index if not exists node_attempts_run_node_idx on node_attempts(run_id, node_id, updated_at);
+    create table if not exists run_ui_states (
+      lookup_id text primary key,
+      run_id text not null,
+      session_key text not null,
       state_json text not null,
       updated_at text not null
     );
@@ -243,6 +287,105 @@ export function createSqliteStateStore(options: SqliteStateStoreOptions): OpenLa
     async getPlanState(planId) {
       return readJson(db, "select state_json from plan_states where plan_id = ?", [planId], PlanState);
     },
+    async appendRunEvent(event) {
+      const parsed = RunEvent.parse(event);
+      db.prepare(`
+        insert into run_events (event_id, run_id, plan_id, type, event_json, timestamp)
+        values (?, ?, ?, ?, ?, ?)
+        on conflict(event_id) do update set
+          run_id = excluded.run_id,
+          plan_id = excluded.plan_id,
+          type = excluded.type,
+          event_json = excluded.event_json,
+          timestamp = excluded.timestamp
+      `).run(parsed.event_id, parsed.run_id, parsed.plan_id, parsed.type, JSON.stringify(parsed), parsed.timestamp);
+      return parsed;
+    },
+    async listRunEvents(runId) {
+      const rows = db.prepare("select event_json from run_events where run_id = ? order by timestamp asc, event_id asc").all(runId);
+      return rows.map((row) => RunEvent.parse(JSON.parse(String((row as Record<string, unknown>).event_json))));
+    },
+    async listRunEventsAfter(runId, cursorEventId) {
+      return eventsAfter(await this.listRunEvents(runId), cursorEventId);
+    },
+    async listRecentRunIds(limit = 20) {
+      const rows = db.prepare(`
+        select run_id, max(timestamp) as latest_timestamp
+        from run_events
+        group by run_id
+        order by latest_timestamp desc
+        limit ?
+      `).all(limit);
+      return rows.map((row) => String((row as Record<string, unknown>).run_id));
+    },
+    async recordRunExecution(record) {
+      const parsed = RunExecutionRecord.parse(record);
+      db.prepare(`
+        insert into run_executions (run_id, plan_id, status, record_json, updated_at)
+        values (?, ?, ?, ?, ?)
+        on conflict(run_id) do update set
+          plan_id = excluded.plan_id,
+          status = excluded.status,
+          record_json = excluded.record_json,
+          updated_at = excluded.updated_at
+      `).run(parsed.run_id, parsed.plan_id, parsed.status, JSON.stringify(parsed), parsed.updated_at);
+      return parsed;
+    },
+    async getRunExecution(runId) {
+      return readJson(db, "select record_json from run_executions where run_id = ?", [runId], RunExecutionRecord);
+    },
+    async recordRunContinuation(record) {
+      const parsed = RunContinuationRecord.parse(record);
+      db.prepare(`
+        insert into run_continuations (continuation_id, run_id, kind, status, record_json, updated_at)
+        values (?, ?, ?, ?, ?, ?)
+        on conflict(continuation_id) do update set
+          run_id = excluded.run_id,
+          kind = excluded.kind,
+          status = excluded.status,
+          record_json = excluded.record_json,
+          updated_at = excluded.updated_at
+      `).run(parsed.continuation_id, parsed.run_id, parsed.kind, parsed.status, JSON.stringify(parsed), parsed.updated_at);
+      return parsed;
+    },
+    async getRunContinuation(continuationId) {
+      return readJson(db, "select record_json from run_continuations where continuation_id = ?", [continuationId], RunContinuationRecord);
+    },
+    async recordNodeAttempt(attempt) {
+      const parsed = NodeAttempt.parse(attempt);
+      db.prepare(`
+        insert into node_attempts (attempt_id, run_id, node_id, record_json, updated_at)
+        values (?, ?, ?, ?, ?)
+        on conflict(attempt_id) do update set
+          run_id = excluded.run_id,
+          node_id = excluded.node_id,
+          record_json = excluded.record_json,
+          updated_at = excluded.updated_at
+      `).run(parsed.attempt_id, parsed.run_id, parsed.node_id, JSON.stringify(parsed), parsed.updated_at);
+      return parsed;
+    },
+    async listNodeAttempts(runId, nodeId) {
+      const rows = nodeId
+        ? db.prepare("select record_json from node_attempts where run_id = ? and node_id = ? order by updated_at asc").all(runId, nodeId)
+        : db.prepare("select record_json from node_attempts where run_id = ? order by updated_at asc").all(runId);
+      return rows.map((row) => NodeAttempt.parse(JSON.parse(String((row as Record<string, unknown>).record_json))));
+    },
+    async recordRunUiState(state) {
+      const parsed = RunUiState.parse(state);
+      db.prepare(`
+        insert into run_ui_states (lookup_id, run_id, session_key, state_json, updated_at)
+        values (?, ?, ?, ?, ?)
+        on conflict(lookup_id) do update set
+          run_id = excluded.run_id,
+          session_key = excluded.session_key,
+          state_json = excluded.state_json,
+          updated_at = excluded.updated_at
+      `).run(`${parsed.run_id}:${parsed.session_key}`, parsed.run_id, parsed.session_key, JSON.stringify(parsed), parsed.updated_at);
+      return parsed;
+    },
+    async getRunUiState(runId, sessionKey) {
+      return readJson(db, "select state_json from run_ui_states where lookup_id = ?", [`${runId}:${sessionKey}`], RunUiState);
+    },
   };
 }
 
@@ -255,7 +398,7 @@ function readTaskStatus(db: DatabaseSync, sql: string, values: readonly string[]
 function readJson<T>(db: DatabaseSync, sql: string, values: readonly string[], schema: { readonly parse: (input: unknown) => T }): T | undefined {
   const row = db.prepare(sql).get(...values) as Record<string, unknown> | undefined;
   if (!row) return undefined;
-  const value = row.snapshot_json ?? row.decision_json ?? row.context_json ?? row.envelope_json ?? row.state_json;
+  const value = row.snapshot_json ?? row.decision_json ?? row.context_json ?? row.envelope_json ?? row.state_json ?? row.event_json ?? row.record_json ?? row.state_json;
   return schema.parse(JSON.parse(String(value)));
 }
 

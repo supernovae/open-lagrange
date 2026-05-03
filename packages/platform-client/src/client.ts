@@ -1,7 +1,7 @@
 import { getCurrentProfile } from "@open-lagrange/runtime-manager";
 import type { RuntimeProfile } from "@open-lagrange/runtime-manager";
 import { resolveProfileAuthToken } from "@open-lagrange/runtime-manager";
-import type { ApprovalInput, ApplyPlanfileInput, ApplyRepositoryPlanfileInput, PlatformClientOptions, SubmitProjectInput, SubmitRepositoryGoalInput } from "./types.js";
+import type { ApprovalInput, ApplyPlanfileInput, ApplyRepositoryPlanfileInput, CreateBuilderRunInput, CreateRunInput, PlatformClientOptions, SubmitProjectInput, SubmitRepositoryGoalInput } from "./types.js";
 
 export class PlatformClient {
   constructor(private readonly options: PlatformClientOptions) {}
@@ -90,6 +90,47 @@ export class PlatformClient {
 
   async applyPlanfile(input: ApplyPlanfileInput): Promise<unknown> {
     return this.post("/v1/plans/apply", input);
+  }
+
+  async createRunFromPlan(input: CreateRunInput): Promise<unknown> {
+    if (input.planfile_path) return this.post("/v1/runs", { source: "planfile_path", planfile_path: input.planfile_path, live: input.live ?? true });
+    return this.post("/v1/runs", { source: "planfile", planfile: input.planfile, live: input.live ?? true });
+  }
+
+  async createRunFromBuilderSession(input: CreateBuilderRunInput): Promise<unknown> {
+    return this.post("/v1/runs", { source: "builder_session", session_id: input.session_id, live: input.live ?? true });
+  }
+
+  async getRunSnapshot(runId: string): Promise<unknown> {
+    return this.get(`/v1/runs/${encodeURIComponent(runId)}`);
+  }
+
+  async getRunEvents(runId: string): Promise<unknown> {
+    return this.get(`/v1/runs/${encodeURIComponent(runId)}/events`);
+  }
+
+  async approveRunRequest(runId: string, approvalId: string, input: { readonly decided_by?: string; readonly reason?: string } = {}): Promise<unknown> {
+    return this.post(`/v1/runs/${encodeURIComponent(runId)}/approvals/${encodeURIComponent(approvalId)}/approve`, input);
+  }
+
+  async rejectRunRequest(runId: string, approvalId: string, input: { readonly decided_by?: string; readonly reason?: string } = {}): Promise<unknown> {
+    return this.post(`/v1/runs/${encodeURIComponent(runId)}/approvals/${encodeURIComponent(approvalId)}/reject`, input);
+  }
+
+  async resumeRun(runId: string): Promise<unknown> {
+    return this.post(`/v1/runs/${encodeURIComponent(runId)}/resume`, {});
+  }
+
+  async retryRunNode(runId: string, nodeId: string, replayMode: "reuse-artifacts" | "refresh-artifacts" | "force-new-idempotency-key"): Promise<unknown> {
+    return this.post(`/v1/runs/${encodeURIComponent(runId)}/nodes/${encodeURIComponent(nodeId)}/retry`, { replay_mode: replayMode });
+  }
+
+  async cancelRun(runId: string): Promise<unknown> {
+    return this.post(`/v1/runs/${encodeURIComponent(runId)}/cancel`, {});
+  }
+
+  async exportRunArtifact(runId: string, artifactId: string): Promise<unknown> {
+    return this.getArtifact(artifactId, { run_id: runId });
   }
 
   async resumePlan(planId: string): Promise<unknown> {

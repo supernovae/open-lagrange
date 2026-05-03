@@ -29,6 +29,18 @@ export interface ApplyPlanfileInput {
   readonly planfile: unknown;
 }
 
+export interface CreateRunInput {
+  readonly plan_id?: string;
+  readonly planfile?: unknown;
+  readonly planfile_path?: string;
+  readonly live?: boolean;
+}
+
+export interface CreateBuilderRunInput {
+  readonly session_id: string;
+  readonly live?: boolean;
+}
+
 export interface ApplyRepositoryPlanfileInput {
   readonly planfile: unknown;
   readonly allow_dirty_base?: boolean;

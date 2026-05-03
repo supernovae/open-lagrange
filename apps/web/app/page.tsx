@@ -264,6 +264,10 @@ export default function Page(): React.ReactNode {
     await call(`/api/plan-builder/sessions/${session.session_id}/${action}`, body, (data) => {
       if (isBuilderSession(data)) setSessionFromData(data);
       setMessage(actionResultMessage(action, data));
+      if (action === "run" && isRunCreateResult(data)) {
+        window.location.assign(`/runs/${encodeURIComponent(data.run_id)}`);
+        return;
+      }
       void refreshWorkbench(true);
     });
   }
@@ -751,7 +755,11 @@ function SessionList({ sessions }: { readonly sessions: readonly SessionSummary[
 }
 
 function RunList({ runs }: { readonly runs: readonly RunSummary[] }): React.ReactNode {
-  return runs.length ? runs.map((run) => <RecordCard key={run.run_id} title={run.title} meta={`${run.workflow_kind} · ${run.status} · ${formatDate(run.started_at)}`} body={run.summary} />) : <EmptyState label="No workflow runs indexed." />;
+  return runs.length ? runs.map((run) => (
+    <a key={run.run_id} className="recordLink" href={`/runs/${encodeURIComponent(run.run_id)}`}>
+      <RecordCard title={run.title} meta={`${run.workflow_kind} · ${run.status} · ${formatDate(run.started_at)}`} body={run.summary} />
+    </a>
+  )) : <EmptyState label="No workflow runs indexed." />;
 }
 
 function Metric({ label, value }: { readonly label: string; readonly value: number }): React.ReactNode {
@@ -836,6 +844,14 @@ function apiHeaders(apiToken: string): HeadersInit {
 }
 
 function actionResultMessage(action: "accept-defaults" | "revise" | "validate" | "save" | "run" | "schedule", data: unknown): string {
+  if (action === "run" && isRunCreateResult(data)) {
+    return [
+      `Run created: ${data.run_id}`,
+      `Status: ${data.snapshot?.status ?? "pending"}`,
+      `Nodes: ${data.snapshot?.nodes?.length ?? 0}`,
+      `Next actions: ${data.snapshot?.next_actions?.length ?? 0}`,
+    ].join("\n");
+  }
   if (action === "run" && isPlanState(data)) {
     const counts = planStateCounts(data);
     return [
@@ -867,8 +883,21 @@ interface PlanStateSnapshot {
   readonly artifact_refs: readonly unknown[];
 }
 
+interface RunCreateResult {
+  readonly run_id: string;
+  readonly snapshot?: {
+    readonly status?: string;
+    readonly nodes?: readonly unknown[];
+    readonly next_actions?: readonly unknown[];
+  };
+}
+
 function isPlanState(value: unknown): value is PlanStateSnapshot {
   return Boolean(value && typeof value === "object" && "plan_id" in value && "status" in value && Array.isArray((value as { readonly node_states?: unknown }).node_states));
+}
+
+function isRunCreateResult(value: unknown): value is RunCreateResult {
+  return Boolean(value && typeof value === "object" && typeof (value as { readonly run_id?: unknown }).run_id === "string");
 }
 
 function planStateCounts(state: PlanStateSnapshot): Record<"completed" | "running" | "ready" | "pending" | "failed", number> {

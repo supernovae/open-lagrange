@@ -690,6 +690,168 @@ pre {
   margin: 10px 0 0;
 }
 
+.recordLink {
+  color: inherit;
+  text-decoration: none;
+}
+
+.runConsole {
+  min-height: 100vh;
+  padding: 24px;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.runHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 16px;
+}
+
+.runHeader h1 {
+  margin: 4px 0 10px;
+  font-size: 30px;
+}
+
+.tokenTools {
+  display: flex;
+  gap: 8px;
+  min-width: min(520px, 100%);
+}
+
+.tokenTools input {
+  flex: 1;
+}
+
+.messageBox,
+.logLine,
+.planMarkdown {
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-elevated);
+  padding: 12px;
+  white-space: pre-wrap;
+}
+
+.tabBar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 16px 0;
+}
+
+.tabBar button.active,
+.stepButton.active {
+  border-color: var(--accent);
+  background: rgba(16, 185, 129, 0.08);
+}
+
+.runGrid {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr) minmax(280px, 360px);
+  gap: 16px;
+  align-items: start;
+}
+
+.runSidePane,
+.runMainPane,
+.runDetailPane,
+.runPanel {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 16px;
+}
+
+.runMainPane {
+  display: grid;
+  gap: 16px;
+}
+
+.stepButton,
+.artifactButton {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-elevated);
+  color: var(--text);
+  padding: 10px;
+  text-align: left;
+}
+
+.stepButton small,
+.artifactButton span {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-muted);
+}
+
+.stepButton.selected,
+.artifactButton.selected {
+  outline: 2px solid rgba(16, 185, 129, 0.25);
+}
+
+.timelineItem {
+  border-left: 3px solid var(--border);
+  padding: 8px 0 8px 12px;
+}
+
+.timelineItem.success {
+  border-left-color: #059669;
+}
+
+.timelineItem.warning {
+  border-left-color: #d97706;
+}
+
+.timelineItem.error {
+  border-left-color: #dc2626;
+}
+
+.timelineItem span {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.actionGrid,
+.approvalRow {
+  display: grid;
+  gap: 10px;
+}
+
+.approvalRow {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+}
+
+.runModal {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  background: rgba(17, 17, 17, 0.28);
+}
+
+.runModalPanel {
+  display: grid;
+  gap: 10px;
+  width: min(420px, calc(100vw - 32px));
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-elevated);
+  padding: 18px;
+  box-shadow: var(--shadow);
+}
+
 @media (max-width: 1180px) {
   .appShell {
     grid-template-columns: 220px minmax(0, 1fr);
@@ -740,8 +902,17 @@ pre {
   .plannerGrid,
   .editorPreviewGrid,
   .diffGrid,
-  .metricGrid {
+  .metricGrid,
+  .runGrid {
     grid-template-columns: 1fr;
+  }
+
+  .runHeader,
+  .tokenTools,
+  .approvalRow {
+    align-items: stretch;
+    grid-template-columns: 1fr;
+    flex-direction: column;
   }
 
   .spanTwo,

@@ -220,4 +220,42 @@ describe("TUI view model", () => {
     expect(view.plan?.verification_reports).toEqual(["verification_1"]);
     expect(view.plan?.final_patch_artifact).toBe("final_patch_1");
   });
+
+  it("carries the active run snapshot for Run Console mode", () => {
+    const view = buildViewModel({
+      selectedPane: "run",
+      inputMode: "chat",
+      isLoading: false,
+      run: {
+        run_id: "run_1",
+        plan_id: "plan_1",
+        plan_title: "Run title",
+        status: "running",
+        active_node_id: "node_1",
+        nodes: [{
+          node_id: "node_1",
+          title: "Node 1",
+          kind: "inspect",
+          status: "running",
+          capability_refs: [],
+          artifact_refs: [],
+          error_refs: [],
+          approval_refs: [],
+        }],
+        timeline: [],
+        artifacts: [],
+        approvals: [],
+        model_calls: [],
+        policy_reports: [],
+        errors: [],
+        next_actions: [],
+        started_at: "2026-05-03T12:00:00.000Z",
+      },
+      activeObject: { type: "node", id: "node_1" },
+    });
+
+    expect(view.selectedPane).toBe("run");
+    expect(view.run?.active_node_id).toBe("node_1");
+    expect(view.activeObject).toEqual({ type: "node", id: "node_1" });
+  });
 });

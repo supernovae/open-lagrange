@@ -11,6 +11,7 @@ import { PlanState as PlanStateSchema } from "../planning/plan-state.js";
 import type { PlanArtifactRef } from "../planning/plan-artifacts.js";
 import type { ExecutionIntent } from "../schemas/open-cot.js";
 import { executionModeFromDryRun } from "./execution-mode.js";
+import { createRunEvent, type RunEvent } from "../runs/run-event.js";
 
 export interface CapabilityStepRunnerOptions {
   readonly registry?: PackRegistry;
@@ -24,6 +25,8 @@ export interface CapabilityStepRunnerOptions {
   readonly record_artifact?: PackExecutionContext["recordArtifact"];
   readonly record_observation?: PackExecutionContext["recordObservation"];
   readonly record_status?: PackExecutionContext["recordStatus"];
+  readonly run_id?: string;
+  readonly emit_run_event?: (event: RunEvent) => Promise<unknown> | unknown;
 }
 
 export async function runCapabilityStep(
@@ -41,6 +44,13 @@ export async function runCapabilityStep(
   if (resolved.descriptor.capability_digest !== input.capability_digest) {
     return finishFailure(input, started, startedAt, now, "CAPABILITY_DIGEST_MISMATCH", "Capability digest does not match current registry descriptor.", options);
   }
+  await emitRunEvent(options, input, "capability.started", now, {
+    capability_ref: input.capability_ref,
+    capability_digest: input.capability_digest,
+    capability_id: resolved.descriptor.capability_id,
+    pack_id: resolved.descriptor.pack_id,
+    name: resolved.descriptor.name,
+  });
 
   const parsedInput = resolved.definition.input_schema.safeParse(input.input);
   if (!parsedInput.success) {
@@ -57,6 +67,12 @@ export async function runCapabilityStep(
     bounds: options.bounds ?? DEFAULT_EXECUTION_BOUNDS,
     endpoint_attempts_used: options.endpoint_attempts_used ?? 0,
     now,
+  });
+  await emitRunEvent(options, input, "policy.evaluated", now, {
+    capability_ref: input.capability_ref,
+    outcome: policy.result.outcome,
+    reason: policy.result.reason,
+    policy_report: policy.report,
   });
   if (policy.result.outcome === "deny" || policy.result.outcome === "yield") {
     const status = policy.result.outcome === "yield" ? "yielded" : "failed";
@@ -102,6 +118,18 @@ export async function runCapabilityStep(
       const refs = artifactRefs(artifact);
       outputArtifactRefs.push(...refs);
       await options.record_artifact?.(withLineage(artifact, input, resolved.descriptor));
+      for (const artifactId of refs) {
+        await emitRunEvent(options, input, "artifact.created", new Date().toISOString(), {
+          artifact_id: artifactId,
+          capability_ref: input.capability_ref,
+        }, { artifact_id: artifactId });
+        if (artifactId.includes("model_call")) {
+          await emitRunEvent(options, input, "model_call.completed", new Date().toISOString(), {
+            artifact_id: artifactId,
+            capability_ref: input.capability_ref,
+          }, { model_call_artifact_id: artifactId });
+        }
+      }
     },
     async recordObservation(item) {
       await options.record_observation?.(item);
@@ -264,6 +292,18 @@ async function finish(
   if (options.plan_state && options.plan_state_store) {
     await options.plan_state_store.recordPlanState(updatePlanState(options.plan_state, input, result, now));
   }
+  if (result.status === "requires_approval") {
+    await emitRunEvent(options, input, "approval.requested", result.completed_at, {
+      capability_ref: input.capability_ref,
+      reason: result.structured_errors[0]?.message ?? "Approval required.",
+    }, { approval_id: `${input.plan_id}:${input.node_id}:approval` });
+  }
+  await emitRunEvent(options, input, result.status === "failed" ? "capability.failed" : "capability.completed", result.completed_at, {
+    capability_ref: input.capability_ref,
+    status: result.status,
+    output_artifact_refs: [...result.output_artifact_refs],
+    errors: result.structured_errors.map((error) => error.message),
+  });
   return result;
 }
 
@@ -349,4 +389,28 @@ function errorCodeFromThrown(error: unknown): string {
     }
   }
   return "MCP_EXECUTION_FAILED";
+}
+
+async function emitRunEvent(
+  options: CapabilityStepRunnerOptions,
+  input: CapabilityStepInputType,
+  type: RunEvent["type"],
+  timestamp: string,
+  payload: Record<string, unknown>,
+  ids: { readonly artifact_id?: string; readonly approval_id?: string; readonly model_call_artifact_id?: string } = {},
+): Promise<void> {
+  if (!options.run_id || !options.emit_run_event) return;
+  await options.emit_run_event(createRunEvent({
+    run_id: options.run_id,
+    plan_id: input.plan_id,
+    type,
+    timestamp,
+    node_id: input.node_id,
+    capability_ref: input.capability_ref,
+    trace_id: input.trace_id ?? input.delegation_context.trace_id,
+    ...(ids.artifact_id ? { artifact_id: ids.artifact_id } : {}),
+    ...(ids.approval_id ? { approval_id: ids.approval_id } : {}),
+    ...(ids.model_call_artifact_id ? { model_call_artifact_id: ids.model_call_artifact_id } : {}),
+    payload,
+  }));
 }

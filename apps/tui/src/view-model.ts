@@ -25,6 +25,8 @@ export function buildViewModel(input: {
   readonly lastError?: string;
   readonly conversation?: readonly ConversationTurn[];
   readonly pendingFlow?: SuggestedFlow;
+  readonly run?: TuiViewModel["run"];
+  readonly activeObject?: TuiViewModel["activeObject"];
 }): TuiViewModel {
   const activeTask = input.project?.task_statuses[0];
   const approvals = approvalSummaries(input.project?.task_statuses ?? []);
@@ -41,7 +43,9 @@ export function buildViewModel(input: {
     changedFiles: changedFiles(activeTask),
     verificationResults: verificationResults(activeTask),
     ...(plan ? { plan } : {}),
+    ...(input.run ? { run: input.run } : {}),
     ...(skill ? { skill } : {}),
+    ...(input.activeObject ? { activeObject: input.activeObject } : {}),
     ...(input.pendingFlow ? { pendingFlow: input.pendingFlow } : {}),
     selectedPane: input.selectedPane,
     scrollOffset: input.scrollOffset ?? 0,

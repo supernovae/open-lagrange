@@ -10,6 +10,8 @@ import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts.js";
 import { useUserFrameEvents } from "./hooks/useUserFrameEvents.js";
 import { Layout } from "./components/Layout.js";
 import { runDoctor, startLocalRuntime, tailLogs } from "@open-lagrange/runtime-manager";
+import type { RunSnapshot } from "@open-lagrange/core/runs";
+import type { ActiveObject } from "./state/active-object.js";
 
 export interface AppProps {
   readonly goal?: string;
@@ -35,6 +37,8 @@ export function App(props: AppProps): React.ReactElement {
   const [started, setStarted] = useState(false);
   const [seenStatusError, setSeenStatusError] = useState<string | undefined>();
   const [pendingFlow, setPendingFlow] = useState<SuggestedFlow | undefined>();
+  const [runSnapshot, setRunSnapshot] = useState<RunSnapshot | undefined>();
+  const [activeObject, setActiveObject] = useState<ActiveObject | undefined>();
   const { submitEvent } = useUserFrameEvents();
   const status = useProjectStatus({ ...(projectId ? { projectId } : {}), pollIntervalMs: props.pollIntervalMs, ...(props.apiUrl ? { apiUrl: props.apiUrl } : {}) });
 
@@ -51,8 +55,10 @@ export function App(props: AppProps): React.ReactElement {
     ...(status.lastError ? { lastError: status.lastError } : {}),
     conversation,
     ...(pendingFlow ? { pendingFlow } : {}),
+    ...(runSnapshot ? { run: runSnapshot } : {}),
+    ...(activeObject ? { activeObject } : {}),
     ...(expandedTurnId ? { expandedTurnId } : {}),
-  }), [status.project, selectedPane, scrollOffset, status.isLoading, status.health, status.lastError, conversation, pendingFlow, expandedTurnId]);
+  }), [status.project, selectedPane, scrollOffset, status.isLoading, status.health, status.lastError, conversation, pendingFlow, runSnapshot, activeObject, expandedTurnId]);
 
   useEffect(() => {
     if (!status.lastError) {
@@ -94,6 +100,16 @@ export function App(props: AppProps): React.ReactElement {
     if (key.ctrl && value === "e") {
       toggleExpandedTurn();
       return;
+    }
+    if (selectedPane === "run" && input.length === 0) {
+      if (value === "a") { setActiveObject({ type: "approval", id: "approvals" }); return; }
+      if (value === "f") { setActiveObject({ type: "artifact", id: "artifacts" }); return; }
+      if (value === "m") { setActiveObject({ type: "model_call", id: "model_calls" }); return; }
+      if (value === "l") { setActiveObject({ type: "logs", id: "logs" }); return; }
+      if (value === "p") { setActiveObject({ type: "plan", id: "plan" }); return; }
+      if (value === "r") { setInput(runSnapshot?.active_node_id ? `/run retry ${runSnapshot.run_id} ${runSnapshot.active_node_id} --mode ` : runSnapshot ? `/run resume ${runSnapshot.run_id}` : "/run resume "); return; }
+      if (value === "e") { setInput(runSnapshot ? `/run explain ${runSnapshot.run_id}` : "/run explain "); return; }
+      if (value === "q") { setSelectedPane("home"); return; }
     }
     if (key.pageUp || (key.shift && key.upArrow)) {
       setScrollOffset((value) => expandedTurnId ? Math.max(0, value - 8) : Math.min(conversation.length, value + 3));
@@ -147,6 +163,12 @@ export function App(props: AppProps): React.ReactElement {
       const submittedTaskId = result.status === "submitted" ? result.task_run_id : undefined;
       appendTurn(resultTurn(result.message, "output" in result ? result.output : undefined, result.status, submittedProjectId ?? projectId, submittedTaskId ?? activeTask?.task_run_id, resultTitle(event, result.status)));
       if (submittedProjectId) setProjectId(submittedProjectId);
+      const snapshot = runSnapshotFromOutput("output" in result ? result.output : undefined);
+      if (snapshot) {
+        setRunSnapshot(snapshot);
+        setActiveObject(snapshot.active_node_id ? { type: "node", id: snapshot.active_node_id } : undefined);
+        setSelectedPane("run");
+      }
       setPendingFlow(undefined);
       await status.refresh();
     } catch (error) {
@@ -361,6 +383,15 @@ function turnToExpand(turns: readonly ConversationTurn[], scrollOffset: number):
   return turns[end - 1] ?? turns.at(-1);
 }
 
+function runSnapshotFromOutput(output: unknown): RunSnapshot | undefined {
+  if (!output || typeof output !== "object") return undefined;
+  const record = output as Record<string, unknown>;
+  const snapshot = record.snapshot;
+  if (snapshot && typeof snapshot === "object" && typeof (snapshot as Record<string, unknown>).run_id === "string") return snapshot as RunSnapshot;
+  if (typeof record.run_id === "string" && Array.isArray(record.nodes) && Array.isArray(record.timeline)) return record as unknown as RunSnapshot;
+  return undefined;
+}
+
 function eventText(event: UserFrameEvent | TuiUserFrameEvent): string {
   if (event.type === "chat.help") return "/help";
   if (event.type === "pack.list") return "/packs";
@@ -378,6 +409,8 @@ function eventText(event: UserFrameEvent | TuiUserFrameEvent): string {
   if (event.type === "research.brief") return `research brief ${event.topic}`;
   if (event.type === "research.export") return `research export ${event.brief_id}`;
   if (event.type === "run.show") return event.outputs_only ? `show run outputs ${event.run_id}` : `show run ${event.run_id}`;
+  if (event.type === "run.resume") return `resume run ${event.run_id}`;
+  if (event.type === "run.retry") return `retry run ${event.run_id} ${event.node_id} ${event.replay_mode}`;
   if (event.type === "artifact.show") return `show artifact ${event.artifact_id}`;
   if (event.type === "approval.approve") return `approve ${event.approval_id}`;
   if (event.type === "approval.reject") return `reject ${event.approval_id}`;
@@ -403,6 +436,8 @@ function pendingTitle(event: UserFrameEvent | TuiUserFrameEvent): string {
   if (event.type === "research.brief") return "Creating research brief";
   if (event.type === "research.export") return "Exporting research markdown";
   if (event.type === "run.show") return event.outputs_only ? "Loading run outputs" : "Loading run";
+  if (event.type === "run.resume") return "Resuming run";
+  if (event.type === "run.retry") return "Retrying run node";
   if (event.type === "artifact.show") return event.artifact_id === "list" ? "Loading artifact index" : "Loading artifact";
   if (event.type === "pack.build") return "Building pack preview";
   if (event.type === "skill.plan" || event.type === "skill.frame") return "Processing skill";
@@ -439,6 +474,8 @@ function pendingText(event: UserFrameEvent | TuiUserFrameEvent): string {
       ? `Reading primary and supporting outputs for run ${event.run_id}.`
       : `Reading run ${event.run_id}.`;
   }
+  if (event.type === "run.resume") return `Requesting resume for run ${event.run_id}.`;
+  if (event.type === "run.retry") return `Requesting retry for run ${event.run_id}, node ${event.node_id}, mode ${event.replay_mode}.`;
   if (event.type === "research.search") return `Searching for source candidates: ${event.query}`;
   if (event.type === "research.fetch") return `Fetching ${event.url} in ${event.mode} mode.`;
   if (event.type === "research.brief") return `Creating a cited brief for ${event.topic} in ${event.mode} mode.`;
@@ -454,6 +491,7 @@ function resultTitle(event: UserFrameEvent | TuiUserFrameEvent, status: string):
   if (event.type === "capability.list") return status === "failed" ? "Capabilities error" : "Capabilities";
   if (event.type === "artifact.show") return status === "failed" ? "Artifact error" : "Artifact result";
   if (event.type === "run.show") return status === "failed" ? "Run error" : "Run result";
+  if (event.type === "run.resume" || event.type === "run.retry") return status === "failed" ? "Run action error" : "Run action";
   if (event.type === "demo.run") return status === "failed" ? "Demo failed" : "Demo completed";
   if (event.type.startsWith("research.")) return status === "failed" ? "Research error" : "Research result";
   return status;
@@ -466,6 +504,7 @@ function errorTitle(event: UserFrameEvent | TuiUserFrameEvent): string {
   if (event.type === "capability.list") return "Capabilities error";
   if (event.type === "artifact.show") return "Artifact error";
   if (event.type === "run.show") return "Run error";
+  if (event.type === "run.resume" || event.type === "run.retry") return "Run action error";
   if (event.type === "demo.run") return "Demo error";
   if (event.type.startsWith("research.")) return "Research error";
   return "Action failed";

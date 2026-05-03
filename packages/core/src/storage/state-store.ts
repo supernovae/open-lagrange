@@ -1,9 +1,11 @@
 import { inMemoryApprovalStore, type ApprovalStore } from "../approval/approval-store.js";
 import { inMemoryPlanStateStore, type PlanStateStore } from "../planning/plan-state.js";
+import { inMemoryRunControlStore, type RunControlStore } from "../runs/run-control.js";
+import { inMemoryRunEventStore, type RunEventStore } from "../runs/run-event-store.js";
 import { inMemoryStatusStore, type StatusStore } from "../status/status-store.js";
 import { createSqliteStateStore } from "./sqlite-state-store.js";
 
-export type OpenLagrangeStateStore = StatusStore & ApprovalStore & PlanStateStore;
+export type OpenLagrangeStateStore = StatusStore & ApprovalStore & PlanStateStore & RunEventStore & RunControlStore;
 
 let defaultStore: OpenLagrangeStateStore | undefined;
 
@@ -11,7 +13,7 @@ export function getStateStore(): OpenLagrangeStateStore {
   if (defaultStore) return defaultStore;
   const dialect = process.env.OPEN_LAGRANGE_DB_DIALECT ?? "sqlite";
   if (dialect === "memory") {
-    defaultStore = { ...inMemoryStatusStore, ...inMemoryApprovalStore, ...inMemoryPlanStateStore };
+    defaultStore = { ...inMemoryStatusStore, ...inMemoryApprovalStore, ...inMemoryPlanStateStore, ...inMemoryRunEventStore, ...inMemoryRunControlStore };
     return defaultStore;
   }
   if (dialect !== "sqlite") {

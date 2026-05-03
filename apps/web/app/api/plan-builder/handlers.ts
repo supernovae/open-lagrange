@@ -1,5 +1,5 @@
 import { listModelRouteConfigs } from "@open-lagrange/core/evals";
-import { acceptDefaultAnswers, answerQuestion, applyPlanfile, composeInitialPlan, createScheduleRecord, diffPlanfileMarkdown, getPlanBuilderSession, importBuilderPlanfileFromMarkdown, reconcilePlanfileMarkdown, renderPlanfileMarkdown, revisePlan, saveReadyPlanfile, simulatePlan, stabilizePlan, updateBuilderPlanfileFromMarkdown, validatePlan, type RuntimeProfileForComposition } from "@open-lagrange/core/planning";
+import { acceptDefaultAnswers, answerQuestion, composeInitialPlan, createRunFromBuilderSession, createScheduleRecord, diffPlanfileMarkdown, getPlanBuilderSession, importBuilderPlanfileFromMarkdown, reconcilePlanfileMarkdown, renderPlanfileMarkdown, revisePlan, saveReadyPlanfile, simulatePlan, stabilizePlan, updateBuilderPlanfileFromMarkdown, validatePlan, type RuntimeProfileForComposition } from "@open-lagrange/core/planning";
 import { getCurrentProfile } from "@open-lagrange/runtime-manager";
 import { z } from "zod";
 import { HttpError } from "../http";
@@ -111,8 +111,8 @@ export function savePlanBuilderPlanfile(sessionId: string, raw: unknown): unknow
 
 export async function runPlanBuilderPlanfile(sessionId: string, raw: unknown): Promise<unknown> {
   const payload = RunPayload.parse(raw);
-  const session = requireReadySession(sessionId);
-  return applyPlanfile({ planfile: session.current_planfile, live: payload.live });
+  requireReadySession(sessionId);
+  return createRunFromBuilderSession({ session_id: sessionId, live: payload.live });
 }
 
 export function schedulePlanBuilderPlanfile(sessionId: string, raw: unknown): unknown {

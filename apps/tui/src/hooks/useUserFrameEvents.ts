@@ -4,7 +4,8 @@ import { explainSystem, getCapabilitiesSummary, routeIntent } from "@open-lagran
 import { listDemos, runDemo } from "@open-lagrange/core/demos";
 import type { DemoRunResult } from "@open-lagrange/core/demos";
 import { inspectPack } from "@open-lagrange/core/packs";
-import { acceptDefaultAnswers, answerQuestion, applyPlanfile, composeInitialPlan, composePlanfileFromIntent, derivePlanRequirements, diffPlanfileMarkdown, getPlanBuilderSession, importBuilderPlanfileFromMarkdown, listPlanBuilderSessions, listPlanLibrary, listScheduleRecords, parsePlanfileMarkdown, parsePlanfileYaml, reconcilePlanfileMarkdown, renderPlanfileMarkdown, saveReadyPlanfile, simulatePlan, updateBuilderPlanfileFromMarkdown, validatePlan, validatePlanfile, withCanonicalPlanDigest } from "@open-lagrange/core/planning";
+import { acceptDefaultAnswers, answerQuestion, composeInitialPlan, composePlanfileFromIntent, createRunFromBuilderSession, derivePlanRequirements, diffPlanfileMarkdown, getPlanBuilderSession, importBuilderPlanfileFromMarkdown, listPlanBuilderSessions, listPlanLibrary, listScheduleRecords, parsePlanfileMarkdown, parsePlanfileYaml, reconcilePlanfileMarkdown, renderPlanfileMarkdown, resumeRun, retryRunNode, saveReadyPlanfile, simulatePlan, updateBuilderPlanfileFromMarkdown, validatePlan, validatePlanfile, withCanonicalPlanDigest } from "@open-lagrange/core/planning";
+import { buildRunSnapshot } from "@open-lagrange/core/runs";
 import { runResearchBriefCommand, runResearchExportCommand, runResearchFetchCommand, runResearchSearchCommand, runResearchSummarizeUrlCommand, type ResearchCommandResult } from "@open-lagrange/core/research";
 import { buildGeneratedPackFromMarkdown, generateSkillFrame, generateWorkflowSkill, parseSkillfileMarkdown } from "@open-lagrange/core/skills";
 import type { TuiUserFrameEvent, UserFrameEvent, UserFrameEventResult } from "@open-lagrange/core/interface";
@@ -139,7 +140,8 @@ async function submitLocalOrRemoteEvent(event: TuiUserFrameEvent): Promise<UserF
   if (event.type === "plan_builder.run") {
     const session = requireBuilderSession(event.session_id);
     if (!session.current_planfile || (session.status !== "ready" && session.status !== "approved")) return { status: "failed", message: `Plan Builder session is not ready: ${session.session_id}` };
-    return { status: "completed", message: `Planfile run submitted: ${session.current_planfile.plan_id}`, output: await applyPlanfile({ planfile: session.current_planfile, live: event.live }) };
+    const result = await createRunFromBuilderSession({ session_id: session.session_id, live: event.live });
+    return { status: "completed", message: `Run created: ${result.run_id}`, output: result };
   }
   if (event.type === "plan.check") {
     const planfile = withCanonicalPlanDigest(await loadLocalPlanfile(event.planfile));
@@ -183,17 +185,28 @@ async function submitLocalOrRemoteEvent(event: TuiUserFrameEvent): Promise<UserF
     }
     const run = showRun(event.run_id);
     if (!run) return { status: "failed", message: `Run not found: ${event.run_id}` };
+    const snapshot = await buildRunSnapshot({ run_id: event.run_id });
     const output = event.outputs_only
       ? {
         run,
+        snapshot,
         primary: listRunArtifacts({ run_id: event.run_id, role: "primary_output" }),
         supporting: listRunArtifacts({ run_id: event.run_id, role: "supporting_evidence" }),
       }
       : {
         run,
+        snapshot,
         primary: listRunArtifacts({ run_id: event.run_id, role: "primary_output" }),
-      };
+    };
     return { status: "completed", message: event.outputs_only ? `Run outputs loaded: ${run.run_id}` : `Run loaded: ${run.run_id}`, output };
+  }
+  if (event.type === "run.resume") {
+    const result = await resumeRun({ run_id: event.run_id });
+    return { status: result.status === "missing" ? "failed" : "completed", message: result.message, output: result };
+  }
+  if (event.type === "run.retry") {
+    const result = await retryRunNode({ run_id: event.run_id, node_id: event.node_id, replay_mode: event.replay_mode });
+    return { status: result.status === "missing" ? "failed" : "completed", message: result.message, output: result };
   }
   if (event.type === "artifact.show") {
     if (event.artifact_id === "list") {
