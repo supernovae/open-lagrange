@@ -108,6 +108,7 @@ export default function RunConsoleClient({ runId }: { readonly runId: string }):
   const [activeTab, setActiveTab] = useState<TabId>("overview");
   const [selectedId, setSelectedId] = useState<string>("");
   const [token, setToken] = useState("");
+  const [tokenLoaded, setTokenLoaded] = useState(false);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [retryNodeId, setRetryNodeId] = useState<string>("");
@@ -118,18 +119,21 @@ export default function RunConsoleClient({ runId }: { readonly runId: string }):
   const activeNode = snapshot?.nodes.find((node) => node.node_id === snapshot.active_node_id);
 
   useEffect(() => {
-    setToken(window.localStorage.getItem("open-lagrange-api-token") ?? "");
+    const storedToken = window.localStorage.getItem("open-lagrange-api-token") ?? "";
+    setToken(storedToken);
+    setTokenLoaded(true);
     const saved = readLocalUiState(runId);
     if (saved.activeTab) setActiveTab(saved.activeTab);
     if (saved.selectedId) setSelectedId(saved.selectedId);
-    void refresh();
+    void refresh(false, storedToken);
   }, [runId]);
 
   useEffect(() => {
+    if (!tokenLoaded) return;
     const controller = new AbortController();
     void streamRun(controller.signal);
     return () => controller.abort();
-  }, [runId, token]);
+  }, [runId, token, tokenLoaded]);
 
   useEffect(() => {
     writeLocalUiState(runId, { activeTab, selectedId });
@@ -151,7 +155,9 @@ export default function RunConsoleClient({ runId }: { readonly runId: string }):
       const suffix = lastEventId ? `?cursor=${encodeURIComponent(lastEventId)}` : "";
       const response = await fetch(`/api/runs/${encodeURIComponent(runId)}/stream${suffix}`, { headers: headers(token), signal });
       if (!response.ok || !response.body) {
-        await refresh(true);
+        const data = await readBody(response);
+        setMessage(requestFailureMessage(response.status, data, `/api/runs/${runId}/stream`, "Run Console event stream"));
+        await refresh(true, token);
         return;
       }
       const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
@@ -180,14 +186,16 @@ export default function RunConsoleClient({ runId }: { readonly runId: string }):
     if (event === "run.snapshot" && data && typeof data === "object" && "run_id" in data) setSnapshot(data as RunSnapshot);
   }
 
-  async function refresh(quiet = false): Promise<void> {
+  async function refresh(quiet = false, tokenOverride?: string): Promise<void> {
     setBusy(true);
     if (!quiet) setMessage("");
     try {
-      const response = await fetch(`/api/runs/${encodeURIComponent(runId)}`, { headers: headers(token) });
+      const requestToken = tokenOverride ?? token;
+      const route = `/api/runs/${encodeURIComponent(runId)}`;
+      const response = await fetch(route, { headers: headers(requestToken) });
       const data = await readBody(response);
       if (!response.ok || isMissingRun(data)) {
-        if (!quiet) setMessage(requestFailureMessage(response.status, data));
+        if (!quiet) setMessage(requestFailureMessage(response.status, data, route, "Run Console snapshot request"));
         return;
       }
       setSnapshot(data as RunSnapshot);
@@ -252,7 +260,7 @@ export default function RunConsoleClient({ runId }: { readonly runId: string }):
       const response = await fetch(url, { method: "POST", headers: headers(token), body: JSON.stringify(body) });
       const data = await readBody(response);
       if (!response.ok) {
-        setMessage(requestFailureMessage(response.status, data));
+        setMessage(requestFailureMessage(response.status, data, url, "Run Console control request"));
         return;
       }
       setMessage("Request accepted.");
@@ -424,9 +432,12 @@ function isMissingRun(value: unknown): boolean {
   return Boolean(value && typeof value === "object" && (value as { readonly status?: unknown }).status === "missing");
 }
 
-function requestFailureMessage(status: number, data: unknown): string {
+function requestFailureMessage(status: number, data: unknown, route: string, source: string): string {
   const error = data && typeof data === "object" && "error" in data ? String((data as { readonly error?: unknown }).error) : "REQUEST_FAILED";
-  return [`HTTP ${status} ${error}`, JSON.stringify(data, null, 2)].join("\n");
+  const hint = error === "UNAUTHORIZED"
+    ? "This is web/API bearer-token auth for the Run Console, not a web search provider error. Check the token field against OPEN_LAGRANGE_API_TOKEN in the web runtime."
+    : "Check the web runtime logs for this route.";
+  return [`HTTP ${status} ${error}`, `Source: ${source}`, `Route: ${route}`, hint, "", JSON.stringify(data, null, 2)].join("\n");
 }
 
 function updateToken(value: string, setToken: (value: string) => void): void {

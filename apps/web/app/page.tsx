@@ -254,7 +254,10 @@ export default function Page(): React.ReactNode {
   async function sessionAction(action: "accept-defaults" | "revise" | "validate" | "save" | "run" | "schedule"): Promise<void> {
     if (!session) return;
     let navigatingToRun = false;
-    if (action === "run") setOperationPhase("Creating run record and starting execution.");
+    if (action === "run") {
+      setOperationPhase("Creating run record and starting execution.");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
     const body = action === "save"
       ? { output_path: outputPath }
       : action === "revise"
