@@ -88,6 +88,10 @@ export class PlanRunner {
     const state = await this.options.store.getPlanState(plan.plan_id) ?? await this.load(plan);
     const node = this.readyNodes(plan, state)[0];
     if (!node) return state;
+    if (canCompleteStructuralNode(node)) {
+      await this.emitNodeStarted(plan, node);
+      return this.markNode(plan, state, node, "completed", [], []);
+    }
     const handler = this.options.handlers?.[node.kind];
     if (!handler) return this.markNode(plan, state, node, "yielded", [], [`No handler registered for ${node.kind}.`]);
     const workOrder = compileWorkOrder({ plan, node_id: node.id, capability_snapshot: this.options.capability_snapshot });
@@ -111,7 +115,9 @@ export class PlanRunner {
       if (!node) break;
       await this.emitNodeStarted(plan, node);
       state = await this.markNodeRunning(state, node);
-      if (canRunCapabilityStep(node)) {
+      if (canCompleteStructuralNode(node)) {
+        state = await this.markNode(plan, state, node, "completed", [], []);
+      } else if (canRunCapabilityStep(node)) {
         const result = await this.runCapabilityNode(plan, state, node, outputs);
         if (result.output !== undefined) outputs[node.id] = result.output;
         const artifacts = result.output_artifact_refs.map((artifactId) => ({
@@ -286,6 +292,10 @@ function nodeEventForStatus(status: "completed" | "failed" | "yielded" | "skippe
 
 function canRunCapabilityStep(node: PlanNode): boolean {
   return node.allowed_capability_refs.length === 1 && node.kind !== "frame";
+}
+
+function canCompleteStructuralNode(node: PlanNode): boolean {
+  return node.kind === "frame" && node.allowed_capability_refs.length === 0;
 }
 
 function nodeInput(plan: Planfile, nodeId: string): unknown {

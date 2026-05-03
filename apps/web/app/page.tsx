@@ -196,6 +196,7 @@ export default function Page(): React.ReactNode {
   const [planMarkdown, setPlanMarkdown] = useState("");
   const [updateReport, setUpdateReport] = useState<PlanfileUpdateReport | undefined>();
   const [busy, setBusy] = useState(false);
+  const [operationPhase, setOperationPhase] = useState<string>("");
 
   const selected = useMemo(() => session?.pending_questions.find((question) => question.question_id === selectedQuestion) ?? session?.pending_questions[0], [selectedQuestion, session]);
   const mermaid = useMemo(() => mermaidSource(session), [session]);
@@ -252,6 +253,8 @@ export default function Page(): React.ReactNode {
 
   async function sessionAction(action: "accept-defaults" | "revise" | "validate" | "save" | "run" | "schedule"): Promise<void> {
     if (!session) return;
+    let navigatingToRun = false;
+    if (action === "run") setOperationPhase("Creating run record and starting execution.");
     const body = action === "save"
       ? { output_path: outputPath }
       : action === "revise"
@@ -265,11 +268,14 @@ export default function Page(): React.ReactNode {
       if (isBuilderSession(data)) setSessionFromData(data);
       setMessage(actionResultMessage(action, data));
       if (action === "run" && isRunCreateResult(data)) {
-        window.location.assign(`/runs/${encodeURIComponent(data.run_id)}`);
+        navigatingToRun = true;
+        setOperationPhase("Run created. Opening Run Console.");
+        window.setTimeout(() => window.location.assign(`/runs/${encodeURIComponent(data.run_id)}`), 50);
         return;
       }
       void refreshWorkbench(true);
     });
+    if (action === "run" && !navigatingToRun) setOperationPhase("");
   }
 
   async function reconcileEdits(): Promise<void> {
@@ -418,6 +424,7 @@ export default function Page(): React.ReactNode {
             updateReport={updateReport}
             mermaid={mermaid}
             busy={busy}
+            operationPhase={operationPhase}
             compose={compose}
             refreshSession={refreshSession}
             reconcileEdits={reconcileEdits}
@@ -494,6 +501,7 @@ function PlannerView(input: {
   readonly updateReport: PlanfileUpdateReport | undefined;
   readonly mermaid: string;
   readonly busy: boolean;
+  readonly operationPhase: string;
   readonly compose: () => Promise<void>;
   readonly refreshSession: () => Promise<void>;
   readonly reconcileEdits: () => Promise<void>;
@@ -502,6 +510,7 @@ function PlannerView(input: {
   const ready = isReadySession(input.session);
   return (
     <div className="plannerGrid">
+      {input.operationPhase ? <OperationProgress phase={input.operationPhase} /> : null}
       <section className="panel spanTwo">
         <div className="panelHeader">
           <div>
@@ -622,6 +631,18 @@ function PlannerView(input: {
         ) : <EmptyState label="No edit reconciliation has run." />}
       </section>
     </div>
+  );
+}
+
+function OperationProgress({ phase }: { readonly phase: string }): React.ReactNode {
+  return (
+    <section className="operationProgress spanThree" aria-live="polite">
+      <div>
+        <strong>{phase}</strong>
+        <span>Preparing the control plane, recording events, then opening the live run view.</span>
+      </div>
+      <div className="phaseBar"><div className="phaseBarFill" /></div>
+    </section>
   );
 }
 

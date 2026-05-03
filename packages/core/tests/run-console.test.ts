@@ -45,6 +45,35 @@ describe("run console event model", () => {
     ]);
   });
 
+  it("auto-completes structural frame nodes before capability or handler nodes", async () => {
+    const events: RunEvent[] = [];
+    const store = memoryPlanStore();
+    const plan = withCanonicalPlanDigest(planfile());
+    const runner = new PlanRunner({
+      store,
+      capability_snapshot: createCapabilitySnapshotForTask({ allowed_capabilities: [], allowed_scopes: [], max_risk_level: "read", now }),
+      handlers: {
+        inspect: async () => ({ status: "completed" }),
+      },
+      run_id: "run_structural_frame",
+      emit_run_event: async (event) => { events.push(event); },
+      now: () => now,
+    });
+
+    const result = await runner.runToCompletion(plan);
+
+    expect(result.state.status).toBe("completed");
+    expect(events.map((event) => `${event.type}:${event.node_id ?? "run"}`)).toEqual([
+      "run.created:run",
+      "run.started:run",
+      "node.started:frame_goal",
+      "node.completed:frame_goal",
+      "node.started:inspect_output",
+      "node.completed:inspect_output",
+      "run.completed:run",
+    ]);
+  });
+
   it("emits capability, policy, and artifact events from CapabilityStepRunner", async () => {
     const registry = createPackRegistry().registerPack(testPack());
     const descriptor = registry.listCapabilities({})[0];
@@ -119,6 +148,35 @@ describe("run console event model", () => {
     expect(snapshot?.approvals[0]?.approval_id).toBe("approval_a");
     expect(snapshot?.model_calls[0]?.model_call_artifact_id).toBe("model_call_a");
     expect(snapshot?.next_actions.map((action) => action.action_type)).toEqual(expect.arrayContaining(["approve", "reject", "resume", "inspect_artifact"]));
+  });
+
+  it("includes the originating Plan Builder session in run snapshots", async () => {
+    const store = memoryPlanStore();
+    const plan = withCanonicalPlanDigest(Planfile.parse({
+      ...planfile(),
+      lifecycle: { builder_session_id: "builder_edit_source" },
+    }));
+    await store.recordPlanState(createInitialPlanState({
+      plan_id: plan.plan_id,
+      status: "yielded",
+      canonical_plan_digest: plan.canonical_plan_digest ?? "1".repeat(64),
+      nodes: plan.nodes.map((item) => ({ id: item.id, status: item.id === "frame_goal" ? "completed" : "yielded" })),
+      artifact_refs: [],
+      now,
+    }));
+
+    const snapshot = await buildRunSnapshot({
+      run_id: "run_builder_source",
+      events: [
+        event("run.created", "run_builder_source", plan.plan_id, { plan_title: "Builder source plan" }),
+        event("node.yielded", "run_builder_source", plan.plan_id, { title: "Inspect", kind: "inspect" }, "inspect_output"),
+        event("run.yielded", "run_builder_source", plan.plan_id),
+      ],
+      planfile: plan,
+      store,
+    });
+
+    expect(snapshot?.builder_session_id).toBe("builder_edit_source");
   });
 
   it("persists node attempts and UI state for durable run controls", async () => {

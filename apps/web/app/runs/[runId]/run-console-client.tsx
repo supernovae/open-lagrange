@@ -7,6 +7,7 @@ type TabId = "overview" | "timeline" | "artifacts" | "approvals" | "model_calls"
 interface RunSnapshot {
   readonly run_id: string;
   readonly plan_id: string;
+  readonly builder_session_id?: string;
   readonly plan_title: string;
   readonly status: string;
   readonly active_node_id?: string;
@@ -208,7 +209,8 @@ export default function RunConsoleClient({ runId }: { readonly runId: string }):
       return;
     }
     if (action.action_type === "edit_plan") {
-      window.location.assign(`/?plan_id=${encodeURIComponent(snapshot.plan_id)}`);
+      const sessionQuery = snapshot.builder_session_id ? `plan_builder_session=${encodeURIComponent(snapshot.builder_session_id)}` : `plan_id=${encodeURIComponent(snapshot.plan_id)}`;
+      window.location.assign(`/?${sessionQuery}`);
       return;
     }
     const nodeId = snapshot.active_node_id ?? snapshot.nodes.find((node) => node.status === "failed" || node.status === "yielded")?.node_id;

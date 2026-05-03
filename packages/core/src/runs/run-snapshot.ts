@@ -85,6 +85,7 @@ export const RunErrorSnapshot = z.object({
 export const RunSnapshot = z.object({
   run_id: z.string().min(1),
   plan_id: z.string().min(1),
+  builder_session_id: z.string().min(1).optional(),
   plan_title: z.string().min(1),
   status: RunSnapshotStatus,
   active_node_id: z.string().min(1).optional(),

@@ -1,7 +1,7 @@
 import { listArtifacts } from "../artifacts/artifact-viewer.js";
 import { showRun } from "../artifacts/run-index.js";
 import type { PlanStateStore } from "../planning/plan-state.js";
-import type { Planfile } from "../planning/planfile-schema.js";
+import { Planfile, type Planfile as PlanfileType } from "../planning/planfile-schema.js";
 import { getStateStore } from "../storage/state-store.js";
 import type { RunEvent } from "./run-event.js";
 import { deriveRunNextActions } from "./run-next-action.js";
@@ -10,18 +10,20 @@ import { RunSnapshot, type RunSnapshot as RunSnapshotType } from "./run-snapshot
 export async function buildRunSnapshot(input: {
   readonly run_id: string;
   readonly events?: readonly RunEvent[];
-  readonly planfile?: Planfile;
+  readonly planfile?: PlanfileType;
   readonly store?: PlanStateStore;
 }): Promise<RunSnapshotType | undefined> {
   const store = input.store ?? getStateStore();
   const events = input.events ?? await getStateStore().listRunEvents(input.run_id);
+  const execution = input.planfile || input.events ? undefined : await getStateStore().getRunExecution(input.run_id);
+  const planfile = input.planfile ?? parseStoredPlanfile(execution?.planfile);
   const created = events.find((event) => event.type === "run.created");
-  const planId = created?.plan_id ?? showRun(input.run_id)?.related_plan_id;
+  const planId = created?.plan_id ?? execution?.plan_id ?? showRun(input.run_id)?.related_plan_id;
   if (!planId) return undefined;
   const planState = await store.getPlanState(planId);
   const runSummary = showRun(input.run_id);
-  const planTitle = stringPayload(created, "plan_title") ?? runSummary?.title ?? input.planfile?.goal_frame.interpreted_goal ?? planId;
-  const nodeDefinitions = input.planfile?.nodes.map((node) => ({
+  const planTitle = stringPayload(created, "plan_title") ?? runSummary?.title ?? planfile?.goal_frame.interpreted_goal ?? planId;
+  const nodeDefinitions = planfile?.nodes.map((node) => ({
     node_id: node.id,
     title: node.title,
     kind: node.kind,
@@ -106,6 +108,7 @@ export async function buildRunSnapshot(input: {
   return RunSnapshot.parse({
     run_id: input.run_id,
     plan_id: planId,
+    ...(planfile?.lifecycle?.builder_session_id ? { builder_session_id: planfile.lifecycle.builder_session_id } : {}),
     plan_title: planTitle,
     status,
     ...(activeNodeId ? { active_node_id: activeNodeId } : {}),
@@ -131,6 +134,11 @@ export async function buildRunSnapshot(input: {
     ...(completedAt ? { completed_at: completedAt } : {}),
     ...(planState?.markdown_projection ? { plan_markdown: planState.markdown_projection } : {}),
   });
+}
+
+function parseStoredPlanfile(value: unknown): PlanfileType | undefined {
+  const parsed = Planfile.safeParse(value);
+  return parsed.success ? parsed.data : undefined;
 }
 
 function statusFromEvents(events: readonly RunEvent[]) {
