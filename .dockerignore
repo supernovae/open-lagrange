@@ -1,0 +1,13 @@
+.git
+.open-lagrange
+node_modules
+runs
+
+**/.next
+**/dist
+**/coverage
+**/.turbo
+**/.cache
+**/.DS_Store
+
+npm-debug.log*

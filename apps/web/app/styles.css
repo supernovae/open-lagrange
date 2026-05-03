@@ -35,6 +35,7 @@ body {
 
 button,
 input,
+select,
 textarea {
   font: inherit;
 }
@@ -70,6 +71,7 @@ button:disabled {
 }
 
 input,
+select,
 textarea {
   width: 100%;
   border: 1px solid var(--border);
@@ -85,6 +87,7 @@ textarea {
 }
 
 input:focus,
+select:focus,
 textarea:focus {
   border-color: rgba(99, 102, 241, 0.55);
   box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.14);
@@ -127,6 +130,13 @@ h2 {
 h3 {
   margin-bottom: 6px;
   font-size: 14px;
+  letter-spacing: 0;
+  line-height: 1.35;
+}
+
+h4 {
+  margin: 12px 0 6px;
+  font-size: 13px;
   letter-spacing: 0;
   line-height: 1.35;
 }
@@ -412,6 +422,96 @@ pre {
   line-height: 1.55;
 }
 
+.editorPreviewGrid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.9fr);
+}
+
+.markdownPreview {
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-elevated);
+  min-height: 520px;
+  max-height: 720px;
+  padding: 16px;
+}
+
+.markdownPreview h2 {
+  margin: 0 0 12px;
+  font-size: 20px;
+}
+
+.markdownPreview h3 {
+  border-top: 1px solid var(--border);
+  margin: 18px 0 8px;
+  padding-top: 14px;
+}
+
+.markdownPreview p,
+.markdownPreview li {
+  color: var(--text-soft);
+}
+
+.markdownPreview ul,
+.markdownPreview ol {
+  margin: 0 0 12px;
+  padding-left: 22px;
+}
+
+.markdownPreview code {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  padding: 1px 4px;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.92em;
+}
+
+.previewCode {
+  max-height: 320px;
+  font-size: 12px;
+}
+
+.mermaidPreview {
+  display: grid;
+  gap: 10px;
+  margin: 10px 0 16px;
+}
+
+.mermaidNode {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 10px 12px;
+}
+
+.mermaidNode::after {
+  content: "";
+  position: absolute;
+  left: 22px;
+  bottom: -11px;
+  width: 1px;
+  height: 10px;
+  background: var(--border);
+}
+
+.mermaidNode:last-child::after {
+  display: none;
+}
+
+.mermaidNode strong,
+.mermaidNode span {
+  display: block;
+}
+
+.mermaidNode span {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
 .keyValue {
   display: grid;
   grid-template-columns: 128px minmax(0, 1fr);
@@ -638,6 +738,7 @@ pre {
   .topbarActions,
   .twoColumn,
   .plannerGrid,
+  .editorPreviewGrid,
   .diffGrid,
   .metricGrid {
     grid-template-columns: 1fr;

@@ -546,7 +546,7 @@ function PlannerView(input: {
           <div className="questionDetail">
             <h3>{input.selected.question}</h3>
             <p>{input.selected.why_it_matters}</p>
-            <input value={input.answer} onChange={(event) => input.setAnswer(event.target.value)} placeholder={input.selected.choices.join(" / ")} />
+            <QuestionAnswerControl question={input.selected} value={input.answer} onChange={input.setAnswer} />
             <button className="secondaryButton" type="button" onClick={input.answerQuestion} disabled={input.busy}>Answer</button>
           </div>
         ) : null}
@@ -574,7 +574,16 @@ function PlannerView(input: {
           </div>
           <button type="button" onClick={input.reconcileEdits} disabled={input.busy || !input.session || !input.planMarkdown.trim()}>Reconcile Edits</button>
         </div>
-        <textarea className="codeEditor" value={input.planMarkdown || JSON.stringify(input.session?.current_planfile ?? {}, null, 2)} onChange={(event) => input.setPlanMarkdown(event.target.value)} rows={20} />
+        <div className="editorPreviewGrid">
+          <div>
+            <label htmlFor="planfile-markdown">Source</label>
+            <textarea id="planfile-markdown" className="codeEditor" value={input.planMarkdown || JSON.stringify(input.session?.current_planfile ?? {}, null, 2)} onChange={(event) => input.setPlanMarkdown(event.target.value)} rows={20} />
+          </div>
+          <div>
+            <label>Preview</label>
+            <PlanfileMarkdownPreview markdown={input.planMarkdown} mermaid={input.updateReport?.mermaid ?? input.mermaid} />
+          </div>
+        </div>
         <div className="buttonRow">
           <input value={input.outputPath} onChange={(event) => input.setOutputPath(event.target.value)} />
           <button className="secondaryButton" type="button" onClick={() => input.sessionAction("save")} disabled={input.busy || !ready}>Save</button>
@@ -604,6 +613,66 @@ function PlannerView(input: {
           </>
         ) : <EmptyState label="No edit reconciliation has run." />}
       </section>
+    </div>
+  );
+}
+
+function QuestionAnswerControl(input: { readonly question: BuilderQuestion; readonly value: string; readonly onChange: (value: string) => void }): React.ReactNode {
+  const kind = questionControlKind(input.question);
+  const options = questionAnswerOptions(input.question, kind);
+  const value = input.value || defaultQuestionAnswer(input.question, kind);
+  if (kind === "time" || options.length > 0) {
+    return (
+      <select value={value} onChange={(event) => input.onChange(event.target.value)}>
+        {options.map((option) => <option key={option} value={option}>{option}</option>)}
+      </select>
+    );
+  }
+  return <input value={input.value} onChange={(event) => input.onChange(event.target.value)} placeholder={input.question.default_assumption ?? "Answer"} />;
+}
+
+function PlanfileMarkdownPreview({ markdown, mermaid }: { readonly markdown: string; readonly mermaid: string }): React.ReactNode {
+  if (!markdown.trim()) return <div className="markdownPreview"><MermaidPreview source={mermaid} /></div>;
+  return <div className="markdownPreview">{markdownBlocks(markdown, mermaid).map((block, index) => <MarkdownBlockView key={`${block.kind}-${index}`} block={block} />)}</div>;
+}
+
+type MarkdownBlock =
+  | { readonly kind: "heading"; readonly level: number; readonly text: string }
+  | { readonly kind: "paragraph"; readonly text: string }
+  | { readonly kind: "list"; readonly ordered: boolean; readonly items: readonly string[] }
+  | { readonly kind: "code"; readonly language: string; readonly text: string };
+
+function MarkdownBlockView({ block }: { readonly block: MarkdownBlock }): React.ReactNode {
+  if (block.kind === "heading") {
+    if (block.level <= 1) return <h2>{block.text}</h2>;
+    if (block.level === 2) return <h3>{block.text}</h3>;
+    return <h4>{block.text}</h4>;
+  }
+  if (block.kind === "list") {
+    return block.ordered
+      ? <ol>{block.items.map((item, index) => <li key={`${item}-${index}`}>{inlineMarkdown(item)}</li>)}</ol>
+      : <ul>{block.items.map((item, index) => <li key={`${item}-${index}`}>{inlineMarkdown(item)}</li>)}</ul>;
+  }
+  if (block.kind === "code") {
+    return block.language === "mermaid" ? <MermaidPreview source={block.text} /> : <pre className="previewCode">{block.text}</pre>;
+  }
+  return <p>{inlineMarkdown(block.text)}</p>;
+}
+
+function MermaidPreview({ source }: { readonly source: string }): React.ReactNode {
+  const graph = parseMermaidGraph(source);
+  if (graph.nodes.length === 0) return <pre className="previewCode">{source}</pre>;
+  return (
+    <div className="mermaidPreview">
+      {graph.nodes.map((node) => {
+        const outgoing = graph.edges.filter((edge) => edge.from === node.id).map((edge) => graph.nodes.find((item) => item.id === edge.to)?.label ?? edge.to);
+        return (
+          <div className="mermaidNode" key={node.id}>
+            <strong>{node.label}</strong>
+            {outgoing.length ? <span>{outgoing.join(", ")}</span> : <span>Terminal step</span>}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -765,8 +834,121 @@ function isReadySession(session: BuilderSession | undefined): boolean {
   return Boolean(session?.current_planfile && (session.status === "ready" || session.status === "approved"));
 }
 
+function questionControlKind(question: BuilderQuestion): "time" | "choice" | "text" {
+  const text = `${question.question} ${question.default_assumption ?? ""}`.toLowerCase();
+  if (text.includes("time of day") || question.choices.some((choice) => /^\d{2}:\d{2}$/.test(choice))) return "time";
+  if (question.choices.length > 0) return "choice";
+  return "text";
+}
+
+function questionAnswerOptions(question: BuilderQuestion, kind: ReturnType<typeof questionControlKind>): string[] {
+  if (kind === "time") return uniqueStrings([question.default_assumption, ...question.choices, ...standardTimeOptions()].filter(isString));
+  if (kind === "choice") return uniqueStrings([question.default_assumption, ...question.choices].filter(isString));
+  return [];
+}
+
+function defaultQuestionAnswer(question: BuilderQuestion, kind: ReturnType<typeof questionControlKind>): string {
+  if (kind === "time") {
+    const value = [question.default_assumption, ...question.choices].find((item) => typeof item === "string" && /^\d{2}:\d{2}$/.test(item));
+    return value ?? "08:00";
+  }
+  return question.default_assumption ?? question.choices[0] ?? "";
+}
+
+function standardTimeOptions(): string[] {
+  return Array.from({ length: 24 }, (_item, hour) => `${String(hour).padStart(2, "0")}:00`);
+}
+
+function markdownBlocks(markdown: string, fallbackMermaid: string): MarkdownBlock[] {
+  const lines = markdown.split(/\r?\n/);
+  const blocks: MarkdownBlock[] = [];
+  let index = 0;
+  while (index < lines.length) {
+    const line = lines[index] ?? "";
+    if (!line.trim()) {
+      index += 1;
+      continue;
+    }
+    const fence = /^```(\S*)/.exec(line.trim());
+    if (fence) {
+      const language = fence[1] ?? "";
+      const code: string[] = [];
+      index += 1;
+      while (index < lines.length && !lines[index]?.trim().startsWith("```")) {
+        code.push(lines[index] ?? "");
+        index += 1;
+      }
+      blocks.push({ kind: "code", language, text: code.join("\n") });
+      index += 1;
+      continue;
+    }
+    const heading = /^(#{1,4})\s+(.+)$/.exec(line);
+    if (heading) {
+      blocks.push({ kind: "heading", level: heading[1]?.length ?? 2, text: heading[2] ?? "" });
+      index += 1;
+      continue;
+    }
+    const unordered = /^\s*[-*]\s+(.+)$/.exec(line);
+    const ordered = /^\s*\d+\.\s+(.+)$/.exec(line);
+    if (unordered || ordered) {
+      const items: string[] = [];
+      const isOrdered = Boolean(ordered);
+      while (index < lines.length) {
+        const item = isOrdered ? /^\s*\d+\.\s+(.+)$/.exec(lines[index] ?? "") : /^\s*[-*]\s+(.+)$/.exec(lines[index] ?? "");
+        if (!item) break;
+        items.push(item[1] ?? "");
+        index += 1;
+      }
+      blocks.push({ kind: "list", ordered: isOrdered, items });
+      continue;
+    }
+    const paragraph: string[] = [line.trim()];
+    index += 1;
+    while (index < lines.length && lines[index]?.trim() && !/^(#{1,4})\s+/.test(lines[index] ?? "") && !/^```/.test(lines[index]?.trim() ?? "") && !/^\s*([-*]|\d+\.)\s+/.test(lines[index] ?? "")) {
+      paragraph.push((lines[index] ?? "").trim());
+      index += 1;
+    }
+    blocks.push({ kind: "paragraph", text: paragraph.join(" ") });
+  }
+  if (!blocks.some((block) => block.kind === "code" && block.language === "mermaid") && fallbackMermaid.trim()) blocks.splice(Math.min(blocks.length, 4), 0, { kind: "code", language: "mermaid", text: fallbackMermaid });
+  return blocks;
+}
+
+function inlineMarkdown(text: string): React.ReactNode {
+  const parts = text.split(/(`[^`]+`|\*\*[^*]+\*\*)/g).filter(Boolean);
+  return parts.map((part, index) => {
+    if (part.startsWith("`") && part.endsWith("`")) return <code key={`${part}-${index}`}>{part.slice(1, -1)}</code>;
+    if (part.startsWith("**") && part.endsWith("**")) return <strong key={`${part}-${index}`}>{part.slice(2, -2)}</strong>;
+    return <span key={`${part}-${index}`}>{part}</span>;
+  });
+}
+
+function parseMermaidGraph(source: string): { readonly nodes: readonly { readonly id: string; readonly label: string }[]; readonly edges: readonly { readonly from: string; readonly to: string }[] } {
+  const nodes = new Map<string, string>();
+  const edges: { readonly from: string; readonly to: string }[] = [];
+  for (const line of source.split(/\r?\n/)) {
+    const node = /^\s*([A-Za-z0-9_-]+)\["([^"]+)"\]/.exec(line);
+    if (node?.[1] && node[2]) nodes.set(node[1], node[2]);
+    const edge = /^\s*([A-Za-z0-9_-]+)\s*-->(?:\|[^|]*\|)?\s*([A-Za-z0-9_-]+)/.exec(line);
+    if (edge?.[1] && edge[2]) edges.push({ from: edge[1], to: edge[2] });
+  }
+  for (const edge of edges) {
+    if (!nodes.has(edge.from)) nodes.set(edge.from, edge.from);
+    if (!nodes.has(edge.to)) nodes.set(edge.to, edge.to);
+  }
+  return { nodes: [...nodes.entries()].map(([id, label]) => ({ id, label })), edges };
+}
+
 function list(values: readonly string[] | undefined): string {
   return values && values.length > 0 ? values.join(", ") : "none";
+}
+
+function uniqueStrings(values: readonly string[]): string[] {
+  return [...new Set(values)];
+}
+
+function isString(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0;
 }
 
 function mermaidSource(session: BuilderSession | undefined): string {
