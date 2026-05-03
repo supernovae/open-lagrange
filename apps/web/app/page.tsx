@@ -232,16 +232,16 @@ export default function Page(): React.ReactNode {
     });
   }
 
-  async function refreshWorkbench(): Promise<void> {
+  async function refreshWorkbench(quiet = false): Promise<void> {
     await getJson("/api/workbench", (data: WorkbenchData) => {
       setWorkbench(data);
-      setMessage(`Workbench refreshed: ${runtimeLine(data.runtime)}`);
-    });
+      if (!quiet) setMessage(`Workbench refreshed: ${runtimeLine(data.runtime)}`);
+    }, { preserveMessage: quiet });
   }
 
-  async function refreshSession(): Promise<void> {
+  async function refreshSession(quiet = false): Promise<void> {
     if (!session) return;
-    await fetchSession(session.session_id);
+    await fetchSession(session.session_id, quiet);
   }
 
   async function answerQuestion(): Promise<void> {
@@ -258,11 +258,13 @@ export default function Page(): React.ReactNode {
         ? { ...(modelRoute.trim() ? { model_route: modelRoute.trim() } : {}) }
       : action === "schedule"
         ? { cadence: "daily", time_of_day: scheduleTime }
+      : action === "run"
+        ? { live: true }
         : {};
     await call(`/api/plan-builder/sessions/${session.session_id}/${action}`, body, (data) => {
       if (isBuilderSession(data)) setSessionFromData(data);
-      setMessage(JSON.stringify(data, null, 2));
-      void refreshWorkbench();
+      setMessage(actionResultMessage(action, data));
+      void refreshWorkbench(true);
     });
   }
 
@@ -271,25 +273,25 @@ export default function Page(): React.ReactNode {
     await call(`/api/plan-builder/sessions/${session.session_id}/update-planfile`, { markdown: planMarkdown }, (data: PlanfileUpdateReport) => {
       setUpdateReport(data);
       if (data.regenerated_markdown) setPlanMarkdown(data.regenerated_markdown);
-      setMessage(JSON.stringify(data, null, 2));
+      setMessage(reconcileResultMessage(data));
     });
-    await refreshSession();
-    await refreshWorkbench();
+    await refreshSession(true);
+    await refreshWorkbench(true);
   }
 
-  async function getJson<T>(url: string, onData: (data: T) => void): Promise<void> {
+  async function getJson<T>(url: string, onData: (data: T) => void, options: { readonly preserveMessage?: boolean } = {}): Promise<void> {
     setBusy(true);
-    setMessage("");
+    if (!options.preserveMessage) setMessage("");
     try {
       const response = await fetch(url, { headers: apiHeaders(currentApiToken()) });
       const data = await readResponseBody(response);
       if (!response.ok) {
-        setMessage(requestFailureMessage(url, response.status, data));
+        if (!options.preserveMessage) setMessage(requestFailureMessage(url, response.status, data));
         return;
       }
       onData(data as T);
     } catch (error) {
-      setMessage(error instanceof Error ? `Request failed: ${error.message}` : `Request failed: ${String(error)}`);
+      if (!options.preserveMessage) setMessage(error instanceof Error ? `Request failed: ${error.message}` : `Request failed: ${String(error)}`);
     } finally {
       setBusy(false);
     }
@@ -313,11 +315,11 @@ export default function Page(): React.ReactNode {
     }
   }
 
-  async function fetchSession(sessionId: string): Promise<void> {
+  async function fetchSession(sessionId: string, quiet = false): Promise<void> {
     await getJson(`/api/plan-builder/sessions/${sessionId}`, (data: BuilderSession) => {
       if (isBuilderSession(data)) setSessionFromData(data);
-      else setMessage(`Unexpected response:\n${JSON.stringify(data, null, 2)}`);
-    });
+      else if (!quiet) setMessage(`Unexpected response:\n${JSON.stringify(data, null, 2)}`);
+    }, { preserveMessage: quiet });
   }
 
   async function readResponseBody(response: Response): Promise<unknown> {
@@ -378,7 +380,7 @@ export default function Page(): React.ReactNode {
           </div>
           <div className="topbarActions">
             <input value={apiToken} onChange={(event) => updateApiToken(event.target.value)} placeholder="API bearer token" />
-            <button className="secondaryButton" type="button" onClick={refreshWorkbench} disabled={busy}>Refresh</button>
+            <button className="secondaryButton" type="button" onClick={() => refreshWorkbench()} disabled={busy}>Refresh</button>
           </div>
         </header>
 
@@ -594,7 +596,9 @@ function PlannerView(input: {
       <section className="panel">
         <h2>DAG</h2>
         <pre>{input.updateReport?.mermaid ?? input.mermaid}</pre>
-        <input value={input.scheduleTime} onChange={(event) => input.setScheduleTime(event.target.value)} />
+        <select value={input.scheduleTime} onChange={(event) => input.setScheduleTime(event.target.value)}>
+          {standardTimeOptions().map((time) => <option key={time} value={time}>{time}</option>)}
+        </select>
         <button className="secondaryButton fullWidth" type="button" onClick={() => input.sessionAction("schedule")} disabled={input.busy || !ready}>Schedule Daily</button>
       </section>
 
@@ -609,7 +613,7 @@ function PlannerView(input: {
               <StatusPill value={`simulation ${input.updateReport.simulation_status}`} />
             </div>
             <List title="Validation Errors" items={(input.updateReport.validation_errors ?? []).map((error) => `${error.code ?? "ERROR"}: ${error.message ?? ""}`)} empty="No validation errors." />
-            {input.updateReport.diff ? <DiffSummary diff={input.updateReport.diff} /> : <EmptyState label="No structured diff available." />}
+            {input.updateReport.diff && hasStructuredDiffChanges(input.updateReport.diff) ? <DiffSummary diff={input.updateReport.diff} /> : <EmptyState label="No structured changes detected." />}
           </>
         ) : <EmptyState label="No edit reconciliation has run." />}
       </section>
@@ -801,6 +805,23 @@ function DiffSummary({ diff }: { readonly diff: PlanfileStructuredDiff }): React
   );
 }
 
+function hasStructuredDiffChanges(diff: PlanfileStructuredDiff): boolean {
+  return Boolean(
+    diff.nodes_added.length
+    || diff.nodes_removed.length
+    || diff.nodes_changed.length
+    || diff.edges_added.length
+    || diff.edges_removed.length
+    || diff.capabilities_added.length
+    || diff.capabilities_removed.length
+    || diff.requirements_changed.length
+    || diff.risk_changes.length
+    || diff.approval_changes.length
+    || diff.schedule_changed
+    || (diff.parameters_changed?.length ?? 0),
+  );
+}
+
 function DiffCard({ title, items, tone = "neutral" }: { readonly title: string; readonly items: readonly string[]; readonly tone?: "neutral" | "attention" }): React.ReactNode {
   return (
     <div className={`diffCard ${tone}`}>
@@ -812,6 +833,54 @@ function DiffCard({ title, items, tone = "neutral" }: { readonly title: string; 
 
 function apiHeaders(apiToken: string): HeadersInit {
   return { "content-type": "application/json", ...(apiToken ? { authorization: `Bearer ${apiToken}` } : {}) };
+}
+
+function actionResultMessage(action: "accept-defaults" | "revise" | "validate" | "save" | "run" | "schedule", data: unknown): string {
+  if (action === "run" && isPlanState(data)) {
+    const counts = planStateCounts(data);
+    return [
+      `Run started: ${data.plan_id}`,
+      `Status: ${data.status}`,
+      `Nodes: ${counts.completed} completed, ${counts.running} running, ${counts.ready} ready, ${counts.pending} pending, ${counts.failed} failed`,
+      data.artifact_refs.length ? `Artifacts: ${data.artifact_refs.length}` : "Artifacts: none yet",
+    ].join("\n");
+  }
+  if (action === "save" && data && typeof data === "object" && "path" in data) return `Planfile saved: ${String((data as { readonly path?: unknown }).path)}`;
+  if (action === "schedule" && data && typeof data === "object" && "schedule_id" in data) return `Schedule created: ${String((data as { readonly schedule_id?: unknown }).schedule_id)}`;
+  return JSON.stringify(data, null, 2);
+}
+
+function reconcileResultMessage(data: PlanfileUpdateReport): string {
+  return [
+    `Reconcile ${data.diff_status}`,
+    `Builder: ${data.builder_status}`,
+    `Validation: ${data.validation_status}`,
+    `Simulation: ${data.simulation_status}`,
+    data.questions?.length ? `Questions: ${data.questions.length}` : "Questions: none",
+  ].join("\n");
+}
+
+interface PlanStateSnapshot {
+  readonly plan_id: string;
+  readonly status: string;
+  readonly node_states: readonly { readonly status: string }[];
+  readonly artifact_refs: readonly unknown[];
+}
+
+function isPlanState(value: unknown): value is PlanStateSnapshot {
+  return Boolean(value && typeof value === "object" && "plan_id" in value && "status" in value && Array.isArray((value as { readonly node_states?: unknown }).node_states));
+}
+
+function planStateCounts(state: PlanStateSnapshot): Record<"completed" | "running" | "ready" | "pending" | "failed", number> {
+  const counts = { completed: 0, running: 0, ready: 0, pending: 0, failed: 0 };
+  for (const node of state.node_states) {
+    if (node.status === "completed") counts.completed += 1;
+    else if (node.status === "running") counts.running += 1;
+    else if (node.status === "ready") counts.ready += 1;
+    else if (node.status === "failed") counts.failed += 1;
+    else counts.pending += 1;
+  }
+  return counts;
 }
 
 function updateApiTokenValue(value: string, setApiToken: (value: string) => void): void {
