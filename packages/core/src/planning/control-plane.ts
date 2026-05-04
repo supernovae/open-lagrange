@@ -5,6 +5,7 @@ import { createRunSummary, registerRun } from "../artifacts/run-index.js";
 import { createCapabilitySnapshotForTask } from "../capability-registry/registry.js";
 import { createMockDelegationContext } from "../clients/mock-delegation.js";
 import { buildRunSnapshot, createRunEvent, ReplayMode, type ReplayMode as ReplayModeType, type RunSnapshot } from "../runs/index.js";
+import type { SearchProviderConfig } from "../search/index.js";
 import { getStateStore } from "../storage/state-store.js";
 import { stableHash } from "../util/hash.js";
 import { createLocalPlanArtifactStore } from "./local-plan-artifacts.js";
@@ -280,7 +281,7 @@ export async function executeLiveLocalPlanfile(input: {
       max_risk_level: "read",
       task_run_id: input.plan.plan_id,
     },
-    runtime_config: { artifact_store: artifactStore },
+    runtime_config: { artifact_store: artifactStore, search_providers: searchProviderConfigsForRuntime() },
     record_artifact: artifactStore.recordArtifact,
     run_id: runId,
     emit_run_event: store.appendRunEvent.bind(store),
@@ -467,6 +468,26 @@ function runIdForPlan(plan: PlanfileType, now: string): string {
 function stringContext(context: Record<string, unknown> | undefined, key: string): string | undefined {
   const value = context?.[key];
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function searchProviderConfigsForRuntime(): readonly SearchProviderConfig[] {
+  const kind = process.env.OPEN_LAGRANGE_SEARCH_KIND ?? "searxng";
+  const baseUrl = process.env.OPEN_LAGRANGE_SEARCH_BASE_URL
+    ?? process.env.OPEN_LAGRANGE_SEARXNG_URL
+    ?? managedLocalSearxngBaseUrl();
+  const id = process.env.OPEN_LAGRANGE_SEARCH_PROVIDER ?? process.env.OPEN_LAGRANGE_SEARCH_PROVIDER_ID ?? (baseUrl ? "local-searxng" : undefined);
+  if (!baseUrl || !id || kind !== "searxng" || process.env.OPEN_LAGRANGE_SEARCH_ENABLED === "false") return [];
+  return [{
+    id,
+    kind: "searxng",
+    baseUrl,
+    enabled: true,
+  }];
+}
+
+function managedLocalSearxngBaseUrl(): string | undefined {
+  if (process.env.OPEN_LAGRANGE_PROFILE === "local" && process.env.HATCHET_CLIENT_HOST_PORT) return "http://searxng:8080";
+  return undefined;
 }
 
 export async function getPlanExecutionStatus(planId: string): Promise<PlanState | undefined> {
