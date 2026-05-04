@@ -112,7 +112,8 @@ describe("run console event model", () => {
     const registry = createPackRegistry().registerPack(testPack());
     const extract = registry.listCapabilities({}).find((item) => item.name === "echo");
     const collect = registry.listCapabilities({}).find((item) => item.name === "collect_sources");
-    if (!extract || !collect) throw new Error("test capabilities missing");
+    const exportRefs = registry.listCapabilities({}).find((item) => item.name === "export_refs");
+    if (!extract || !collect || !exportRefs) throw new Error("test capabilities missing");
     const store = memoryPlanStore();
     const plan = withCanonicalPlanDigest(Planfile.parse({
       ...planfile(),
@@ -120,27 +121,30 @@ describe("run console event model", () => {
         node("frame_goal", "frame", []),
         { ...node("extract_content", "inspect", ["frame_goal"]), allowed_capability_refs: [extract.capability_id], execution_mode: "live" },
         { ...node("create_source_set", "analyze", ["extract_content"]), allowed_capability_refs: [collect.capability_id], execution_mode: "live" },
+        { ...node("export_markdown", "finalize", ["create_source_set"]), allowed_capability_refs: [exportRefs.capability_id], execution_mode: "live" },
       ],
       edges: [
         { from: "frame_goal", to: "extract_content", reason: "then extract" },
         { from: "extract_content", to: "create_source_set", reason: "then collect" },
+        { from: "create_source_set", to: "export_markdown", reason: "then export" },
       ],
       execution_context: {
         nodes: {
           extract_content: { input: { value: "source text" } },
           create_source_set: { input: { sources: ["$nodes.extract_content.output"] } },
+          export_markdown: { input: { related_source_ids: "$nodes.create_source_set.output.selected_sources.source_id" } },
         },
       },
     }));
     const runner = new PlanRunner({
       store,
       registry,
-      capability_snapshot: sdkDescriptorsToCapabilitySnapshot([extract, collect], now),
+      capability_snapshot: sdkDescriptorsToCapabilitySnapshot([extract, collect, exportRefs], now),
       delegation_context: createMockDelegationContext({
         goal: "test",
         project_id: plan.plan_id,
         allowed_scopes: ["test:read"],
-        allowed_capabilities: [extract.capability_id, collect.capability_id],
+        allowed_capabilities: [extract.capability_id, collect.capability_id, exportRefs.capability_id],
       }),
       now: () => now,
     });
@@ -148,7 +152,8 @@ describe("run console event model", () => {
     const result = await runner.runToCompletion(plan);
 
     expect(result.state.status).toBe("completed");
-    expect(result.outputs.create_source_set).toMatchObject({ count: 1 });
+    expect(result.outputs.create_source_set).toMatchObject({ selected_sources: [{ source_id: "source text" }] });
+    expect(result.outputs.export_markdown).toMatchObject({ related_source_ids: ["source text"] });
   });
 
   it("emits capability, policy, and artifact events from CapabilityStepRunner", async () => {
@@ -418,8 +423,29 @@ function testPack(): CapabilityPack {
         examples: [],
       },
       input_schema: z.object({ sources: z.array(z.object({ value: z.string() })) }).strict(),
-      output_schema: z.object({ count: z.number() }).strict(),
-      execute: async (_context, input) => ({ count: input.sources.length }),
+      output_schema: z.object({ selected_sources: z.array(z.object({ source_id: z.string() })) }).strict(),
+      execute: async (_context, input) => ({ selected_sources: input.sources.map((source) => ({ source_id: source.value })) }),
+    }, {
+      descriptor: {
+        capability_id: "open-lagrange.run-console-test.export_refs",
+        pack_id: "open-lagrange.run-console-test",
+        name: "export_refs",
+        description: "Export source refs.",
+        input_schema: { type: "object" },
+        output_schema: { type: "object" },
+        risk_level: "read",
+        side_effect_kind: "none",
+        requires_approval: false,
+        idempotency_mode: "required",
+        timeout_ms: 1000,
+        max_attempts: 1,
+        scopes: ["test:read"],
+        tags: [],
+        examples: [],
+      },
+      input_schema: z.object({ related_source_ids: z.array(z.string()) }).strict(),
+      output_schema: z.object({ related_source_ids: z.array(z.string()) }).strict(),
+      execute: async (_context, input) => input,
     }],
   };
 }

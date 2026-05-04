@@ -331,9 +331,20 @@ function resolveTemplateString(value: string, outputs: Readonly<Record<string, u
 }
 
 function pathValue(source: unknown, path: string): unknown {
-  return path.split(".").reduce<unknown>((current, part) => {
+  return pathPartsValue(source, path.split("."));
+}
+
+function pathPartsValue(source: unknown, parts: readonly string[]): unknown {
+  if (parts.length === 0) return source;
+  const [part, ...rest] = parts;
+  if (part === undefined) return source;
+  if (Array.isArray(source)) {
+    if (/^\d+$/.test(part)) return pathPartsValue(source[Number(part)], rest);
+    return source.map((item) => pathPartsValue(item, parts)).filter((item) => item !== undefined);
+  }
+  return [part].reduce<unknown>((current, key) => {
     if (!current || typeof current !== "object") return undefined;
-    return (current as Record<string, unknown>)[part];
+    return pathPartsValue((current as Record<string, unknown>)[key], rest);
   }, source);
 }
 
