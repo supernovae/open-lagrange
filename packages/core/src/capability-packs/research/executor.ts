@@ -6,9 +6,9 @@ import { extractReadableContent } from "./extractor.js";
 import { fetchSource } from "./fetcher.js";
 import { RESEARCH_LIMITS } from "./policy.js";
 import { searchSources } from "./search-provider.js";
-import { createResearchBrief, exportResearchMarkdown } from "./research-brief.js";
+import { createResearchBriefWithModel, exportResearchMarkdown } from "./research-brief.js";
 import { createSourceSet } from "./source-set.js";
-import type { CreateBriefInput, CreateSourceSetInput, ExportMarkdownInput, ExtractContentInput, ResearchFetchSourceInput, ResearchPlanSearchInput, ResearchSearchInput, ResearchSearchSourcesInput, ResearchSelectSourcesInput } from "./schemas.js";
+import type { CreateBriefInput, CreateSourceSetInput, ExportMarkdownInput, ExtractContentInput, ExtractSourcesInput, ResearchFetchSourceInput, ResearchFetchSourcesInput, ResearchPlanSearchInput, ResearchSearchInput, ResearchSearchSourcesInput, ResearchSelectSourcesInput } from "./schemas.js";
 
 export const RESEARCH_PACK_ID = "open-lagrange.research";
 
@@ -64,6 +64,26 @@ export async function runResearchFetchSource(context: PackExecutionContext, inpu
   return fetchSource(primitiveContext(context, "research.fetch_source"), input);
 }
 
+export async function runResearchFetchSources(context: PackExecutionContext, input: ResearchFetchSourcesInput) {
+  const warnings: string[] = [];
+  const fetched_sources = [];
+  for (const source of input.sources) {
+    try {
+      fetched_sources.push(await fetchSource(primitiveContext(context, "research.fetch_sources"), {
+        url: source.url,
+        source_id: source.source_id,
+        max_bytes: input.max_bytes,
+        timeout_ms: input.timeout_ms,
+        accepted_content_types: input.accepted_content_types,
+        mode: input.mode,
+      }));
+    } catch (error) {
+      warnings.push(`fetch_failed:${source.source_id}:${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  return { fetched_sources, warnings };
+}
+
 export async function runResearchExtractContent(context: PackExecutionContext, input: ExtractContentInput) {
   const primitives = primitiveContext(context, "research.extract_content");
   const sourceArtifact = input.source_artifact_id ? await artifacts.readMetadata(primitives, input.source_artifact_id) : undefined;
@@ -86,6 +106,27 @@ export async function runResearchExtractContent(context: PackExecutionContext, i
     },
   });
   return extracted;
+}
+
+export async function runResearchExtractSources(context: PackExecutionContext, input: ExtractSourcesInput) {
+  const warnings: string[] = [];
+  const sources = [];
+  for (const fetched of input.fetched_sources) {
+    if (!fetched.text_artifact_id) {
+      warnings.push(`missing_text_artifact:${fetched.source_id}`);
+      continue;
+    }
+    try {
+      sources.push(await runResearchExtractContent(context, {
+        source_artifact_id: fetched.text_artifact_id,
+        url: fetched.final_url ?? fetched.url,
+        max_chars: input.max_chars,
+      }));
+    } catch (error) {
+      warnings.push(`extract_failed:${fetched.source_id}:${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  return { sources, warnings };
 }
 
 function sourceInputFromArtifact(artifact: unknown): Partial<ExtractContentInput> {
@@ -125,7 +166,7 @@ export async function runResearchCreateSourceSet(context: PackExecutionContext, 
 }
 
 export async function runResearchCreateBrief(context: PackExecutionContext, input: CreateBriefInput) {
-  return createResearchBrief(primitiveContext(context, "research.create_brief"), input);
+  return createResearchBriefWithModel(context, primitiveContext(context, "research.create_brief"), input);
 }
 
 export async function runResearchExportMarkdown(context: PackExecutionContext, input: ExportMarkdownInput) {
@@ -137,6 +178,8 @@ function primitiveContext(context: PackExecutionContext, capabilityId: string) {
   return createPrimitiveContext(context, {
     pack_id: RESEARCH_PACK_ID,
     capability_id: capabilityId,
+    ...stringOption("plan_id", context.runtime_config.plan_id),
+    ...stringOption("node_id", context.runtime_config.node_id),
     ...(artifactStore ? { artifact_store: artifactStore } : {}),
     policy_context: {
       allowed_http_methods: ["GET"],
@@ -151,6 +194,10 @@ function primitiveContext(context: PackExecutionContext, capabilityId: string) {
     },
     ...(typeof context.runtime_config.fetch_impl === "function" ? { fetch_impl: context.runtime_config.fetch_impl as typeof fetch } : {}),
   });
+}
+
+function stringOption(key: "plan_id" | "node_id", value: unknown): Record<typeof key, string> | {} {
+  return typeof value === "string" && value.length > 0 ? { [key]: value } as Record<typeof key, string> : {};
 }
 
 function runtimeArtifactStore(context: PackExecutionContext) {

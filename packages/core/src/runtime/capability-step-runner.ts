@@ -110,7 +110,12 @@ export async function runCapabilityStep(
     policy_decision: policy.result,
     execution_bounds: options.bounds ?? DEFAULT_EXECUTION_BOUNDS,
     timeout_ms: resolved.descriptor.timeout_ms,
-    runtime_config: options.runtime_config ?? {},
+    runtime_config: {
+      ...(options.runtime_config ?? {}),
+      plan_id: input.plan_id,
+      node_id: input.node_id,
+      ...(options.run_id ? { run_id: options.run_id } : {}),
+    },
   });
   const executionContext: PackExecutionContext = {
     ...context,
@@ -123,12 +128,15 @@ export async function runCapabilityStep(
           artifact_id: artifactId,
           capability_ref: input.capability_ref,
         }, { artifact_id: artifactId });
-        if (artifactId.includes("model_call")) {
-          await emitRunEvent(options, input, "model_call.completed", new Date().toISOString(), {
-            artifact_id: artifactId,
-            capability_ref: input.capability_ref,
-          }, { model_call_artifact_id: artifactId });
-        }
+      }
+      const modelCallArtifactId = modelCallArtifactRef(artifact);
+      if (modelCallArtifactId) {
+        await emitRunEvent(options, input, "model_call.completed", new Date().toISOString(), {
+          artifact_id: modelCallArtifactId,
+          capability_ref: input.capability_ref,
+          title: "Model call",
+          summary: `Model call completed for ${input.capability_ref}.`,
+        }, { model_call_artifact_id: modelCallArtifactId });
       }
     },
     async recordObservation(item) {
@@ -334,6 +342,16 @@ function artifactRefs(artifact: unknown): string[] {
   const lineage = record.lineage && typeof record.lineage === "object" ? record.lineage as Record<string, unknown> : {};
   const outputRefs = Array.isArray(lineage.output_artifact_refs) ? lineage.output_artifact_refs.filter((item): item is string => typeof item === "string") : [];
   return [...new Set([...direct, ...outputRefs])];
+}
+
+function modelCallArtifactRef(artifact: unknown): string | undefined {
+  const record = artifact && typeof artifact === "object" ? artifact as Record<string, unknown> : {};
+  const metadata = record.metadata && typeof record.metadata === "object" ? record.metadata as Record<string, unknown> : {};
+  const direct = typeof metadata.model_call_artifact_id === "string" ? metadata.model_call_artifact_id : undefined;
+  if (direct) return direct;
+  const artifactId = typeof record.artifact_id === "string" ? record.artifact_id : undefined;
+  const kind = typeof record.kind === "string" ? record.kind : undefined;
+  return kind === "model_call" && artifactId ? artifactId : undefined;
 }
 
 function withLineage(artifact: unknown, input: CapabilityStepInputType, descriptor: { readonly pack_id: string; readonly capability_id: string }): unknown {

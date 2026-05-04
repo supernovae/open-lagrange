@@ -240,7 +240,12 @@ export class PlanRunner {
       now: this.now(),
       ...(this.options.run_id ? { run_id: this.options.run_id } : {}),
       ...(this.options.emit_run_event ? { emit_run_event: this.options.emit_run_event } : {}),
-      ...(this.options.runtime_config ? { runtime_config: this.options.runtime_config } : {}),
+      runtime_config: {
+        ...(this.options.runtime_config ?? {}),
+        plan_id: plan.plan_id,
+        node_id: node.id,
+        ...(this.options.run_id ? { run_id: this.options.run_id } : {}),
+      },
       ...(this.options.record_artifact ? { record_artifact: this.options.record_artifact } : {}),
     });
   }

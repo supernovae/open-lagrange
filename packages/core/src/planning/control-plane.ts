@@ -4,6 +4,7 @@ import { createArtifactSummary, registerArtifacts } from "../artifacts/artifact-
 import { createRunSummary, registerRun } from "../artifacts/run-index.js";
 import { createCapabilitySnapshotForTask } from "../capability-registry/registry.js";
 import { createMockDelegationContext } from "../clients/mock-delegation.js";
+import { listModelRouteConfigs } from "../evals/model-route-config.js";
 import { buildRunSnapshot, createRunEvent, ReplayMode, type ReplayMode as ReplayModeType, type RunSnapshot } from "../runs/index.js";
 import type { SearchProviderConfig } from "../search/index.js";
 import { getStateStore } from "../storage/state-store.js";
@@ -281,7 +282,12 @@ export async function executeLiveLocalPlanfile(input: {
       max_risk_level: "read",
       task_run_id: input.plan.plan_id,
     },
-    runtime_config: { artifact_store: artifactStore, search_providers: searchProviderConfigsForRuntime() },
+    runtime_config: {
+      artifact_store: artifactStore,
+      artifact_dir: artifactStore.output_dir,
+      model_route: listModelRouteConfigs()[0],
+      search_providers: searchProviderConfigsForRuntime(),
+    },
     record_artifact: artifactStore.recordArtifact,
     run_id: runId,
     emit_run_event: store.appendRunEvent.bind(store),

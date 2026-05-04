@@ -5,6 +5,7 @@ import { createArtifactSummary, listArtifacts, registerArtifacts, showArtifact, 
 import { packRegistry } from "../../capability-registry/registry.js";
 import { createMockDelegationContext } from "../../clients/mock-delegation.js";
 import { createLocalPlanArtifactStore } from "../../planning/local-plan-artifacts.js";
+import { listModelRouteConfigs } from "../../evals/model-route-config.js";
 import { resolveCapabilityForStep } from "../../runtime/capability-step.js";
 import { runCapabilityStep } from "../../runtime/capability-step-runner.js";
 import { stableHash } from "../../util/hash.js";
@@ -121,11 +122,16 @@ export async function runResearchBriefCommand(input: {
 }): Promise<ResearchCommandResult> {
   const run = commandRun(input.topic, input.output_dir);
   const store = artifactStore(run.output_dir);
+  const mode = input.dry_run ? "dry_run" : input.mode ?? "live";
   const context = createTestPackContext({
     recordArtifact: store.recordArtifact,
-    runtime_config: { search_providers: input.search_provider_configs ?? [] },
+    runtime_config: {
+      search_providers: input.search_provider_configs ?? [],
+      artifact_dir: run.output_dir,
+      model_route: listModelRouteConfigs()[0],
+      ...(mode === "fixture" ? { model_brief_generator: fixtureBriefGenerator } : {}),
+    },
   });
-  const mode = input.dry_run ? "dry_run" : input.mode ?? "live";
   const supportingArtifacts: ArtifactSummary[] = [];
   if (mode === "dry_run") {
     const result = {
@@ -271,6 +277,25 @@ export async function runResearchExportCommand(input: {
   });
   const artifacts = store.flush(input.index_path);
   return { run_id: run.run_id, output_dir: run.output_dir, result, artifacts, warnings: [] };
+}
+
+function fixtureBriefGenerator(input: { readonly sources: readonly ExtractedSource[] }): unknown {
+  return {
+    title: "Fixture research brief",
+    overview: "This fixture brief uses checked-in research sources for deterministic command and test coverage.",
+    key_findings: input.sources.slice(0, 4).map((source) => ({
+      finding: source.excerpt,
+      source_ids: [source.source_id],
+      confidence: "medium",
+    })),
+    viewpoints: input.sources.slice(0, 3).map((source) => ({
+      label: source.domain,
+      summary: source.excerpt,
+      source_ids: [source.source_id],
+    })),
+    uncertainties: ["Fixture sources are useful for testing, but live runs should use configured providers."],
+    recommendations: ["Run in live mode with a configured model provider before using the brief operationally."],
+  };
 }
 
 function resolveBriefArtifactId(briefIdOrArtifactId: string, indexPath?: string): string {

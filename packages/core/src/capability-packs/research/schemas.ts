@@ -109,6 +109,19 @@ export const ResearchFetchSourceOutput = z.object({
   policy_report_id: z.string().optional(),
 }).strict();
 
+export const ResearchFetchSourcesInput = z.object({
+  sources: z.array(SourceCandidate).min(1).max(25),
+  max_bytes: z.number().int().min(1_000).max(2_000_000).default(500_000),
+  timeout_ms: z.number().int().min(500).max(30_000).default(8_000),
+  accepted_content_types: z.array(z.string().min(1)).default(["text/html", "text/plain", "text/markdown", "application/xhtml+xml"]),
+  mode: SourceMode.default("live"),
+}).strict();
+
+export const ResearchFetchSourcesOutput = z.object({
+  fetched_sources: z.array(ResearchFetchSourceOutput),
+  warnings: z.array(z.string()),
+}).strict();
+
 export const ExtractContentInput = z.object({
   source_artifact_id: z.string().optional(),
   html: z.string().optional(),
@@ -138,6 +151,16 @@ export const ExtractedSource = z.object({
 }).strict();
 
 export const ExtractContentOutput = ExtractedSource;
+
+export const ExtractSourcesInput = z.object({
+  fetched_sources: z.array(ResearchFetchSourceOutput).min(1),
+  max_chars: z.number().int().min(100).max(200_000).default(20_000),
+}).strict();
+
+export const ExtractSourcesOutput = z.object({
+  sources: z.array(ExtractedSource),
+  warnings: z.array(z.string()),
+}).strict();
 
 export const SourceSummary = z.object({
   source_id: z.string(),
@@ -223,14 +246,19 @@ export type ResearchSelectSourcesInput = z.infer<typeof ResearchSelectSourcesInp
 export type ResearchSelectSourcesOutput = z.infer<typeof ResearchSelectSourcesOutput>;
 export type ResearchFetchSourceInput = z.infer<typeof ResearchFetchSourceInput>;
 export type ResearchFetchSourceOutput = z.infer<typeof ResearchFetchSourceOutput>;
+export type ResearchFetchSourcesInput = z.infer<typeof ResearchFetchSourcesInput>;
+export type ResearchFetchSourcesOutput = z.infer<typeof ResearchFetchSourcesOutput>;
 export type ExtractContentInput = z.infer<typeof ExtractContentInput>;
 export type ExtractedSource = z.infer<typeof ExtractedSource>;
 export type ExtractContentOutput = z.infer<typeof ExtractContentOutput>;
+export type ExtractSourcesInput = z.infer<typeof ExtractSourcesInput>;
+export type ExtractSourcesOutput = z.infer<typeof ExtractSourcesOutput>;
 export type Citation = z.infer<typeof Citation>;
 export type SourceSummary = z.infer<typeof SourceSummary>;
 export type SourceRejection = z.infer<typeof SourceRejection>;
 export type CreateSourceSetInput = z.infer<typeof CreateSourceSetInput>;
 export type CreateSourceSetOutput = z.infer<typeof CreateSourceSetOutput>;
+export type SourceCoverage = z.infer<typeof SourceCoverage>;
 export type CreateBriefInput = z.infer<typeof CreateBriefInput>;
 export type CreateBriefOutput = z.infer<typeof CreateBriefOutput>;
 export type ExportMarkdownInput = z.infer<typeof ExportMarkdownInput>;

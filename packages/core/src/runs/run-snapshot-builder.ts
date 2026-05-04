@@ -77,13 +77,18 @@ export async function buildRunSnapshot(input: {
     ...(event.type === "approval.requested" ? { requested_at: event.timestamp } : {}),
     ...(event.type === "approval.resolved" ? { resolved_at: event.timestamp } : {}),
   }));
-  const modelCalls = events.filter((event) => event.type === "model_call.completed").map((event) => ({
-    model_call_artifact_id: event.model_call_artifact_id ?? event.artifact_id ?? event.event_id,
-    title: stringPayload(event, "title") ?? "Model call",
-    summary: stringPayload(event, "summary") ?? "Model call completed.",
-    created_at: event.timestamp,
-    ...(event.node_id ? { node_id: event.node_id } : {}),
-  }));
+  const artifactById = new Map(artifactIndex.map((artifact) => [artifact.artifact_id, artifact]));
+  const modelCalls = events.filter((event) => event.type === "model_call.completed").map((event) => {
+    const modelCallArtifactId = event.model_call_artifact_id ?? event.artifact_id ?? event.event_id;
+    const artifact = artifactById.get(modelCallArtifactId);
+    return {
+      model_call_artifact_id: modelCallArtifactId,
+      title: artifact?.title ?? stringPayload(event, "title") ?? "Model call",
+      summary: artifact?.summary ?? stringPayload(event, "summary") ?? "Model call completed.",
+      created_at: event.timestamp,
+      ...(event.node_id ? { node_id: event.node_id } : {}),
+    };
+  });
   const policyReports = events.filter((event) => event.type === "policy.evaluated").map((event) => ({
     event_id: event.event_id,
     ...(event.node_id ? { node_id: event.node_id } : {}),
