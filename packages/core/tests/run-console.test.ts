@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createPackRegistry, type CapabilityPack } from "@open-lagrange/capability-sdk";
 import { z } from "zod";
 import { createArtifactSummary, registerArtifacts } from "../src/artifacts/artifact-viewer.js";
+import { sdkDescriptorsToCapabilitySnapshot } from "../src/capability-registry/open-cot.js";
 import { createCapabilitySnapshotForTask } from "../src/capability-registry/registry.js";
 import { createMockDelegationContext } from "../src/clients/mock-delegation.js";
 import { createInitialPlanState, type PlanState, type PlanStateStore } from "../src/planning/plan-state.js";
@@ -107,9 +108,53 @@ describe("run console event model", () => {
     expect(result.state.node_states.flatMap((item) => item.errors)).not.toContain("Capability step dry run validated capability, schema, and policy without execution.");
   });
 
+  it("resolves whole node output templates inside arrays", async () => {
+    const registry = createPackRegistry().registerPack(testPack());
+    const extract = registry.listCapabilities({}).find((item) => item.name === "echo");
+    const collect = registry.listCapabilities({}).find((item) => item.name === "collect_sources");
+    if (!extract || !collect) throw new Error("test capabilities missing");
+    const store = memoryPlanStore();
+    const plan = withCanonicalPlanDigest(Planfile.parse({
+      ...planfile(),
+      nodes: [
+        node("frame_goal", "frame", []),
+        { ...node("extract_content", "inspect", ["frame_goal"]), allowed_capability_refs: [extract.capability_id], execution_mode: "live" },
+        { ...node("create_source_set", "analyze", ["extract_content"]), allowed_capability_refs: [collect.capability_id], execution_mode: "live" },
+      ],
+      edges: [
+        { from: "frame_goal", to: "extract_content", reason: "then extract" },
+        { from: "extract_content", to: "create_source_set", reason: "then collect" },
+      ],
+      execution_context: {
+        nodes: {
+          extract_content: { input: { value: "source text" } },
+          create_source_set: { input: { sources: ["$nodes.extract_content.output"] } },
+        },
+      },
+    }));
+    const runner = new PlanRunner({
+      store,
+      registry,
+      capability_snapshot: sdkDescriptorsToCapabilitySnapshot([extract, collect], now),
+      delegation_context: createMockDelegationContext({
+        goal: "test",
+        project_id: plan.plan_id,
+        allowed_scopes: ["test:read"],
+        allowed_capabilities: [extract.capability_id, collect.capability_id],
+      }),
+      now: () => now,
+    });
+
+    const result = await runner.runToCompletion(plan);
+
+    expect(result.state.status).toBe("completed");
+    expect(result.outputs.create_source_set).toMatchObject({ count: 1 });
+  });
+
   it("emits capability, policy, and artifact events from CapabilityStepRunner", async () => {
     const registry = createPackRegistry().registerPack(testPack());
-    const descriptor = registry.listCapabilities({})[0];
+    const descriptor = registry.listCapabilities({}).find((item) => item.name === "echo");
+    if (!descriptor) throw new Error("echo capability missing");
     const events: RunEvent[] = [];
 
     const result = await runCapabilityStep({
@@ -354,6 +399,27 @@ function testPack(): CapabilityPack {
         await context.recordArtifact({ artifact_id: "capability_artifact", kind: "capability_step_result" });
         return input;
       },
+    }, {
+      descriptor: {
+        capability_id: "open-lagrange.run-console-test.collect_sources",
+        pack_id: "open-lagrange.run-console-test",
+        name: "collect_sources",
+        description: "Collect object sources.",
+        input_schema: { type: "object" },
+        output_schema: { type: "object" },
+        risk_level: "read",
+        side_effect_kind: "none",
+        requires_approval: false,
+        idempotency_mode: "required",
+        timeout_ms: 1000,
+        max_attempts: 1,
+        scopes: ["test:read"],
+        tags: [],
+        examples: [],
+      },
+      input_schema: z.object({ sources: z.array(z.object({ value: z.string() })) }).strict(),
+      output_schema: z.object({ count: z.number() }).strict(),
+      execute: async (_context, input) => ({ count: input.sources.length }),
     }],
   };
 }

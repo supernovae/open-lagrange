@@ -320,6 +320,8 @@ function resolveTemplates(value: unknown, outputs: Readonly<Record<string, unkno
 }
 
 function resolveTemplateString(value: string, outputs: Readonly<Record<string, unknown>>): unknown {
+  const wholeOutput = /^\$nodes\.([^.]+)\.output$/.exec(value);
+  if (wholeOutput) return outputs[wholeOutput[1] ?? ""];
   const exact = /^\$nodes\.([^.]+)\.output\.(.+)$/.exec(value);
   if (exact) return pathValue(outputs[exact[1] ?? ""], exact[2] ?? "");
   return value.replace(/\{\{nodes\.([^.]+)\.output\.([^}]+)\}\}/g, (_match, nodeId: string, path: string) => {
