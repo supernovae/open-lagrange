@@ -213,6 +213,8 @@ export default function Page(): React.ReactNode {
   useEffect(() => {
     setApiToken(window.localStorage.getItem("open-lagrange-api-token") ?? "");
     const params = new URLSearchParams(window.location.search);
+    const view = params.get("view");
+    if (isViewId(view)) setActiveView(view);
     const sessionId = params.get("plan_builder_session");
     if (sessionId) {
       setSessionIdInput(sessionId);
@@ -256,7 +258,7 @@ export default function Page(): React.ReactNode {
     let navigatingToRun = false;
     if (action === "run") {
       setOperationPhase("Creating run record and starting execution.");
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      scrollPlannerStatusIntoView();
     }
     const body = action === "save"
       ? { output_path: outputPath }
@@ -273,6 +275,7 @@ export default function Page(): React.ReactNode {
       if (action === "run" && isRunCreateResult(data)) {
         navigatingToRun = true;
         setOperationPhase("Run created. Opening Run Console.");
+        scrollPlannerStatusIntoView();
         window.setTimeout(() => window.location.assign(`/runs/${encodeURIComponent(data.run_id)}`), 50);
         return;
       }
@@ -399,7 +402,7 @@ export default function Page(): React.ReactNode {
 
         {message ? <section className="notice"><pre>{message}</pre></section> : null}
 
-        {activeView === "home" ? <HomeView workbench={workbench} onOpenPlanner={() => setActiveView("planner")} /> : null}
+        {activeView === "home" ? <HomeView workbench={workbench} onOpenPlanner={() => setActiveView("planner")} onOpenWorkflows={() => setActiveView("workflows")} /> : null}
         {activeView === "planner" ? (
           <PlannerView
             prompt={prompt}
@@ -446,7 +449,7 @@ export default function Page(): React.ReactNode {
   );
 }
 
-function HomeView({ workbench, onOpenPlanner }: { readonly workbench: WorkbenchData | undefined; readonly onOpenPlanner: () => void }): React.ReactNode {
+function HomeView({ workbench, onOpenPlanner, onOpenWorkflows }: { readonly workbench: WorkbenchData | undefined; readonly onOpenPlanner: () => void; readonly onOpenWorkflows: () => void }): React.ReactNode {
   const summary = workbench?.summary ?? {};
   return (
     <div className="viewStack">
@@ -456,7 +459,10 @@ function HomeView({ workbench, onOpenPlanner }: { readonly workbench: WorkbenchD
           <h2>Compose, review, run, and inspect reconciled work.</h2>
           <p>Planfiles, runs, approvals, artifacts, packs, providers, and schedules are available from one control surface.</p>
         </div>
-        <button type="button" onClick={onOpenPlanner}>Open Planner</button>
+        <div className="heroActions">
+          <button type="button" onClick={onOpenPlanner}>Open Planner</button>
+          <button className="secondaryButton" type="button" onClick={onOpenWorkflows}>Open Runs</button>
+        </div>
       </section>
       <section className="metricGrid">
         <Metric label="Plans" value={summary.plans ?? 0} />
@@ -639,7 +645,7 @@ function PlannerView(input: {
 
 function OperationProgress({ phase }: { readonly phase: string }): React.ReactNode {
   return (
-    <section className="operationProgress spanThree" aria-live="polite">
+    <section className="operationProgress spanThree" aria-live="polite" data-planner-status>
       <div>
         <strong>{phase}</strong>
         <span>Preparing the control plane, recording events, then opening the live run view.</span>
@@ -647,6 +653,20 @@ function OperationProgress({ phase }: { readonly phase: string }): React.ReactNo
       <div className="phaseBar"><div className="phaseBarFill" /></div>
     </section>
   );
+}
+
+function scrollPlannerStatusIntoView(): void {
+  window.requestAnimationFrame(() => {
+    window.setTimeout(() => {
+      const status = document.querySelector("[data-planner-status]");
+      if (status) status.scrollIntoView({ behavior: "smooth", block: "start" });
+      else window.scrollTo({ top: 0, behavior: "smooth" });
+    }, 0);
+  });
+}
+
+function isViewId(value: string | null): value is ViewId {
+  return Boolean(value && navItems.some((item) => item.id === value));
 }
 
 function QuestionAnswerControl(input: { readonly question: BuilderQuestion; readonly value: string; readonly onChange: (value: string) => void }): React.ReactNode {

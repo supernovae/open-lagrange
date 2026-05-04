@@ -282,6 +282,12 @@ export default function RunConsoleClient({ runId }: { readonly runId: string }):
 
   return (
     <main className="runConsole">
+      <nav className="runTopNav" aria-label="Run Console navigation">
+        <a href="/">Workbench</a>
+        <a href="/?view=planner">Planner</a>
+        <a href="/?view=workflows">Runs</a>
+        <a href="/?view=providers">Providers</a>
+      </nav>
       <RunHeader snapshot={snapshot} runId={runId} token={token} setToken={setToken} refresh={() => refresh()} cancel={cancel} busy={busy} />
       {message ? <pre className="messageBox">{message}</pre> : null}
       {retryNodeId ? <RetryModeDialog nodeId={retryNodeId} onCancel={() => setRetryNodeId("")} onSelect={retryWithMode} /> : null}

@@ -321,6 +321,12 @@ pre {
   margin-bottom: 0;
 }
 
+.heroActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .panel,
 .notice {
   padding: 18px;
@@ -748,6 +754,27 @@ pre {
   min-height: 100vh;
   padding: 24px;
   background: var(--bg);
+  color: var(--text);
+}
+
+.runTopNav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.runTopNav a {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-elevated);
+  color: var(--text-soft);
+  padding: 8px 12px;
+  text-decoration: none;
+}
+
+.runTopNav a:hover {
+  border-color: var(--accent);
   color: var(--text);
 }
 

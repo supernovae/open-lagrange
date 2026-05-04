@@ -1,5 +1,5 @@
 import { performance } from "node:perf_hooks";
-import { generateObject } from "ai";
+import { generateObject, generateText } from "ai";
 import type { z } from "zod";
 import { createConfiguredLanguageModel } from "../model-providers/index.js";
 import type { ModelRef } from "../evals/model-route-config.js";
@@ -123,20 +123,113 @@ export async function executeModelRoleCall<T>(input: ExecuteModelRoleCallInput<T
     };
   } catch (caught) {
     if (caught instanceof ModelRoleCallError) throw caught;
-    persistTelemetryIfRequested(input, {
-      call_id: callId,
-      status: "failed",
-      started_at: startedAt,
-      completed_at: new Date().toISOString(),
-      prompt: input.prompt,
-      response: { error: caught instanceof Error ? caught.message : String(caught) },
-      latency_ms: Math.max(0, Math.round(performance.now() - started)),
-      schema_validation_status: "failed",
-      error_code: "MODEL_ROLE_CALL_FAILED",
-      error_message: caught instanceof Error ? caught.message : String(caught),
-    });
-    throw new ModelRoleCallError("MODEL_ROLE_CALL_FAILED", caught instanceof Error ? caught.message : String(caught));
+    try {
+      const fallback = await generateText({
+        model,
+        system: input.system,
+        prompt: `${input.prompt}\n\nReturn only one valid JSON object that matches the requested output schema. Do not include markdown fences, prose, commentary, or trailing text.`,
+        ...(input.model_ref.temperature === undefined ? {} : { temperature: input.model_ref.temperature }),
+        ...(input.model_ref.top_p === undefined ? {} : { topP: input.model_ref.top_p }),
+        ...(input.model_ref.max_output_tokens === undefined ? {} : { maxOutputTokens: input.model_ref.max_output_tokens }),
+      });
+      const parsedJson = parseJsonFromModelText(fallback.text);
+      const parsedObject = input.schema.safeParse(parsedJson);
+      if (!parsedObject.success) throw new Error(parsedObject.error.message);
+      const latency = Math.max(0, Math.round(performance.now() - started));
+      const outputArtifactId = `model_call_${stableHash({
+        role: input.role,
+        route: input.trace_context?.route_id,
+        plan: input.trace_context?.plan_id,
+        node: input.trace_context?.node_id,
+        output: parsedObject.data,
+      }).slice(0, 18)}`;
+      const usage = usageRecordFromProvider({
+        model_ref: input.model_ref,
+        prompt: input.prompt,
+        output: parsedObject.data,
+        provider_result: fallback,
+        latency_ms: latency,
+        status: "fallback",
+        output_artifact_id: outputArtifactId,
+        ...(input.trace_context ? { trace_context: input.trace_context } : {}),
+      });
+      const persisted = persistTelemetryIfRequested(input, {
+        call_id: callId,
+        status: "success",
+        started_at: startedAt,
+        completed_at: new Date().toISOString(),
+        prompt: input.prompt,
+        response: parsedObject.data,
+        usage_record: usage,
+        latency_ms: latency,
+        schema_validation_status: "passed",
+      });
+      return {
+        object: parsedObject.data,
+        usage_record: persisted ? { ...usage, output_artifact_id: persisted.model_call_artifact_id } : usage,
+        ...(persisted ? { telemetry_artifact_id: persisted.model_call_artifact_id } : {}),
+      };
+    } catch (fallbackError) {
+      const message = [
+        caught instanceof Error ? caught.message : String(caught),
+        `JSON fallback failed: ${fallbackError instanceof Error ? fallbackError.message : String(fallbackError)}`,
+      ].join(" ");
+      persistTelemetryIfRequested(input, {
+        call_id: callId,
+        status: "failed",
+        started_at: startedAt,
+        completed_at: new Date().toISOString(),
+        prompt: input.prompt,
+        response: { error: message },
+        latency_ms: Math.max(0, Math.round(performance.now() - started)),
+        schema_validation_status: "failed",
+        error_code: "MODEL_ROLE_CALL_FAILED",
+        error_message: message,
+      });
+      throw new ModelRoleCallError("MODEL_ROLE_CALL_FAILED", message);
+    }
   }
+}
+
+function parseJsonFromModelText(text: string): unknown {
+  const trimmed = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+  try {
+    return JSON.parse(trimmed) as unknown;
+  } catch {
+    const extracted = extractFirstJsonValue(trimmed);
+    if (!extracted) throw new Error("Model response did not contain a JSON object.");
+    return JSON.parse(extracted) as unknown;
+  }
+}
+
+function extractFirstJsonValue(text: string): string | undefined {
+  const start = [...text].findIndex((char) => char === "{" || char === "[");
+  if (start < 0) return undefined;
+  const opener = text[start];
+  const closer = opener === "{" ? "}" : "]";
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = start; index < text.length; index += 1) {
+    const char = text[index];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === "\\") {
+      escaped = inString;
+      continue;
+    }
+    if (char === "\"") {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (char === opener) depth += 1;
+    if (char === closer) depth -= 1;
+    if (depth === 0) return text.slice(start, index + 1);
+  }
+  return undefined;
 }
 
 function persistTelemetryIfRequested(input: ExecuteModelRoleCallInput<unknown>, event: {
