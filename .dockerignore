@@ -2,6 +2,16 @@
 .open-lagrange
 node_modules
 runs
+!packages/core/src/runs
+!packages/core/src/runs/**
+!apps/tui/src/components/runs
+!apps/tui/src/components/runs/**
+!apps/web/app/runs
+!apps/web/app/runs/**
+!apps/web/app/api/runs
+!apps/web/app/api/runs/**
+!apps/web/app/api/v1/runs
+!apps/web/app/api/v1/runs/**
 
 **/.next
 **/dist

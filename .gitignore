@@ -6,6 +6,8 @@ dist/
 runs/
 !packages/core/src/runs/
 !packages/core/src/runs/**
+!apps/tui/src/components/runs/
+!apps/tui/src/components/runs/**
 !apps/web/app/runs/
 !apps/web/app/runs/**
 !apps/web/app/api/runs/
