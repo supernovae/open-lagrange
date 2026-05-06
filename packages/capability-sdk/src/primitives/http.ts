@@ -1,3 +1,4 @@
+import { lookup } from "node:dns/promises";
 import type { PrimitiveContext, PrimitiveSecretRef } from "./context.js";
 import { artifacts } from "./artifacts.js";
 import { primitiveError } from "./errors.js";
@@ -48,15 +49,7 @@ export async function httpFetch(context: PrimitiveContext, input: HttpFetchInput
   const url = parseAllowedUrl(input.url);
   const method = input.method ?? "GET";
   enforceMethod(context, method);
-  const privateHost = isLocalOrPrivateHost(url.hostname);
-  const policyReport = policy.evaluateNetwork(context, {
-    url: url.toString(),
-    method,
-    host: url.hostname,
-    ...(input.allowed_hosts ? { allowed_hosts: input.allowed_hosts } : {}),
-    ...(input.denied_hosts ? { denied_hosts: input.denied_hosts } : {}),
-    is_private_host: privateHost,
-  });
+  const policyReport = evaluateUrlPolicy(context, input, url, method);
   if (policyReport.decision === "deny") {
     throw primitiveError(policyReport.reason, "PRIMITIVE_POLICY_DENIED", { policy_report: policyReport });
   }
@@ -75,6 +68,8 @@ export async function httpFetch(context: PrimitiveContext, input: HttpFetchInput
   const response = await fetchWithRedirects(context, url, {
     method,
     headers,
+    ...(input.allowed_hosts ? { allowed_hosts: input.allowed_hosts } : {}),
+    ...(input.denied_hosts ? { denied_hosts: input.denied_hosts } : {}),
     ...(input.body !== undefined ? { body: input.body } : {}),
     timeout_ms: input.timeout_ms ?? context.limits.default_timeout_ms,
     redirect_limit: input.redirect_limit ?? context.limits.default_redirect_limit,
@@ -178,13 +173,17 @@ async function fetchWithRedirects(
   input: {
     readonly method: HttpMethod;
     readonly headers: Record<string, string>;
+    readonly allowed_hosts?: readonly string[];
+    readonly denied_hosts?: readonly string[];
     readonly body?: BodyInit | null;
     readonly timeout_ms: number;
     readonly redirect_limit: number;
   },
 ): Promise<Response> {
   let current = url;
+  const headers = { ...input.headers };
   for (let redirect = 0; redirect <= input.redirect_limit; redirect += 1) {
+    await assertDnsPolicy(context, current, input.method);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), input.timeout_ms);
     const abortListener = () => controller.abort();
@@ -192,14 +191,20 @@ async function fetchWithRedirects(
     try {
       const response = await (context.fetch_impl ?? fetch)(current, {
         method: input.method,
-        headers: input.headers,
+        headers,
         ...(input.body !== undefined ? { body: input.body } : {}),
         redirect: "manual",
         signal: controller.signal,
       });
       if (response.status >= 300 && response.status < 400 && response.headers.get("location")) {
+        const previous = current;
         current = new URL(response.headers.get("location") ?? "", current);
         parseAllowedUrl(current.toString());
+        const policyReport = evaluateUrlPolicy(context, input, current, input.method);
+        if (policyReport.decision === "deny") {
+          throw primitiveError(policyReport.reason, "PRIMITIVE_POLICY_DENIED", { policy_report: policyReport });
+        }
+        if (current.origin !== previous.origin) stripSensitiveHeaders(headers);
         continue;
       }
       return response;
@@ -216,6 +221,51 @@ async function fetchWithRedirects(
   throw primitiveError("HTTP redirect limit exceeded.", "PRIMITIVE_POLICY_DENIED", { redirect_limit: input.redirect_limit, url: url.toString() });
 }
 
+function evaluateUrlPolicy(context: PrimitiveContext, input: Pick<HttpFetchInput, "allowed_hosts" | "denied_hosts">, url: URL, method: HttpMethod): PolicyDecisionReport {
+  return policy.evaluateNetwork(context, {
+    url: url.toString(),
+    method,
+    host: url.hostname,
+    ...(input.allowed_hosts ? { allowed_hosts: input.allowed_hosts } : {}),
+    ...(input.denied_hosts ? { denied_hosts: input.denied_hosts } : {}),
+    is_private_host: isLocalOrPrivateHost(url.hostname),
+  });
+}
+
+async function assertDnsPolicy(context: PrimitiveContext, url: URL, method: HttpMethod): Promise<void> {
+  if (context.fetch_impl) return;
+  if (context.policy_context.allow_private_network === true || context.limits.allow_private_network) return;
+  const host = normalizedHost(url.hostname);
+  if (isLocalOrPrivateHost(host)) {
+    const policyReport = policy.evaluateNetwork(context, {
+      url: url.toString(),
+      method,
+      host: url.hostname,
+      is_private_host: true,
+    });
+    throw primitiveError(policyReport.reason, "PRIMITIVE_POLICY_DENIED", { policy_report: policyReport });
+  }
+  const records = await lookup(host, { all: true, verbatim: true });
+  const privateAddress = records.find((record) => isLocalOrPrivateHost(record.address));
+  if (!privateAddress) return;
+  const policyReport = policy.evaluateNetwork(context, {
+    url: url.toString(),
+    method,
+    host: url.hostname,
+    is_private_host: true,
+  });
+  throw primitiveError(policyReport.reason, "PRIMITIVE_POLICY_DENIED", { policy_report: policyReport, resolved_address: privateAddress.address });
+}
+
+function stripSensitiveHeaders(headers: Record<string, string>): void {
+  for (const key of Object.keys(headers)) {
+    const normalized = key.toLowerCase();
+    if (normalized === "authorization" || normalized === "cookie" || normalized === "proxy-authorization" || normalized === "x-api-key") {
+      delete headers[key];
+    }
+  }
+}
+
 function headersToObject(headers: Headers): Record<string, string> {
   const output: Record<string, string> = {};
   headers.forEach((value, key) => {
@@ -225,13 +275,21 @@ function headersToObject(headers: Headers): Record<string, string> {
 }
 
 function isLocalOrPrivateHost(hostname: string): boolean {
-  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  const host = normalizedHost(hostname);
   if (host === "localhost" || host.endsWith(".localhost") || host === "::1" || host === "0:0:0:0:0:0:0:1") return true;
+  if (host.startsWith("fc") || host.startsWith("fd") || host.startsWith("fe80:")) return true;
+  const ipv4Mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(host);
+  if (ipv4Mapped?.[1]) return isLocalOrPrivateHost(ipv4Mapped[1]);
+  if (host.includes(":")) return false;
   const parts = host.split(".").map((part) => Number.parseInt(part, 10));
   if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return false;
   const [a, b] = parts;
   if (a === 10 || a === 127 || a === 0 || a === 169 && b === 254 || a === 192 && b === 168) return true;
   return a === 172 && b !== undefined && b >= 16 && b <= 31;
+}
+
+function normalizedHost(hostname: string): string {
+  return hostname.toLowerCase().replace(/^\[|\]$/g, "");
 }
 
 export const http = {

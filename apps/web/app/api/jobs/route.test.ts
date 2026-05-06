@@ -22,6 +22,16 @@ describe("job route", () => {
     expect(() => requireApiAuth(new Request("http://local.test/api/jobs", { headers: { authorization: "Bearer test-token" } }))).not.toThrow();
   });
 
+  it("rate limits unauthorized attempts before auth decisions", () => {
+    vi.stubEnv("OPEN_LAGRANGE_API_TOKEN", "test-token");
+    vi.stubEnv("OPEN_LAGRANGE_RATE_LIMIT_MAX", "1");
+    vi.stubEnv("OPEN_LAGRANGE_RATE_LIMIT_WINDOW_MS", "60000");
+    const headers = { "x-forwarded-for": "203.0.113.42" };
+
+    expect(() => requireApiAuth(new Request("http://local.test/api/jobs", { headers }))).toThrow(/HTTP 401/);
+    expect(() => requireApiAuth(new Request("http://local.test/api/jobs", { headers }))).toThrow(/HTTP 429/);
+  });
+
   it("rejects oversized JSON bodies before parsing", async () => {
     vi.stubEnv("OPEN_LAGRANGE_MAX_REQUEST_BYTES", "4");
     await expect(parseJson(new Request("http://local.test/api/jobs", { method: "POST", body: JSON.stringify({ goal: "large" }) }), SubmitJobPayload)).rejects.toThrow(/HTTP 413/);

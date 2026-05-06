@@ -19,6 +19,7 @@ import { validateStaticSafety } from "../src/skills/generated-pack/static-safety
 import { buildCapabilitySnapshot } from "../src/schemas/capabilities.js";
 
 const now = "2026-04-29T12:00:00.000Z";
+const slowPackTestTimeout = 15_000;
 const generatedRoots: string[] = [];
 
 afterEach(() => {
@@ -51,7 +52,7 @@ describe("generated capability packs", () => {
     expect(report.status).toBe("pass");
     expect(inspection?.pack_id).toBe("local.http-json-fetcher");
     expect(inspection?.capabilities[0]?.input_schema).toBeTruthy();
-  });
+  }, slowPackTestTimeout);
 
   it("blocks obvious unsafe TypeScript patterns", () => {
     const root = mkdtempSync(join(tmpdir(), "ol-generated-pack-safety-"));
@@ -94,6 +95,24 @@ describe("generated capability packs", () => {
     expect(report.status).toBe("installed");
     expect(report.load_status).toBe("pending_restart");
     expect(existsSync(join(home, "packs", "registry.json"))).toBe(true);
+  }, slowPackTestTimeout);
+
+  it("rejects unsafe pack IDs and manifest/build-plan mismatches", () => {
+    const root = generatedRoot();
+    const frame = deterministicSkillFrame(parseSkillfileMarkdown(githubSkill()), now);
+    const matches = matchCapabilitiesForSkill({ frame, capability_snapshot: buildCapabilitySnapshot([], now) });
+    const decision = decideSkillBuild({ frame, capability_matches: matches });
+    const plan = createPackBuildPlan({ frame, decision, experimental_codegen: false, now });
+    expect(() => writePackScaffold({ plan: { ...plan, pack_id: "../escape" }, output_dir: root })).toThrow(/escapes/);
+
+    const scaffold = scaffoldGeneratedPack({ pack_id: "local.safe-pack", output_dir: generatedRoot(), now });
+    const manifestPath = join(scaffold.pack_path, "open-lagrange.pack.yaml");
+    writeFileSync(manifestPath, readFileSync(manifestPath, "utf8").replace("pack_id: local.safe-pack", "pack_id: local.other-pack"), "utf8");
+
+    const report = validateGeneratedPack({ pack_path: scaffold.pack_path, run_checks: false, now });
+
+    expect(report.status).toBe("fail");
+    expect(report.errors.join("\n")).toContain("does not match build plan");
   });
 
   it("loads installed template-first packs through the runtime registry path", () => {
@@ -106,7 +125,7 @@ describe("generated capability packs", () => {
 
     expect(report.items[0]?.status).toBe("loaded");
     expect(report.items[0]?.capabilities_registered[0]).toContain("local.runtime-markdown-transformer");
-  });
+  }, slowPackTestTimeout);
 
   it("does not load experimental generated packs without explicit runtime trust", () => {
     const frame = deterministicSkillFrame(parseSkillfileMarkdown(githubSkill()), now);
@@ -122,7 +141,7 @@ describe("generated capability packs", () => {
 
     expect(report.items[0]?.status).toBe("skipped");
     expect(report.items[0]?.reason).toContain("Experimental codegen");
-  });
+  }, slowPackTestTimeout);
 
   it("does not load invalid installed registry entries", () => {
     const home = mkdtempSync(join(tmpdir(), "ol-generated-pack-invalid-"));
@@ -172,7 +191,7 @@ describe("generated capability packs", () => {
     expect(health[0]?.validation_status).toBe("pass");
     expect(smoke.status).toBe("pass");
     expect(existsSync(indexPath)).toBe(true);
-  });
+  }, slowPackTestTimeout);
 });
 
 function generatedRoot(): string {

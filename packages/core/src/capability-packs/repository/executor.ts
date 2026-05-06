@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, extname, join, relative } from "node:path";
 import { createHash } from "node:crypto";
 import { assertReadableRepositoryPath, assertWritableRepositoryPath, resolveRepositoryPath } from "../../repository/path-policy.js";
@@ -139,7 +139,7 @@ function previewPatch(workspace: RepositoryWorkspace, patchPlan: PatchPlan): str
   return patchPlan.files.map((file) => {
     const decision = resolveRepositoryPath(workspace, file.relative_path);
     const before = decision.ok && decision.absolute_path && existsSync(decision.absolute_path)
-      ? readFileSync(decision.absolute_path, "utf8")
+      ? readFileSync(assertReadableRepositoryPath(workspace, file.relative_path).absolute_path, "utf8")
       : "";
     const after = file.operation === "delete"
       ? ""
@@ -152,7 +152,8 @@ function previewPatch(workspace: RepositoryWorkspace, patchPlan: PatchPlan): str
 
 function walk(workspace: RepositoryWorkspace, absolutePath: string, output: RepositoryFileInfoType[], maxResults: number): void {
   if (output.length >= maxResults) return;
-  const stats = statSync(absolutePath);
+  const stats = lstatSync(absolutePath);
+  if (stats.isSymbolicLink()) return;
   if (stats.isDirectory()) {
     for (const entry of readdirSync(absolutePath)) {
       if (output.length >= maxResults) return;

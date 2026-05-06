@@ -2,7 +2,7 @@ import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "
 import { basename, join } from "node:path";
 import YAML from "yaml";
 import { z } from "zod";
-import { PackBuildPlan } from "./pack-build-plan.js";
+import { PackBuildPlan, PackId } from "./pack-build-plan.js";
 import { runPackChecks, type PackTestReport } from "./pack-test-runner.js";
 import { validateStaticSafety, type StaticSafetyReport } from "./static-safety-validator.js";
 
@@ -24,7 +24,7 @@ export const PackValidationReport = z.object({
 export type PackValidationReport = z.infer<typeof PackValidationReport>;
 
 const GeneratedManifest = z.object({
-  pack_id: z.string().min(1),
+  pack_id: PackId,
   name: z.string().min(1),
   version: z.string().min(1),
   description: z.string().min(1),
@@ -65,6 +65,7 @@ export function validateGeneratedPack(input: {
   const manifestPath = join(input.pack_path, "open-lagrange.pack.yaml");
   const buildPlanPath = join(input.pack_path, "artifacts", "build-plan.json");
   let packId = basename(input.pack_path);
+  let buildPlanPackId: string | undefined;
   let manifestValid = false;
   let schemasValid = false;
   if (!existsSync(manifestPath)) {
@@ -89,11 +90,13 @@ export function validateGeneratedPack(input: {
   if (!existsSync(buildPlanPath)) errors.push("artifacts/build-plan.json is missing.");
   else {
     try {
-      PackBuildPlan.parse(JSON.parse(readFileSync(buildPlanPath, "utf8")));
+      const buildPlan = PackBuildPlan.parse(JSON.parse(readFileSync(buildPlanPath, "utf8")));
+      buildPlanPackId = buildPlan.pack_id;
     } catch (error) {
       errors.push(`Build plan validation failed: ${message(error)}`);
     }
   }
+  if (buildPlanPackId && packId !== buildPlanPackId) errors.push(`Manifest pack_id ${packId} does not match build plan pack_id ${buildPlanPackId}.`);
   const files = existsSync(input.pack_path) ? walk(input.pack_path).map((path) => path.slice(input.pack_path.length + 1)) : [];
   const safety = validateStaticSafety({ pack_path: input.pack_path, files });
   for (const finding of safety.findings) {

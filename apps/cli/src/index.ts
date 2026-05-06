@@ -22,6 +22,7 @@ import type { SecretRef } from "@open-lagrange/core/secrets";
 import { buildRunSnapshot } from "@open-lagrange/core/runs";
 import { ReplayMode } from "@open-lagrange/core/runs";
 import { getStateStore } from "@open-lagrange/core/storage";
+import { parseEditorCommand } from "./editor-command.js";
 import { groupedHelpText } from "./help-taxonomy.js";
 
 const program = new Command();
@@ -1442,9 +1443,10 @@ async function readPlanfileEditMarkdown(path: string): Promise<string> {
 }
 
 async function runEditor(path: string): Promise<void> {
-  const editor = process.env.EDITOR || "vi";
+  const [command, ...editorArgs] = parseEditorCommand(process.env.EDITOR);
+  if (!command) throw new Error("No editor command configured.");
   await new Promise<void>((resolvePromise, rejectPromise) => {
-    const child = spawn(editor, [path], { stdio: "inherit", shell: true });
+    const child = spawn(command, [...editorArgs, path], { stdio: "inherit", shell: false });
     child.on("error", rejectPromise);
     child.on("exit", (code) => {
       if (code === 0) resolvePromise();

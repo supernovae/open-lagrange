@@ -26,6 +26,51 @@ describe("capability SDK primitives", () => {
     });
   });
 
+  it("rechecks network policy for redirect targets", async () => {
+    const context = baseContext({
+      fetch_impl: async () => new Response("", {
+        status: 302,
+        headers: { location: "http://169.254.169.254/latest/meta-data" },
+      }),
+    });
+
+    await expect(http.fetch(context, { url: "https://api.example.test/data" })).rejects.toMatchObject({
+      primitive_code: "PRIMITIVE_POLICY_DENIED",
+    });
+  });
+
+  it("strips sensitive request headers on cross-origin redirects", async () => {
+    const seenHeaders: Record<string, string>[] = [];
+    const context = baseContext({
+      fetch_impl: async (_url, init) => {
+        seenHeaders.push({ ...(init?.headers as Record<string, string>) });
+        return seenHeaders.length === 1
+          ? new Response("", { status: 302, headers: { location: "https://redirect.example.test/data" } })
+          : new Response("ok", { status: 200 });
+      },
+      secret_manager: {
+        async resolveSecret() {
+          return "raw-secret-token";
+        },
+      },
+    });
+
+    const result = await http.fetch(context, {
+      url: "https://api.example.test/data",
+      allowed_hosts: ["api.example.test", "redirect.example.test"],
+      headers: { Cookie: "sid=secret", "X-Api-Key": "api-secret" },
+      auth: { secret_ref: { name: "provider.default" } },
+      allow_cookies: true,
+    });
+
+    expect(result.text).toBe("ok");
+    expect(seenHeaders[0]?.Authorization).toBe("Bearer raw-secret-token");
+    expect(seenHeaders[0]?.Cookie).toBe("sid=secret");
+    expect(seenHeaders[1]?.Authorization).toBeUndefined();
+    expect(seenHeaders[1]?.Cookie).toBeUndefined();
+    expect(seenHeaders[1]?.["X-Api-Key"]).toBeUndefined();
+  });
+
   it("enforces max response bytes", async () => {
     const context = baseContext({
       fetch_impl: async () => new Response("0123456789", { status: 200 }),

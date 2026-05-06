@@ -207,11 +207,11 @@ export default function Page(): React.ReactNode {
   }
 
   function currentApiToken(): string {
-    return apiToken || window.localStorage.getItem("open-lagrange-api-token") || "";
+    return apiToken || window.sessionStorage.getItem("open-lagrange-api-token") || "";
   }
 
   useEffect(() => {
-    setApiToken(window.localStorage.getItem("open-lagrange-api-token") ?? "");
+    setApiToken(window.sessionStorage.getItem("open-lagrange-api-token") ?? "");
     const params = new URLSearchParams(window.location.search);
     const view = params.get("view");
     if (isViewId(view)) setActiveView(view);
@@ -958,8 +958,8 @@ function planStateCounts(state: PlanStateSnapshot): Record<"completed" | "runnin
 
 function updateApiTokenValue(value: string, setApiToken: (value: string) => void): void {
   setApiToken(value);
-  if (value) window.localStorage.setItem("open-lagrange-api-token", value);
-  else window.localStorage.removeItem("open-lagrange-api-token");
+  if (value) window.sessionStorage.setItem("open-lagrange-api-token", value);
+  else window.sessionStorage.removeItem("open-lagrange-api-token");
 }
 
 function isBuilderSession(value: unknown): value is BuilderSession {

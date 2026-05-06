@@ -119,7 +119,7 @@ export default function RunConsoleClient({ runId }: { readonly runId: string }):
   const activeNode = snapshot?.nodes.find((node) => node.node_id === snapshot.active_node_id);
 
   useEffect(() => {
-    const storedToken = window.localStorage.getItem("open-lagrange-api-token") ?? "";
+    const storedToken = window.sessionStorage.getItem("open-lagrange-api-token") ?? "";
     setToken(storedToken);
     setTokenLoaded(true);
     const saved = readLocalUiState(runId);
@@ -459,8 +459,8 @@ function snapshotRefreshMessage(snapshot: RunSnapshot): string {
 
 function updateToken(value: string, setToken: (value: string) => void): void {
   setToken(value);
-  if (value) window.localStorage.setItem("open-lagrange-api-token", value);
-  else window.localStorage.removeItem("open-lagrange-api-token");
+  if (value) window.sessionStorage.setItem("open-lagrange-api-token", value);
+  else window.sessionStorage.removeItem("open-lagrange-api-token");
 }
 
 function readLocalUiState(runId: string): { readonly activeTab?: TabId; readonly selectedId?: string } {

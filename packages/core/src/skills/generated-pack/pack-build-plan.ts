@@ -2,6 +2,8 @@ import { z } from "zod";
 import { RiskLevel, SideEffectKind } from "@open-lagrange/capability-sdk";
 import { SecretRef } from "../../secrets/secret-types.js";
 
+export const PackId = z.string().regex(/^[a-z0-9][a-z0-9._-]{0,127}$/, "Pack ID must be a safe path segment.");
+
 export const OAuthRequirement = z.object({
   provider_id: z.string().min(1),
   auth_method: z.string().min(1),
@@ -41,7 +43,7 @@ export const PackBuildPlan = z.object({
   schema_version: z.literal("open-lagrange.pack-build-plan.v1"),
   pack_build_id: z.string().min(1),
   source_skill_id: z.string().min(1),
-  pack_id: z.string().min(1),
+  pack_id: PackId,
   pack_name: z.string().min(1),
   description: z.string().min(1),
   reason_new_pack_required: z.string().min(1),

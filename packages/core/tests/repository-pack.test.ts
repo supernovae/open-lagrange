@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -20,6 +20,18 @@ describe("repository capability pack", () => {
     writeFileSync(join(root, "large.txt"), "x".repeat(20));
     const workspace = { ...workspaceFor(root), max_file_bytes: 8 };
     expect(() => readRepositoryFile(workspace, { relative_path: "large.txt" })).toThrow(/byte limit/);
+  });
+
+  it("rejects symlink reads that escape or alias denied files", () => {
+    const root = repoFixture();
+    const outside = join(mkdtempSync(join(tmpdir(), "open-lagrange-outside-")), "outside.txt");
+    writeFileSync(outside, "external secret\n");
+    symlinkSync(outside, join(root, "outside-link.txt"));
+    symlinkSync(join(root, ".env"), join(root, "env-link.txt"));
+    const workspace = workspaceFor(root);
+
+    expect(() => readRepositoryFile(workspace, { relative_path: "outside-link.txt" })).toThrow(/symbolic link/);
+    expect(() => readRepositoryFile(workspace, { relative_path: "env-link.txt" })).toThrow(/symbolic link/);
   });
 
   it("rejects changed hashes before writing", () => {

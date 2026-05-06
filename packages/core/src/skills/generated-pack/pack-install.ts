@@ -1,5 +1,5 @@
 import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { basename, join, resolve } from "node:path";
+import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import YAML from "yaml";
 import { validateGeneratedPack, type PackValidationReport } from "./pack-validator.js";
 import { generatedPackInstallDenied } from "./generated-pack-errors.js";
@@ -61,8 +61,11 @@ export function installGeneratedPack(input: {
     throw generatedPackInstallDenied("Generated pack requires manual review before install.", { pack_id: validation.pack_id, manual_review_items: validation.manual_review_items });
   }
   const root = resolve(input.home_dir ?? ".open-lagrange");
-  const installPath = join(root, "packs", "trusted-local", validation.pack_id);
-  mkdirSync(join(root, "packs"), { recursive: true });
+  const packsRoot = resolve(root, "packs");
+  const trustedRoot = resolve(packsRoot, "trusted-local");
+  const installPath = resolve(trustedRoot, validation.pack_id);
+  assertInside(trustedRoot, installPath);
+  mkdirSync(packsRoot, { recursive: true });
   cpSync(input.pack_path, installPath, { recursive: true, force: true });
   const manifest = readManifest(join(installPath, "open-lagrange.pack.yaml"));
   const buildPlan = readBuildPlan(join(installPath, "artifacts", "build-plan.json"));
@@ -146,4 +149,10 @@ function stringField(value: unknown): string | undefined {
 
 function arrayStrings(value: unknown): string[] {
   return Array.isArray(value) ? value.map(String) : [];
+}
+
+function assertInside(parent: string, target: string): void {
+  const rel = relative(parent, target);
+  if (rel === "" || (!rel.startsWith("..") && !isAbsolute(rel))) return;
+  throw generatedPackInstallDenied("Generated pack install path escapes the trusted-local directory.", { install_path: target });
 }

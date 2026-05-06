@@ -1,5 +1,5 @@
-import { statSync } from "node:fs";
-import { relative, resolve, sep } from "node:path";
+import { existsSync, lstatSync, realpathSync, statSync } from "node:fs";
+import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import type { RepositoryWorkspace } from "../schemas/repository.js";
 
 const SECRET_PATTERNS = [
@@ -37,6 +37,7 @@ export function resolveRepositoryPath(workspace: RepositoryWorkspace, relativePa
 export function assertReadableRepositoryPath(workspace: RepositoryWorkspace, relativePath: string): { readonly absolute_path: string; readonly relative_path: string } {
   const decision = resolveRepositoryPath(workspace, relativePath);
   if (!decision.ok || !decision.absolute_path || !decision.relative_path) throw new Error(decision.reason ?? "Path denied");
+  assertRealRepositoryTarget(workspace, decision.absolute_path, true);
   const stats = statSync(decision.absolute_path);
   if (stats.size > workspace.max_file_bytes) throw new Error("File exceeds repository policy byte limit");
   return { absolute_path: decision.absolute_path, relative_path: decision.relative_path };
@@ -45,7 +46,39 @@ export function assertReadableRepositoryPath(workspace: RepositoryWorkspace, rel
 export function assertWritableRepositoryPath(workspace: RepositoryWorkspace, relativePath: string): { readonly absolute_path: string; readonly relative_path: string } {
   const decision = resolveRepositoryPath(workspace, relativePath);
   if (!decision.ok || !decision.absolute_path || !decision.relative_path) throw new Error(decision.reason ?? "Path denied");
+  assertRealRepositoryTarget(workspace, decision.absolute_path, false);
   return { absolute_path: decision.absolute_path, relative_path: decision.relative_path };
+}
+
+function assertRealRepositoryTarget(workspace: RepositoryWorkspace, absolutePath: string, mustExist: boolean): void {
+  const realRoot = realpathSync(resolve(workspace.repo_root));
+  if (existsSync(absolutePath)) {
+    const lst = lstatSync(absolutePath);
+    if (lst.isSymbolicLink()) throw new Error("Repository paths may not be symbolic links");
+    const realTarget = realpathSync(absolutePath);
+    if (!isInside(realRoot, realTarget)) throw new Error("Path resolves outside the repository root");
+    return;
+  }
+  if (mustExist) throw new Error("Repository path does not exist");
+
+  const parent = nearestExistingParent(absolutePath);
+  const parentStats = lstatSync(parent);
+  if (parentStats.isSymbolicLink()) throw new Error("Repository paths may not be under symbolic links");
+  const realParent = realpathSync(parent);
+  if (!isInside(realRoot, realParent)) throw new Error("Path parent resolves outside the repository root");
+}
+
+function nearestExistingParent(path: string): string {
+  let current = dirname(path);
+  while (!existsSync(current) && dirname(current) !== current) {
+    current = dirname(current);
+  }
+  return current;
+}
+
+function isInside(parent: string, target: string): boolean {
+  const rel = relative(parent, target);
+  return rel === "" || (!rel.startsWith("..") && !rel.includes(`..${sep}`) && !isAbsolute(rel));
 }
 
 function matchesAny(path: string, patterns: readonly string[]): boolean {
