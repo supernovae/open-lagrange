@@ -171,6 +171,26 @@ export const SourceSummary = z.object({
   source_type: SourceType.optional(),
 }).strict();
 
+export const SourceSelectionReasonKind = z.enum([
+  "high_rank",
+  "official_source",
+  "diverse_domain",
+  "recent",
+  "duplicate",
+  "low_relevance",
+  "unsupported_content_type",
+  "fetch_failed",
+  "domain_denied",
+  "limit_exceeded",
+]);
+
+export const SourceSelectionReason = z.object({
+  source_id: z.string().min(1),
+  selected: z.boolean(),
+  reason: SourceSelectionReasonKind,
+  detail: z.string().optional(),
+}).strict();
+
 export const SourceRejection = z.object({
   source_id: z.string(),
   reason: z.string(),
@@ -192,6 +212,7 @@ export const CreateSourceSetOutput = z.object({
   topic: z.string(),
   selected_sources: z.array(SourceSummary),
   rejected_sources: z.array(SourceRejection),
+  selection_reasons: z.array(SourceSelectionReason).default([]),
   artifact_id: z.string(),
   warnings: z.array(z.string()),
 }).strict();
@@ -255,6 +276,8 @@ export type ExtractSourcesInput = z.infer<typeof ExtractSourcesInput>;
 export type ExtractSourcesOutput = z.infer<typeof ExtractSourcesOutput>;
 export type Citation = z.infer<typeof Citation>;
 export type SourceSummary = z.infer<typeof SourceSummary>;
+export type SourceSelectionReasonKind = z.infer<typeof SourceSelectionReasonKind>;
+export type SourceSelectionReason = z.infer<typeof SourceSelectionReason>;
 export type SourceRejection = z.infer<typeof SourceRejection>;
 export type CreateSourceSetInput = z.infer<typeof CreateSourceSetInput>;
 export type CreateSourceSetOutput = z.infer<typeof CreateSourceSetOutput>;

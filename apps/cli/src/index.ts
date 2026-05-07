@@ -13,7 +13,7 @@ import { getPackHealth, inspectPack, listInspectablePacks, runPackSmoke, validat
 import { acceptDefaultAnswers, addPlanLibrary, answerQuestion, checkAndCreateRunFromBuilderSession, checkAndCreateRunFromPlanfile, checkAndCreateScheduleRecord, composeInitialPlan, composePlanfileFromIntent, derivePlanRequirements, diffPlanfileMarkdown, generateGoalFrame, generatePlanfile, getPlanBuilderSession, getScheduleRecord, importBuilderPlanfileFromMarkdown, instantiatePlanTemplate, listPlanBuilderSessions, listPlanLibraries, listPlanLibraryPlans, listScheduleRecords, parsePlanfileMarkdown, parsePlanfileYaml, planCheckBlocksRun, reconcilePlanfileMarkdown, removePlanLibrary, removeSavedPlanFromLibrary, renderPlanfileMarkdown, renderPlanMermaid, resolvePlanLibraryEntry, revisePlan, runPlanCheck, saveBuilderSessionToLibrary, savePlanBuilderSession, savePlanToLibrary, saveReadyPlanfile, showPlanFromLibrary, showPlanLibrary, simulatePlan, stabilizePlan, syncPlanLibrary, updateBuilderPlanfileFromMarkdown, validatePlan, validatePlanfile, withCanonicalPlanDigest } from "@open-lagrange/core/planning";
 import { applyRepositoryPlanfile as applyLocalRepositoryPlanfile, approveApprovalRequest, approveRepositoryScopeRequest, cleanupRepositoryPlan as cleanupLocalRepositoryPlan, createRepositoryPlanfile, explainRepositoryPlan, exportRepositoryPlanPatch as exportLocalRepositoryPlanPatch, getRepositoryPlanStatus as getLocalRepositoryPlanStatus, listRepositoryModelCalls, rejectApprovalRequest, rejectRepositoryScopeRequest, resumeRepositoryPlan, runRepositoryDoctor } from "@open-lagrange/core/repository";
 import { compareBenchmarkRun, listBenchmarkScenarios, listModelRouteConfigs, renderBenchmarkReport, runModelRoutingBenchmark } from "@open-lagrange/core/evals";
-import { runResearchBriefCommand, runResearchExportCommand, runResearchFetchCommand, runResearchSearchCommand, runResearchSummarizeUrlCommand } from "@open-lagrange/core/research";
+import { buildResearchRunViewForRun, checkAndCreateResearchRun, composeResearchPlan, explainResearchRunById, exportResearchViewArtifact, runResearchFetchCommand, runResearchSearchCommand, scheduleResearchPlan, writeResearchPlanfile } from "@open-lagrange/core/research";
 import type { SearchProviderConfig } from "@open-lagrange/core/search";
 import { buildGeneratedPackFromMarkdown, generateSkillFrame, generateWorkflowSkill, installGeneratedPack, parseSkillfileMarkdown, parseWorkflowSkillMarkdown, previewWorkflowSkillRun, scaffoldGeneratedPack, validateGeneratedPack, validateWorkflowSkill } from "@open-lagrange/core/skills";
 import { createPlatformClientFromCurrentProfile } from "@open-lagrange/platform-client";
@@ -893,6 +893,31 @@ repo.command("reject").argument("<taskId>", "Task ID or task run ID").requiredOp
 
 const research = program.command("research").description("Research shortcuts for Planfile flows.");
 
+research.command("plan")
+  .description("Compose a reusable research Planfile.")
+  .argument("<topic>", "Research topic")
+  .option("--provider <providerId>", "Search provider ID, such as local-searxng")
+  .option("--max-sources <count>", "Maximum sources to select", "5")
+  .option("--brief-style <style>", "concise, standard, technical, or executive", "standard")
+  .option("--write [path]", "Write Markdown Planfile")
+  .action(async (topic: string, options: { readonly provider?: string; readonly maxSources: string; readonly briefStyle: "concise" | "standard" | "technical" | "executive"; readonly write?: string | boolean }) => {
+    const profile = await getCurrentProfile().catch(() => undefined);
+    const result = await composeResearchPlan({
+      topic,
+      ...(options.provider ? { provider_id: options.provider } : {}),
+      max_sources: Number.parseInt(options.maxSources, 10),
+      brief_style: options.briefStyle,
+      ...(profile ? { runtime_profile: profile } : {}),
+    });
+    if (options.write) {
+      const path = typeof options.write === "string" ? cliPath(options.write) : undefined;
+      const written = writeResearchPlanfile({ markdown: result.markdown, ...(path ? { path } : {}), topic });
+      console.log(JSON.stringify({ status: "written", path: written.path, plan_id: result.planfile.plan_id, plan_check_report: result.plan_check_report }, null, 2));
+      return;
+    }
+    console.log(result.markdown);
+  });
+
 research.command("search")
   .description("Shortcut for bounded research source discovery.")
   .argument("<query>", "Research query")
@@ -929,49 +954,98 @@ research.command("fetch")
   });
 
 research.command("summarize-url")
-  .description("Shortcut for a URL summary Planfile flow.")
+  .description("Create and run a URL summary Planfile.")
   .argument("<url>", "Source URL")
-  .option("--fixture", "Resolve URL against deterministic fixture sources", false)
-  .option("--dry-run", "Validate URL/policy/capability without fetching", false)
+  .option("--topic <topic>", "Summary topic")
   .option("--output-dir <path>", "Artifact output directory")
-  .action(async (url: string, options: { readonly fixture: boolean; readonly dryRun: boolean; readonly outputDir?: string }) => {
-    console.log(JSON.stringify(await runResearchSummarizeUrlCommand({
-      url,
-      mode: options.fixture ? "fixture" : "live",
-      search_provider_configs: await currentSearchProviderConfigs(),
-      dry_run: options.dryRun,
+  .action(async (url: string, options: { readonly topic?: string; readonly outputDir?: string }) => {
+    const profile = await getCurrentProfile().catch(() => undefined);
+    const result = await checkAndCreateResearchRun({
+      topic: options.topic ?? url,
+      urls: [url],
+      ...(profile ? { runtime_profile: profile } : {}),
       ...(options.outputDir ? { output_dir: cliPath(options.outputDir) } : {}),
-    }), null, 2));
+    });
+    printRunCreationResult(result);
   });
 
 research.command("brief")
   .description("Compose and run a research Planfile.")
   .argument("<topic>", "Brief topic")
   .option("--provider <providerId>", "Search provider ID, such as local-searxng")
-  .option("--fixture", "Use deterministic checked-in fixture sources", false)
   .option("--url <url>", "Use an explicit source URL instead of search provider", collectString, [])
-  .option("--dry-run", "Validate and preview without fetching/searching", false)
+  .option("--max-sources <count>", "Maximum sources to select", "5")
+  .option("--brief-style <style>", "concise, standard, technical, or executive", "standard")
   .option("--output-dir <path>", "Artifact output directory")
-  .action(async (topic: string, options: { readonly provider?: string; readonly fixture: boolean; readonly url: readonly string[]; readonly dryRun: boolean; readonly outputDir?: string }) => {
-    console.log(JSON.stringify(await runResearchBriefCommand({
+  .action(async (topic: string, options: { readonly provider?: string; readonly url: readonly string[]; readonly maxSources: string; readonly briefStyle: "concise" | "standard" | "technical" | "executive"; readonly outputDir?: string }) => {
+    const profile = await getCurrentProfile().catch(() => undefined);
+    const result = await checkAndCreateResearchRun({
       topic,
-      mode: options.fixture ? "fixture" : "live",
       ...(options.provider ? { provider_id: options.provider } : {}),
-      search_provider_configs: await currentSearchProviderConfigs(),
       urls: options.url,
-      dry_run: options.dryRun,
+      max_sources: Number.parseInt(options.maxSources, 10),
+      brief_style: options.briefStyle,
+      ...(profile ? { runtime_profile: profile } : {}),
       ...(options.outputDir ? { output_dir: cliPath(options.outputDir) } : {}),
-    }), null, 2));
+    });
+    printRunCreationResult(result);
   });
 
 research.command("export")
   .argument("<briefId>", "Research brief artifact ID")
-  .option("--output-dir <path>", "Artifact output directory")
-  .action(async (briefId: string, options: { readonly outputDir?: string }) => {
-    console.log(JSON.stringify(await runResearchExportCommand({
-      brief_id: briefId,
-      ...(options.outputDir ? { output_dir: cliPath(options.outputDir) } : {}),
-    }), null, 2));
+  .option("--format <format>", "markdown, source-set-json, or citation-index-json", "markdown")
+  .option("--output <path>", "Output file path")
+  .action(async (briefId: string, options: { readonly format: string; readonly output?: string }) => {
+    if (options.format !== "markdown" && options.format !== "source-set-json" && options.format !== "citation-index-json") {
+      throw new Error(`Unsupported research export format: ${options.format}`);
+    }
+    const output = cliPath(options.output ?? `${briefId}.${options.format === "markdown" ? "md" : "json"}`);
+    console.log(JSON.stringify(exportResearchViewArtifact({ artifact_id: briefId, output_path: output }), null, 2));
+  });
+
+research.command("show")
+  .argument("<runIdOrArtifactId>", "Research run or artifact ID")
+  .action(async (id: string) => {
+    const view = await buildResearchRunViewForRun({ run_id: id });
+    if (view) console.log(JSON.stringify(view, null, 2));
+    else console.log(JSON.stringify(showArtifact(id), null, 2));
+  });
+
+research.command("sources")
+  .argument("<runId>", "Research run ID")
+  .action(async (runId: string) => {
+    const view = await buildResearchRunViewForRun({ run_id: runId });
+    if (!view) throw new Error(`Research run not found: ${runId}`);
+    console.log(JSON.stringify({ run_id: runId, source_counts: view.source_counts, sources: view.sources }, null, 2));
+  });
+
+research.command("explain")
+  .argument("<runId>", "Research run ID")
+  .action(async (runId: string) => {
+    console.log(await explainResearchRunById(runId));
+  });
+
+research.command("schedule")
+  .description("Create a checked schedule for a research Planfile.")
+  .argument("<topic>", "Research topic")
+  .option("--provider <providerId>", "Search provider ID, such as local-searxng")
+  .option("--daily", "Run daily", false)
+  .option("--weekly", "Run weekly", false)
+  .option("--at <time>", "Time of day, for example 08:00")
+  .option("--timezone <timezone>", "Schedule timezone", Intl.DateTimeFormat().resolvedOptions().timeZone ?? "local")
+  .action(async (topic: string, options: { readonly provider?: string; readonly daily: boolean; readonly weekly: boolean; readonly at?: string; readonly timezone?: string }) => {
+    const profile = await getCurrentProfile().catch(() => undefined);
+    const plan = await composeResearchPlan({ topic, ...(options.provider ? { provider_id: options.provider } : {}), ...(profile ? { runtime_profile: profile } : {}) });
+    const written = writeResearchPlanfile({ markdown: plan.markdown, topic });
+    const schedule = scheduleResearchPlan({
+      planfile: plan.planfile,
+      planfile_path: written.path,
+      cadence: options.weekly ? "weekly" : "daily",
+      ...(options.at ? { time_of_day: options.at } : {}),
+      ...(options.timezone ? { timezone: options.timezone } : {}),
+      runtime_profile: profile?.name ?? "local",
+    });
+    console.log(JSON.stringify({ plan_id: plan.planfile.plan_id, path: written.path, schedule }, null, 2));
   });
 
 const plan = program.command("plan").description("Author and execute Planfiles.");

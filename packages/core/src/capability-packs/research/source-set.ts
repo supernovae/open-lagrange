@@ -1,24 +1,33 @@
 import type { PrimitiveContext } from "@open-lagrange/capability-sdk/primitives";
 import { artifacts } from "@open-lagrange/capability-sdk/primitives";
 import { stableHash } from "../../util/hash.js";
-import { CreateSourceSetOutput, type CreateSourceSetInput, type SourceRejection, type SourceSummary } from "./schemas.js";
+import { CreateSourceSetOutput, type CreateSourceSetInput, type SourceRejection, type SourceSelectionReason, type SourceSummary } from "./schemas.js";
 
 export async function createSourceSet(context: PrimitiveContext, input: CreateSourceSetInput): Promise<CreateSourceSetOutput> {
   const max = input.selection_policy?.max_sources ?? 5;
   const requireDiverse = input.selection_policy?.require_diverse_domains ?? true;
   const selected: SourceSummary[] = [];
   const rejected: SourceRejection[] = [];
+  const selectionReasons: SourceSelectionReason[] = [];
   const domains = new Set<string>();
   for (const source of input.sources) {
     if (selected.length >= max) {
-      rejected.push({ source_id: source.source_id, reason: "max_sources_reached" });
+      rejected.push({ source_id: source.source_id, reason: "limit_exceeded" });
+      selectionReasons.push({ source_id: source.source_id, selected: false, reason: "limit_exceeded", detail: `Maximum source count reached: ${max}.` });
       continue;
     }
     if (requireDiverse && domains.has(source.domain)) {
-      rejected.push({ source_id: source.source_id, reason: "duplicate_domain" });
+      rejected.push({ source_id: source.source_id, reason: "duplicate" });
+      selectionReasons.push({ source_id: source.source_id, selected: false, reason: "duplicate", detail: `Domain already represented: ${source.domain}.` });
       continue;
     }
     domains.add(source.domain);
+    selectionReasons.push({
+      source_id: source.source_id,
+      selected: true,
+      reason: source.citation.published_at ? "recent" : requireDiverse ? "diverse_domain" : "high_rank",
+      detail: requireDiverse ? `Selected to preserve domain diversity for ${source.domain}.` : "Selected within the ranked source limit.",
+    });
     selected.push({
       source_id: source.source_id,
       title: source.title ?? source.url,
@@ -35,6 +44,7 @@ export async function createSourceSet(context: PrimitiveContext, input: CreateSo
     topic: input.topic,
     selected_sources: selected,
     rejected_sources: rejected,
+    selection_reasons: selectionReasons,
     artifact_id: artifactId,
     warnings,
   });

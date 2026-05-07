@@ -140,8 +140,8 @@ describe("planning primitive", () => {
     expect(result.state.status).toBe("completed");
     expect(artifacts.some((artifact) => artifact.kind === "source_snapshot" && artifact.source_mode === "live")).toBe(true);
     expect(artifacts.some((artifact) => artifact.kind === "source_text")).toBe(true);
-    expect(artifacts.some((artifact) => artifact.kind === "research_brief")).toBe(true);
-    expect(artifacts.find((artifact) => artifact.kind === "research_brief")?.produced_by_node_id).toBe("export_markdown");
+    expect(artifacts.some((artifact) => artifact.kind === "markdown_export")).toBe(true);
+    expect(artifacts.find((artifact) => artifact.kind === "markdown_export")?.produced_by_node_id).toBe("export_markdown");
   });
 });
 

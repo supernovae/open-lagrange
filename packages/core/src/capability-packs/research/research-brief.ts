@@ -111,7 +111,7 @@ export async function exportResearchMarkdown(context: PrimitiveContext, input: E
   const artifactId = `research_markdown_${stableHash({ title: input.title, markdown: input.markdown }).slice(0, 16)}`;
   await artifacts.write(context, {
     artifact_id: artifactId,
-    kind: "research_brief",
+    kind: "markdown_export",
     title: input.title,
     summary: `Exported markdown for ${input.title}.`,
     content: input.markdown,

@@ -6,7 +6,7 @@ import type { DemoRunResult } from "@open-lagrange/core/demos";
 import { inspectPack } from "@open-lagrange/core/packs";
 import { acceptDefaultAnswers, answerQuestion, checkAndCreateRunFromBuilderSession, checkAndCreateRunFromPlanfile, composeInitialPlan, composePlanfileFromIntent, diffPlanfileMarkdown, getPlanBuilderSession, importBuilderPlanfileFromMarkdown, listPlanBuilderSessions, listPlanLibraries, listPlanLibraryPlans, listScheduleRecords, parsePlanfileMarkdown, parsePlanfileYaml, planCheckBlocksRun, reconcilePlanfileMarkdown, renderPlanfileMarkdown, resumeRun, retryRunNode, runPlanCheck, saveReadyPlanfile, simulatePlan, updateBuilderPlanfileFromMarkdown, validatePlan, validatePlanfile, withCanonicalPlanDigest } from "@open-lagrange/core/planning";
 import { buildRunSnapshot } from "@open-lagrange/core/runs";
-import { runResearchBriefCommand, runResearchExportCommand, runResearchFetchCommand, runResearchSearchCommand, runResearchSummarizeUrlCommand, type ResearchCommandResult } from "@open-lagrange/core/research";
+import { checkAndCreateResearchRun, exportResearchViewArtifact, runResearchFetchCommand, runResearchSearchCommand, type ResearchCommandResult } from "@open-lagrange/core/research";
 import { buildGeneratedPackFromMarkdown, generateSkillFrame, generateWorkflowSkill, parseSkillfileMarkdown } from "@open-lagrange/core/skills";
 import type { TuiUserFrameEvent, UserFrameEvent, UserFrameEventResult } from "@open-lagrange/core/interface";
 import { runDoctor } from "@open-lagrange/runtime-manager";
@@ -279,23 +279,23 @@ async function submitLocalOrRemoteEvent(event: TuiUserFrameEvent): Promise<UserF
     return { status: researchStatus(result), message: researchMessage("Fetch", result), output: result };
   }
   if (event.type === "research.summarize_url") {
-    const result = await runResearchSummarizeUrlCommand({ url: event.url, mode: event.mode, search_provider_configs: await currentSearchProviderConfigs(), dry_run: event.dry_run });
-    return { status: researchStatus(result), message: researchMessage("Summarize URL", result), output: result };
+    const profile = await getCurrentProfile().catch(() => undefined);
+    const result = await checkAndCreateResearchRun({ topic: event.url, urls: [event.url], ...(profile ? { runtime_profile: profile } : {}) });
+    return { status: result.status === "created" ? "completed" : "failed", message: runCreationMessage(result), output: result };
   }
   if (event.type === "research.brief") {
-    const result = await runResearchBriefCommand({
+    const profile = await getCurrentProfile().catch(() => undefined);
+    const result = await checkAndCreateResearchRun({
       topic: event.topic,
-      mode: event.mode,
       ...(event.provider_id ? { provider_id: event.provider_id } : {}),
-      search_provider_configs: await currentSearchProviderConfigs(),
       urls: event.urls,
-      dry_run: event.dry_run,
+      ...(profile ? { runtime_profile: profile } : {}),
     });
-    return { status: researchStatus(result), message: researchMessage("Brief", result), output: result };
+    return { status: result.status === "created" ? "completed" : "failed", message: runCreationMessage(result), output: result };
   }
   if (event.type === "research.export") {
-    const result = await runResearchExportCommand({ brief_id: event.brief_id });
-    return { status: researchStatus(result), message: researchMessage("Export", result), output: result };
+    const output = exportResearchViewArtifact({ artifact_id: event.brief_id, output_path: `${event.brief_id}.md` });
+    return { status: "completed", message: `Research export written: ${output.output_path}`, output };
   }
   return (await (await createPlatformClientFromCurrentProfile()).submitUserFrameEvent(event)) as UserFrameEventResult;
 }

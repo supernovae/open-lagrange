@@ -63,8 +63,8 @@
       "import": "./dist/chat-pack/index.js"
     },
     "./research": {
-      "types": "./dist/capability-packs/research/index.d.ts",
-      "import": "./dist/capability-packs/research/index.js"
+      "types": "./dist/research/index.d.ts",
+      "import": "./dist/research/index.js"
     },
     "./runtime": {
       "types": "./dist/runtime/index.d.ts",

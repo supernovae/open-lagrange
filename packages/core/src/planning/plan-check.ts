@@ -58,6 +58,7 @@ export function runPlanCheck(input: RunPlanCheckInput): PlanCheckReport {
   const requiredProviders = requirements.required_providers.map((id) => requirement("provider", id, requirements.missing_providers.includes(id), providerCommand(id)));
   const requiredCredentials = requirements.required_credentials.map((id) => requirement("credential", id, requirements.missing_credentials.includes(id), `open-lagrange secrets set ${id} --from-stdin`));
   const requiredPermissions = requirements.permissions.map((id) => requirement("permission", id, requirements.missing_permissions.includes(id), approvalCommand(parsed.plan_id, id)));
+  const unsupportedTemplates = unsupportedTemplateRequirements(parsed);
   const scheduleRequirements = scheduleRequirementsFor(parsed);
   const approvals = approvalRequirementsFor(parsed, approvalIssues);
   const executionWarnings = executionModeWarningsFor(parsed, input.live === true);
@@ -68,6 +69,7 @@ export function runPlanCheck(input: RunPlanCheckInput): PlanCheckReport {
     ...requiredCredentials,
     ...requiredPermissions,
     ...missingRuntime,
+    ...unsupportedTemplates,
   ].some((item) => item.status === "missing" || item.status === "misconfigured" || item.status === "unsupported");
   const unsafe = hardValidationErrors.some((issue) => issue.code === "DESTRUCTIVE_GOAL_NOT_EXPLICIT")
     || executionWarnings.some((warning) => /fixture|mock/i.test(warning) && input.live === true);
@@ -96,12 +98,26 @@ export function runPlanCheck(input: RunPlanCheckInput): PlanCheckReport {
     warnings,
     suggested_actions: suggestedActionsFor({
       plan: parsed,
-      missing: [...requiredPacks, ...requiredProviders, ...requiredCredentials, ...requiredPermissions, ...missingRuntime].filter((item) => item.status !== "present"),
+      missing: [...requiredPacks, ...requiredProviders, ...requiredCredentials, ...requiredPermissions, ...missingRuntime, ...unsupportedTemplates].filter((item) => item.status !== "present"),
       approvals,
       invalid: hardValidationErrors.length > 0,
     }),
   };
   return PlanCheckReport.parse(report);
+}
+
+function unsupportedTemplateRequirements(plan: PlanfileType): RequirementStatusType[] {
+  const template = objectValue(plan.execution_context?.template);
+  if (template.template_id !== "research.digest") return [];
+  return [RequirementStatus.parse({
+    kind: "runtime",
+    id: "template.research.digest",
+    label: "Research digest execution",
+    required: true,
+    status: "unsupported",
+    detail: "research.digest is scaffold-only until multi-topic branch execution is available.",
+    suggested_command: "open-lagrange plan instantiate <template> --write <path>",
+  })];
 }
 
 function snapshotOptions(input: RunPlanCheckInput, now: string): { readonly capability_snapshot?: CapabilitySnapshot } {
@@ -318,6 +334,10 @@ function labelFor(id: string): string {
 
 function unique(values: readonly string[]): string[] {
   return [...new Set(values)].sort();
+}
+
+function objectValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
 function dedupeActions(actions: readonly NextAction[]): NextAction[] {

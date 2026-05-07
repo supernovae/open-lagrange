@@ -251,14 +251,40 @@ Research work also runs through Planfiles, Capability Packs, policy gates, and
 artifact lineage.
 
 ```bash
-open-lagrange research brief "MCP security risks"
+open-lagrange research plan "open source container security" --provider local-searxng --write
+open-lagrange research brief "open source container security" --provider local-searxng
 open-lagrange run status <run_id>
-open-lagrange run artifacts <run_id>
-open-lagrange research export <artifact_id> --output brief.md
+open-lagrange research explain <run_id>
+open-lagrange research sources <run_id>
+open-lagrange research export <brief_artifact_id> --format markdown --output brief.md
 ```
 
 Research runs show phases such as search, source selection, source fetch,
 content extraction, brief creation, citations, and Markdown export.
+
+The web Research Workbench is available at:
+
+```text
+http://localhost:3000/research
+```
+
+It composes a research Planfile from a natural language topic, runs Plan Check,
+creates a Durable Run, and opens a research-specific Run Console at
+`/research/runs/<run_id>`. That view shows live status, source counts,
+selected/rejected sources, citations, the Markdown brief, exports, and next
+actions. The generic Run Console remains available at `/runs/<run_id>`.
+
+Save or schedule reusable research flows:
+
+```bash
+open-lagrange plan save .open-lagrange/plans/research/<plan>.plan.md \
+  --library workspace \
+  --path research/container-security.plan.md
+open-lagrange research schedule "open source container security" \
+  --provider local-searxng \
+  --daily \
+  --at 08:00
+```
 
 ## Capability Packs
 
@@ -331,6 +357,11 @@ do not own runtime state.
 - [Plan Templates](docs/plan-templates.md)
 - [Repository Plan-to-Patch](docs/repository-plan-to-patch.md)
 - [Research Pack](docs/research-pack.md)
+- [Research Workbench](docs/research-workbench.md)
+- [Research Planfiles](docs/research-planfiles.md)
+- [Research Schedules](docs/research-schedules.md)
+- [Research Artifacts](docs/research-artifacts.md)
+- [Research Export](docs/research-export.md)
 - [Artifacts](docs/artifacts.md)
 - [Artifact lineage](docs/artifact-lineage.md)
 - [Policy decision reports](docs/policy-decision-reports.md)

@@ -30,6 +30,7 @@ export const ArtifactKind = z.enum([
   "source_set",
   "research_brief",
   "citation_index",
+  "markdown_export",
   "capability_step_result",
   "approval_request",
   "execution_timeline",

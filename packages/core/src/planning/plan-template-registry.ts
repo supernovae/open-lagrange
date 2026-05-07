@@ -26,6 +26,7 @@ export const PlanTemplate = z.object({
   nodes_template: z.array(TemplateNode),
   output_kind: z.string().min(1),
   schedule_supported: z.boolean(),
+  execution_support: z.enum(["supported", "scaffold_only"]).default("supported"),
 }).strict();
 
 export type TemplateNode = z.infer<typeof TemplateNode>;
@@ -52,6 +53,7 @@ export function createCorePlanTemplateRegistry(): PlanTemplateRegistry {
   return new PlanTemplateRegistry()
     .register(researchTopicBriefTemplate)
     .register(researchUrlSummaryTemplate)
+    .register(researchDigestTemplate)
     .register(repositoryPlanToPatchTemplate);
 }
 
@@ -73,7 +75,18 @@ const researchTopicBriefTemplate = PlanTemplate.parse({
     "research.export_markdown",
   ],
   optional_capabilities: [],
-  parameters_schema: { type: "object" },
+  parameters_schema: {
+    type: "object",
+    properties: {
+      topic: { type: "string" },
+      provider_id: { type: "string" },
+      max_sources: { type: "number", default: 5 },
+      brief_style: { type: "string", enum: ["concise", "standard", "technical", "executive"], default: "standard" },
+      include_recommendations: { type: "boolean", default: false },
+      output_format: { type: "string", enum: ["markdown"], default: "markdown" },
+    },
+    required: ["topic"],
+  },
   output_kind: "markdown_brief",
   schedule_supported: true,
   nodes_template: [
@@ -98,7 +111,16 @@ const researchUrlSummaryTemplate = PlanTemplate.parse({
   intent_patterns: ["url", "fetch", "summarize", "summary"],
   required_capabilities: ["research.fetch_source", "research.extract_content", "research.create_brief", "research.export_markdown"],
   optional_capabilities: [],
-  parameters_schema: { type: "object" },
+  parameters_schema: {
+    type: "object",
+    properties: {
+      url: { type: "string" },
+      topic: { type: "string" },
+      brief_style: { type: "string", enum: ["concise", "standard", "technical", "executive"], default: "concise" },
+      output_format: { type: "string", enum: ["markdown"], default: "markdown" },
+    },
+    required: ["url"],
+  },
   output_kind: "markdown_brief",
   schedule_supported: false,
   nodes_template: [
@@ -107,6 +129,44 @@ const researchUrlSummaryTemplate = PlanTemplate.parse({
     templateNode("extract_content", "analyze", "Extract source content", "Extract readable text and citation metadata.", ["fetch_source"], "research.extract_content", ["Extracted source"], { source_artifact_id: "$nodes.fetch_source.output.text_artifact_id", url: "$nodes.fetch_source.output.url" }),
     templateNode("create_brief", "analyze", "Create cited summary", "Create a cited Markdown summary from the extracted source.", ["extract_content"], "research.create_brief", ["Markdown summary"], { topic: "$parameters.topic", sources: ["$nodes.extract_content.output"], brief_style: "concise", include_recommendations: false, max_words: 500 }),
     templateNode("export_markdown", "finalize", "Export Markdown summary", "Write the summary as an indexed Markdown artifact.", ["create_brief"], "research.export_markdown", ["Markdown artifact"], { title: "$parameters.title", markdown: "$nodes.create_brief.output.markdown", related_source_ids: ["$nodes.extract_content.output.source_id"] }),
+  ],
+});
+
+const researchDigestTemplate = PlanTemplate.parse({
+  template_id: "research.digest",
+  pack_id: "open-lagrange.research",
+  title: "Research digest",
+  description: "Scaffold a multi-topic cited digest Planfile for later execution support.",
+  domains: ["research"],
+  intent_patterns: ["digest", "topics", "daily research", "roundup"],
+  required_capabilities: [
+    "research.plan_search",
+    "research.search_sources",
+    "research.select_sources",
+    "research.fetch_sources",
+    "research.extract_sources",
+    "research.create_source_set",
+    "research.create_brief",
+    "research.export_markdown",
+  ],
+  optional_capabilities: [],
+  parameters_schema: {
+    type: "object",
+    properties: {
+      topics: { type: "array", items: { type: "string" } },
+      provider_id: { type: "string" },
+      max_sources_per_topic: { type: "number", default: 5 },
+      brief_style: { type: "string", enum: ["concise", "standard", "technical", "executive"], default: "standard" },
+    },
+    required: ["topics"],
+  },
+  output_kind: "markdown_brief",
+  schedule_supported: true,
+  execution_support: "scaffold_only",
+  nodes_template: [
+    templateNode("frame_goal", "frame", "Frame digest goal", "Confirm digest topics, cadence, and output expectations.", [], undefined, ["IntentFrame"]),
+    templateNode("topic_briefs", "analyze", "Create topic briefs", "Create one cited brief per topic when branch execution is available.", ["frame_goal"], "research.create_brief", ["Topic briefs"], { topics: "$parameters.topics", brief_style: "$parameters.brief_style" }),
+    templateNode("combine_digest", "finalize", "Export digest", "Combine topic briefs into one Markdown digest.", ["topic_briefs"], "research.export_markdown", ["Markdown digest"], { title: "$parameters.title", markdown: "$nodes.topic_briefs.output.markdown" }),
   ],
 });
 

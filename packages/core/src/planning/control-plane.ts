@@ -18,6 +18,7 @@ import { validatePlanfile, withCanonicalPlanDigest } from "./planfile-validator.
 import { PlanRunner } from "./plan-runner.js";
 import { getPlanBuilderSession } from "./plan-builder-session.js";
 import { runPlanCheck } from "./plan-check.js";
+import type { RuntimeProfileForRequirements } from "./plan-requirements.js";
 import { type PlanCheckReport, planCheckBlocksRun } from "./plan-check-report.js";
 
 export interface ApplyPlanfileInput {
@@ -25,6 +26,7 @@ export interface ApplyPlanfileInput {
   readonly live?: boolean;
   readonly output_dir?: string;
   readonly run_id?: string;
+  readonly runtime_profile?: RuntimeProfileForRequirements;
   readonly now?: string;
 }
 
@@ -141,6 +143,7 @@ export async function checkAndCreateRunFromPlanfile(input: ApplyPlanfileInput): 
     planfile: plan,
     live: input.live !== false,
     available_packs: packRegistry.listPacks().map((pack) => pack.manifest.pack_id),
+    ...(input.runtime_profile ? { runtime_profile: input.runtime_profile } : {}),
     now,
   });
   if (planCheckBlocksRun(report)) {
