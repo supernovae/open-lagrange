@@ -2,7 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { createArtifactSummary, registerArtifacts } from "../artifacts/artifact-viewer.js";
 import { createRunSummary, registerRun } from "../artifacts/run-index.js";
-import { createCapabilitySnapshotForTask } from "../capability-registry/registry.js";
+import { createCapabilitySnapshotForTask, packRegistry } from "../capability-registry/registry.js";
 import { createMockDelegationContext } from "../clients/mock-delegation.js";
 import { listModelRouteConfigs } from "../evals/model-route-config.js";
 import { apiReplayMode, buildRunSnapshot, createRunEvent, evaluateNodeReplayPolicy, type RetryReplayMode, type RunSnapshot } from "../runs/index.js";
@@ -17,6 +17,8 @@ import { Planfile, type Planfile as PlanfileType } from "./planfile-schema.js";
 import { validatePlanfile, withCanonicalPlanDigest } from "./planfile-validator.js";
 import { PlanRunner } from "./plan-runner.js";
 import { getPlanBuilderSession } from "./plan-builder-session.js";
+import { runPlanCheck } from "./plan-check.js";
+import { type PlanCheckReport, planCheckBlocksRun } from "./plan-check-report.js";
 
 export interface ApplyPlanfileInput {
   readonly planfile: unknown;
@@ -30,7 +32,25 @@ export interface CreateRunResult {
   readonly run_id: string;
   readonly snapshot: RunSnapshot;
   readonly state: PlanState;
+  readonly plan_check_report?: PlanCheckReport;
 }
+
+export type CheckAndCreateRunResult =
+  | {
+    readonly status: "blocked";
+    readonly run_created: false;
+    readonly plan_check_report: PlanCheckReport;
+    readonly message: string;
+  }
+  | {
+    readonly status: "created";
+    readonly run_created: true;
+    readonly plan_check_report: PlanCheckReport;
+    readonly run_id: string;
+    readonly snapshot: RunSnapshot;
+    readonly state: PlanState;
+    readonly message: string;
+  };
 
 export interface RunActionResult {
   readonly run_id: string;
@@ -108,6 +128,53 @@ export async function createRunFromBuilderSession(input: { readonly session_id: 
   return createRunFromPlanfile({
     planfile: session.current_planfile,
     ...(input.live === undefined ? {} : { live: input.live }),
+    ...(input.output_dir ? { output_dir: input.output_dir } : {}),
+    ...(input.now ? { now: input.now } : {}),
+  });
+}
+
+export async function checkAndCreateRunFromPlanfile(input: ApplyPlanfileInput): Promise<CheckAndCreateRunResult> {
+  const now = input.now ?? new Date().toISOString();
+  const parsed = Planfile.parse(input.planfile);
+  const plan = withCanonicalPlanDigest(Planfile.parse({ ...parsed, status: "validated", updated_at: now }));
+  const report = runPlanCheck({
+    planfile: plan,
+    live: input.live !== false,
+    available_packs: packRegistry.listPacks().map((pack) => pack.manifest.pack_id),
+    now,
+  });
+  if (planCheckBlocksRun(report)) {
+    return {
+      status: "blocked",
+      run_created: false,
+      plan_check_report: report,
+      message: `Plan Check blocked run creation: ${report.status}.`,
+    };
+  }
+  const run = await createRunFromPlanfile({
+    planfile: plan,
+    ...(input.live === undefined ? { live: true } : { live: input.live }),
+    ...(input.output_dir ? { output_dir: input.output_dir } : {}),
+    ...(input.run_id ? { run_id: input.run_id } : {}),
+    now,
+  });
+  return {
+    status: "created",
+    run_created: true,
+    plan_check_report: report,
+    run_id: run.run_id,
+    snapshot: run.snapshot,
+    state: run.state,
+    message: `Run created: ${run.run_id}`,
+  };
+}
+
+export async function checkAndCreateRunFromBuilderSession(input: { readonly session_id: string; readonly live?: boolean; readonly output_dir?: string; readonly now?: string }): Promise<CheckAndCreateRunResult> {
+  const session = getPlanBuilderSession(input.session_id);
+  if (!session?.current_planfile) throw new Error(`Plan Builder session ${input.session_id} does not have a current Planfile.`);
+  return checkAndCreateRunFromPlanfile({
+    planfile: session.current_planfile,
+    ...(input.live === undefined ? { live: true } : { live: input.live }),
     ...(input.output_dir ? { output_dir: input.output_dir } : {}),
     ...(input.now ? { now: input.now } : {}),
   });

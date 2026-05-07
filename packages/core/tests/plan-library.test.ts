@@ -3,7 +3,7 @@ import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { addPlanLibraryEntry, composePlanfileFromIntent, instantiatePlanTemplate, listPlanLibrary, renderPlanfileMarkdown } from "../src/planning/index.js";
+import { addPlanLibrary, addPlanLibraryEntry, composePlanfileFromIntent, instantiatePlanTemplate, listPlanLibraries, listPlanLibrary, listPlanLibraryPlans, renderPlanfileMarkdown, savePlanToLibrary, showPlanFromLibrary } from "../src/planning/index.js";
 
 const now = "2026-05-01T12:00:00.000Z";
 
@@ -34,5 +34,29 @@ describe("plan library", () => {
     expect(next.plans[0]?.name).toBe("daily-brief");
     expect(rendered.content).toContain("topic: security");
     expect(rendered.content).toContain("owner: platform");
+  });
+
+  it("saves Planfiles to a named workspace library and reads them back", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "open-lagrange-workspace-"));
+    const source = join(workspace, "source.plan.md");
+    const composed = await composePlanfileFromIntent({ prompt: "summarize https://example.com", mode: "dry_run", now });
+    writeFileSync(source, renderPlanfileMarkdown(composed.planfile), "utf8");
+
+    addPlanLibrary({ name: "team", path: join(workspace, "team-plans"), workspace_root: workspace });
+    const saved = savePlanToLibrary({
+      planfile_path: source,
+      library: "team",
+      path: "research/example.plan.md",
+      tags: ["research"],
+      workspace_root: workspace,
+    });
+    const libraries = listPlanLibraries({ workspace_root: workspace, home_root: join(workspace, "home") });
+    const plans = listPlanLibraryPlans({ library: "team", workspace_root: workspace, home_root: join(workspace, "home") });
+    const detail = showPlanFromLibrary({ library: "team", plan: "example", workspace_root: workspace, home_root: join(workspace, "home") });
+
+    expect(saved.library).toBe("team");
+    expect(libraries.some((library) => library.name === "team")).toBe(true);
+    expect(plans[0]?.plan_id).toBe(composed.planfile.plan_id);
+    expect(detail.content).toContain(composed.planfile.plan_id);
   });
 });

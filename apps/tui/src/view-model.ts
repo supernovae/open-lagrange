@@ -1,7 +1,7 @@
 import type { ProjectRunStatus, RuntimeHealth } from "@open-lagrange/core/interface";
 import type { TaskStatusSnapshot } from "@open-lagrange/core/interface";
 import type { SuggestedFlow } from "@open-lagrange/core/interface";
-import type { ApprovalRequestSummary, ArtifactSummary, ChangedFileSummary, ConversationTurn, InputMode, PaneId, PlanViewSummary, ReconciliationTimelineItem, SkillViewSummary, TuiViewModel, VerificationResultSummary } from "./types.js";
+import type { ApprovalRequestSummary, ArtifactSummary, ChangedFileSummary, ConversationTurn, InputMode, PaneId, PlanLibraryViewSummary, PlanViewSummary, ReconciliationTimelineItem, SkillViewSummary, TuiViewModel, VerificationResultSummary } from "./types.js";
 
 const fallbackHealth: RuntimeHealth = {
   profile: "local",
@@ -26,6 +26,7 @@ export function buildViewModel(input: {
   readonly conversation?: readonly ConversationTurn[];
   readonly pendingFlow?: SuggestedFlow;
   readonly run?: TuiViewModel["run"];
+  readonly planLibrary?: PlanLibraryViewSummary;
   readonly runConnectionState?: TuiViewModel["runConnectionState"];
   readonly activeObject?: TuiViewModel["activeObject"];
 }): TuiViewModel {
@@ -44,6 +45,7 @@ export function buildViewModel(input: {
     changedFiles: changedFiles(activeTask),
     verificationResults: verificationResults(activeTask),
     ...(plan ? { plan } : {}),
+    ...(input.planLibrary ? { planLibrary: input.planLibrary } : {}),
     ...(input.run ? { run: input.run } : {}),
     ...(input.runConnectionState ? { runConnectionState: input.runConnectionState } : {}),
     ...(skill ? { skill } : {}),

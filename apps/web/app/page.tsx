@@ -888,6 +888,14 @@ function apiHeaders(apiToken: string): HeadersInit {
 }
 
 function actionResultMessage(action: "accept-defaults" | "revise" | "validate" | "save" | "run" | "schedule", data: unknown): string {
+  if (action === "run" && data && typeof data === "object" && (data as { readonly status?: unknown }).status === "blocked") {
+    const report = (data as { readonly plan_check_report?: { readonly status?: string; readonly warnings?: readonly string[]; readonly suggested_actions?: readonly { readonly label?: string; readonly command?: string }[] } }).plan_check_report;
+    return [
+      `Plan Check blocked run creation: ${report?.status ?? "blocked"}`,
+      ...((report?.warnings ?? []).map((warning) => `Warning: ${warning}`)),
+      ...((report?.suggested_actions ?? []).map((actionItem) => `${actionItem.label ?? "Action"}${actionItem.command ? `: ${actionItem.command}` : ""}`)),
+    ].join("\n");
+  }
   if (action === "run" && isRunCreateResult(data)) {
     return [
       `Run created: ${data.run_id}`,
@@ -905,8 +913,14 @@ function actionResultMessage(action: "accept-defaults" | "revise" | "validate" |
       data.artifact_refs.length ? `Artifacts: ${data.artifact_refs.length}` : "Artifacts: none yet",
     ].join("\n");
   }
-  if (action === "save" && data && typeof data === "object" && "path" in data) return `Planfile saved: ${String((data as { readonly path?: unknown }).path)}`;
-  if (action === "schedule" && data && typeof data === "object" && "schedule_id" in data) return `Schedule created: ${String((data as { readonly schedule_id?: unknown }).schedule_id)}`;
+  if (action === "save" && data && typeof data === "object") {
+    const saved = (data as { readonly saved?: { readonly path?: unknown }; readonly path?: unknown }).saved;
+    return `Planfile saved: ${String(saved?.path ?? (data as { readonly path?: unknown }).path ?? "library")}`;
+  }
+  if (action === "schedule" && data && typeof data === "object") {
+    const schedule = (data as { readonly schedule?: { readonly schedule_id?: unknown }; readonly schedule_id?: unknown }).schedule;
+    if (schedule?.schedule_id || "schedule_id" in data) return `Schedule created: ${String(schedule?.schedule_id ?? (data as { readonly schedule_id?: unknown }).schedule_id)}`;
+  }
   return JSON.stringify(data, null, 2);
 }
 

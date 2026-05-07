@@ -107,6 +107,21 @@ describe("TUI view model", () => {
     expect(sortTimeline(items).map((item) => item.event_id)).toEqual(["earlier", "later"]);
   });
 
+  it("carries Plan Library state into the selected pane", () => {
+    const view = buildViewModel({
+      selectedPane: "plan_library",
+      inputMode: "chat",
+      isLoading: false,
+      planLibrary: {
+        libraries: [{ name: "workspace", path: ".open-lagrange/plans", source: "workspace", plan_count: 1 }],
+        plans: [{ name: "daily-brief", path: ".open-lagrange/plans/daily-brief.plan.md", plan_id: "plan_daily" }],
+      },
+    });
+
+    expect(view.selectedPane).toBe("plan_library");
+    expect(view.planLibrary?.plans[0]?.plan_id).toBe("plan_daily");
+  });
+
   it("renders indexed artifact summaries from project output", () => {
     const project = {
       ...projectStatus(),

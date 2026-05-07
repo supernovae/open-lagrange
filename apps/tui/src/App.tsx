@@ -4,7 +4,7 @@ import type { SuggestedFlow, TuiUserFrameEvent, UserFrameEvent } from "@open-lag
 import { buildViewModel } from "./view-model.js";
 import { parseUserInput } from "./command-parser.js";
 import { suggestionText } from "./input-router.js";
-import type { ConversationTurn, PaneId } from "./types.js";
+import type { ConversationTurn, PaneId, PlanLibraryViewSummary } from "./types.js";
 import { useProjectStatus } from "./hooks/useProjectStatus.js";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts.js";
 import { useUserFrameEvents } from "./hooks/useUserFrameEvents.js";
@@ -40,6 +40,7 @@ export function App(props: AppProps): React.ReactElement {
   const [seenStatusError, setSeenStatusError] = useState<string | undefined>();
   const [pendingFlow, setPendingFlow] = useState<SuggestedFlow | undefined>();
   const [runSnapshot, setRunSnapshot] = useState<RunSnapshot | undefined>();
+  const [planLibrary, setPlanLibrary] = useState<PlanLibraryViewSummary | undefined>();
   const [runConnectionState, setRunConnectionState] = useState<RunConnectionState>("disconnected");
   const [activeObject, setActiveObject] = useState<ActiveObject | undefined>();
   const { submitEvent } = useUserFrameEvents();
@@ -59,10 +60,11 @@ export function App(props: AppProps): React.ReactElement {
     conversation,
     ...(pendingFlow ? { pendingFlow } : {}),
     ...(runSnapshot ? { run: runSnapshot } : {}),
+    ...(planLibrary ? { planLibrary } : {}),
     runConnectionState,
     ...(activeObject ? { activeObject } : {}),
     ...(expandedTurnId ? { expandedTurnId } : {}),
-  }), [status.project, selectedPane, scrollOffset, status.isLoading, status.health, status.lastError, conversation, pendingFlow, runSnapshot, runConnectionState, activeObject, expandedTurnId]);
+  }), [status.project, selectedPane, scrollOffset, status.isLoading, status.health, status.lastError, conversation, pendingFlow, runSnapshot, planLibrary, runConnectionState, activeObject, expandedTurnId]);
 
   useEffect(() => {
     if (!status.lastError) {
@@ -214,6 +216,11 @@ export function App(props: AppProps): React.ReactElement {
         setRunSnapshot(snapshot);
         setActiveObject(snapshot.active_node_id ? { type: "node", id: snapshot.active_node_id } : undefined);
         setSelectedPane("run");
+      }
+      const library = planLibraryFromOutput("output" in result ? result.output : undefined);
+      if (library) {
+        setPlanLibrary(library);
+        setSelectedPane("plan_library");
       }
       setPendingFlow(undefined);
       await status.refresh();
@@ -370,6 +377,7 @@ function viewTitle(pane: PaneId): string {
   if (pane === "demo") return "Sample Planfiles";
   if (pane === "capabilities") return "Providers";
   if (pane === "pack_builder") return "Packs";
+  if (pane === "plan_library") return "Plan Library";
   if (pane === "artifact_json") return "Artifacts";
   if (pane === "doctor") return "Doctor";
   if (pane === "help") return "Help";
@@ -387,6 +395,7 @@ function viewJournalText(pane: PaneId, model: ReturnType<typeof buildViewModel>)
   if (pane === "tasks") return `Opened Tasks. ${model.project?.task_statuses.length ?? 0} task(s) are currently attached.`;
   if (pane === "approvals") return `Opened Approvals. ${model.approvals.length} approval request(s) are currently pending.`;
   if (pane === "plan") return `Opened Plans. ${model.plan ? `Plan ${model.plan.plan_id} is loaded.` : "Use /compose <goal>, /library, or /check <planfile>."}`;
+  if (pane === "plan_library") return `Opened Plan Library. ${model.planLibrary?.plans.length ?? 0} saved Planfile(s) are visible.`;
   if (pane === "run") return "Opened Runs. Inspect run outputs with /run list or /run outputs latest.";
   if (pane === "diff") return "Opened Diff. Attach a project or use a repository workflow to load diff output.";
   if (pane === "verification") return `Opened Verification. ${model.verificationResults.length} verification result(s) are currently attached.`;
@@ -435,6 +444,14 @@ function runSnapshotFromOutput(output: unknown): RunSnapshot | undefined {
   const snapshot = record.snapshot;
   if (snapshot && typeof snapshot === "object" && typeof (snapshot as Record<string, unknown>).run_id === "string") return snapshot as RunSnapshot;
   if (typeof record.run_id === "string" && Array.isArray(record.nodes) && Array.isArray(record.timeline)) return record as unknown as RunSnapshot;
+  return undefined;
+}
+
+function planLibraryFromOutput(output: unknown): PlanLibraryViewSummary | undefined {
+  if (!output || typeof output !== "object") return undefined;
+  const record = output as Record<string, unknown>;
+  if (Array.isArray(record.libraries) && Array.isArray(record.plans)) return record as unknown as PlanLibraryViewSummary;
+  if (record.plan_check_report) return { libraries: [], plans: [], plan_check_report: record.plan_check_report };
   return undefined;
 }
 

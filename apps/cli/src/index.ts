@@ -10,7 +10,7 @@ import { exportArtifact, listArtifacts, listArtifactsForPlan, listRunArtifacts, 
 import { listDemos, openDemo, runDemo } from "@open-lagrange/core/demos";
 import { runCoreDoctor } from "@open-lagrange/core/doctor";
 import { getPackHealth, inspectPack, listInspectablePacks, runPackSmoke, validateRegisteredPack } from "@open-lagrange/core/packs";
-import { acceptDefaultAnswers, addPlanLibraryEntry, answerQuestion, applyPlanfile as applyLocalPlanfile, composeInitialPlan, composePlanfileFromIntent, createRunFromPlanfile, createScheduleRecord, derivePlanRequirements, diffPlanfileMarkdown, generateGoalFrame, generatePlanfile, getPlanBuilderSession, getScheduleRecord, importBuilderPlanfileFromMarkdown, instantiatePlanTemplate, listPlanBuilderSessions, listPlanLibrary, listScheduleRecords, parsePlanfileMarkdown, parsePlanfileYaml, reconcilePlanfileMarkdown, renderPlanfileMarkdown, renderPlanMermaid, revisePlan, savePlanBuilderSession, saveReadyPlanfile, simulatePlan, stabilizePlan, syncPlanLibrary, updateBuilderPlanfileFromMarkdown, validatePlan, validatePlanfile, withCanonicalPlanDigest } from "@open-lagrange/core/planning";
+import { acceptDefaultAnswers, addPlanLibrary, answerQuestion, checkAndCreateRunFromBuilderSession, checkAndCreateRunFromPlanfile, checkAndCreateScheduleRecord, composeInitialPlan, composePlanfileFromIntent, derivePlanRequirements, diffPlanfileMarkdown, generateGoalFrame, generatePlanfile, getPlanBuilderSession, getScheduleRecord, importBuilderPlanfileFromMarkdown, instantiatePlanTemplate, listPlanBuilderSessions, listPlanLibraries, listPlanLibraryPlans, listScheduleRecords, parsePlanfileMarkdown, parsePlanfileYaml, planCheckBlocksRun, reconcilePlanfileMarkdown, removePlanLibrary, removeSavedPlanFromLibrary, renderPlanfileMarkdown, renderPlanMermaid, resolvePlanLibraryEntry, revisePlan, runPlanCheck, saveBuilderSessionToLibrary, savePlanBuilderSession, savePlanToLibrary, saveReadyPlanfile, showPlanFromLibrary, showPlanLibrary, simulatePlan, stabilizePlan, syncPlanLibrary, updateBuilderPlanfileFromMarkdown, validatePlan, validatePlanfile, withCanonicalPlanDigest } from "@open-lagrange/core/planning";
 import { applyRepositoryPlanfile as applyLocalRepositoryPlanfile, approveApprovalRequest, approveRepositoryScopeRequest, cleanupRepositoryPlan as cleanupLocalRepositoryPlan, createRepositoryPlanfile, explainRepositoryPlan, exportRepositoryPlanPatch as exportLocalRepositoryPlanPatch, getRepositoryPlanStatus as getLocalRepositoryPlanStatus, listRepositoryModelCalls, rejectApprovalRequest, rejectRepositoryScopeRequest, resumeRepositoryPlan, runRepositoryDoctor } from "@open-lagrange/core/repository";
 import { compareBenchmarkRun, listBenchmarkScenarios, listModelRouteConfigs, renderBenchmarkReport, runModelRoutingBenchmark } from "@open-lagrange/core/evals";
 import { runResearchBriefCommand, runResearchExportCommand, runResearchFetchCommand, runResearchSearchCommand, runResearchSummarizeUrlCommand } from "@open-lagrange/core/research";
@@ -83,8 +83,14 @@ program
   .description("Show runtime status, or project status when an ID is provided.")
   .argument("[projectOrRunId]", "Project ID or run ID")
   .action(async (projectOrRunId: string | undefined) => {
-    if (projectOrRunId) console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).getProjectStatus(projectOrRunId), null, 2));
-    else console.log(JSON.stringify(await getRuntimeStatus(), null, 2));
+    if (projectOrRunId) {
+      const snapshot = await buildRunSnapshot({ run_id: projectOrRunId }).catch(() => undefined);
+      if (snapshot) {
+        console.log(JSON.stringify(snapshot, null, 2));
+        return;
+      }
+      console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).getProjectStatus(projectOrRunId), null, 2));
+    } else console.log(JSON.stringify(await getRuntimeStatus(), null, 2));
   });
 
 program.command("doctor").description("Run local or remote profile checks.").action(async () => {
@@ -725,6 +731,12 @@ repo.command("apply")
   .option("--cleanup-on-success", "Allow cleanup policy to remove retained worktrees later", false)
   .action(async (path: string, options: { readonly retainWorktree: boolean; readonly allowDirtyBase: boolean; readonly cleanupOnSuccess: boolean }) => {
     const planfile = withCanonicalPlanDigest(await loadLocalPlanfile(path));
+    const check = runPlanCheck({ planfile, live: true });
+    if (planCheckBlocksRun(check)) {
+      console.log(JSON.stringify({ status: "blocked", plan_check_report: check }, null, 2));
+      process.exitCode = 1;
+      return;
+    }
     console.log(JSON.stringify(await applyLocalRepositoryPlanfile({
       planfile,
       allow_dirty_base: options.allowDirtyBase,
@@ -1004,7 +1016,7 @@ plan.command("compose")
       await mkdir(dirname(path), { recursive: true });
       await writeFile(path, composed.markdown, "utf8");
       const schedule = options.schedule && options.yes
-        ? createScheduleRecord({
+        ? checkAndCreateScheduleRecord({
           planfile: composed.planfile,
           planfile_path: path,
           cadence: scheduleCadence(options.schedule),
@@ -1151,13 +1163,23 @@ planBuilder.command("validate").argument("<sessionId>", "Plan Builder session ID
 planBuilder.command("save")
   .argument("<sessionId>", "Plan Builder session ID")
   .requiredOption("--output <path>", "Output Planfile Markdown path")
-  .action((sessionId: string, options: { readonly output: string }) => {
-    console.log(JSON.stringify(saveReadyPlanfile(requireBuilderSession(sessionId), cliPath(options.output)), null, 2));
+  .option("--library <library>", "Save to a named Plan Library")
+  .option("--path <libraryPath>", "Path inside the selected Plan Library")
+  .action((sessionId: string, options: { readonly output: string; readonly library?: string; readonly path?: string }) => {
+    const session = requireBuilderSession(sessionId);
+    const saved = saveReadyPlanfile(session, cliPath(options.output));
+    const library = options.path ? saveBuilderSessionToLibrary({
+      session_id: sessionId,
+      path: options.path,
+      ...(options.library ? { library: options.library } : {}),
+    }) : undefined;
+    console.log(JSON.stringify({ saved, ...(library ? { library } : {}) }, null, 2));
   });
 
 planBuilder.command("run").argument("<sessionId>", "Plan Builder session ID").option("--live", "Execute through the local runtime path", false).action(async (sessionId: string, options: { readonly live: boolean }) => {
   const session = requireReadyBuilderSession(sessionId);
-  console.log(JSON.stringify(await applyLocalPlanfile({ planfile: session.current_planfile, live: options.live }), null, 2));
+  const result = await checkAndCreateRunFromBuilderSession({ session_id: session.session_id, live: true });
+  printRunCreationResult(result);
 });
 
 planBuilder.command("schedule")
@@ -1171,7 +1193,7 @@ planBuilder.command("schedule")
     const session = requireReadyBuilderSession(sessionId);
     const path = join(".open-lagrange", "plans", `${session.current_planfile.plan_id}.plan.md`);
     saveReadyPlanfile(session, path);
-    console.log(JSON.stringify(createScheduleRecord({
+    console.log(JSON.stringify(checkAndCreateScheduleRecord({
       planfile: session.current_planfile,
       planfile_path: path,
       cadence: scheduleCadence(options.cron ? "cron" : options.weekly ? "weekly" : "daily"),
@@ -1196,59 +1218,118 @@ plan.command("create")
     console.log(markdown);
   });
 
-plan.command("show").argument("<planfile>", "Planfile Markdown or YAML path").action(async (path: string) => {
-  const planfile = withCanonicalPlanDigest(await loadLocalPlanfile(path));
+plan.command("show").argument("<planfile>", "Planfile Markdown/YAML path or Plan Library reference").option("--library <library>", "Resolve the plan from a named Plan Library").action(async (path: string, options: { readonly library?: string }) => {
+  const planfile = withCanonicalPlanDigest(await loadPlanfileOrLibraryRef(path, options.library));
   console.log(renderPlanfileMarkdown(planfile));
 });
 
-plan.command("validate").argument("<planfile>", "Planfile Markdown or YAML path").action(async (path: string) => {
-  const planfile = withCanonicalPlanDigest(await loadLocalPlanfile(path));
+plan.command("validate").argument("<planfile>", "Planfile Markdown/YAML path or Plan Library reference").option("--library <library>", "Resolve the plan from a named Plan Library").action(async (path: string, options: { readonly library?: string }) => {
+  const planfile = withCanonicalPlanDigest(await loadPlanfileOrLibraryRef(path, options.library));
   const result = validatePlanfile(planfile);
   console.log(JSON.stringify({ ...result, plan_id: planfile.plan_id, canonical_plan_digest: planfile.canonical_plan_digest }, null, 2));
   if (!result.ok) process.exitCode = 1;
 });
 
-plan.command("check").argument("<planfile>", "Planfile Markdown or YAML path").action(async (path: string) => {
-  const planfile = withCanonicalPlanDigest(await loadLocalPlanfile(path));
-  const validation = validatePlanfile(planfile);
+plan.command("check").argument("<planfile>", "Planfile Markdown/YAML path or Plan Library reference").option("--library <library>", "Resolve the plan from a named Plan Library").action(async (path: string, options: { readonly library?: string }) => {
+  const planfile = withCanonicalPlanDigest(await loadPlanfileOrLibraryRef(path, options.library));
   const runtimeProfile = await getCurrentProfile().catch(() => undefined);
-  const requirements = derivePlanRequirements({ planfile, ...(runtimeProfile ? { runtime_profile: runtimeProfile } : {}) });
-  console.log(JSON.stringify({ validation, requirements, plan_id: planfile.plan_id, canonical_plan_digest: planfile.canonical_plan_digest }, null, 2));
-  if (!validation.ok || hasMissingRequirements(requirements)) process.exitCode = 1;
+  const report = runPlanCheck({ planfile, live: true, ...(runtimeProfile ? { runtime_profile: runtimeProfile } : {}) });
+  console.log(JSON.stringify(report, null, 2));
+  if (planCheckBlocksRun(report)) process.exitCode = 1;
 });
 
-plan.command("requirements").argument("<planfile>", "Planfile Markdown or YAML path").action(async (path: string) => {
-  const planfile = withCanonicalPlanDigest(await loadLocalPlanfile(path));
+plan.command("requirements").argument("<planfile>", "Planfile Markdown/YAML path or Plan Library reference").option("--library <library>", "Resolve the plan from a named Plan Library").action(async (path: string, options: { readonly library?: string }) => {
+  const planfile = withCanonicalPlanDigest(await loadPlanfileOrLibraryRef(path, options.library));
   const runtimeProfile = await getCurrentProfile().catch(() => undefined);
   console.log(JSON.stringify(derivePlanRequirements({ planfile, ...(runtimeProfile ? { runtime_profile: runtimeProfile } : {}) }), null, 2));
 });
 
-plan.command("explain").argument("<planfile>", "Planfile Markdown or YAML path").action(async (path: string) => {
-  const planfile = withCanonicalPlanDigest(await loadLocalPlanfile(path));
+plan.command("explain").argument("<planfile>", "Planfile Markdown/YAML path or Plan Library reference").option("--library <library>", "Resolve the plan from a named Plan Library").action(async (path: string, options: { readonly library?: string }) => {
+  const planfile = withCanonicalPlanDigest(await loadPlanfileOrLibraryRef(path, options.library));
   const runtimeProfile = await getCurrentProfile().catch(() => undefined);
   const validation = validatePlanfile(planfile);
   const requirements = derivePlanRequirements({ planfile, ...(runtimeProfile ? { runtime_profile: runtimeProfile } : {}) });
-  console.log(formatPlanExplanation({ planfile, validation, requirements }));
+  const plan_check_report = runPlanCheck({ planfile, live: true, ...(runtimeProfile ? { runtime_profile: runtimeProfile } : {}) });
+  console.log(formatPlanExplanation({ planfile, validation, requirements, plan_check_report }));
 });
 
 const planLibrary = plan.command("library").description("Browse local Planfile libraries.");
 
-planLibrary.command("list").description("List plans from workspace and home libraries.").action(() => {
-  console.log(JSON.stringify({ plans: listPlanLibrary() }, null, 2));
+planLibrary.command("list").description("List configured Plan Libraries.").action(() => {
+  console.log(JSON.stringify({ libraries: listPlanLibraries() }, null, 2));
 });
 
 planLibrary.command("add")
-  .argument("<name>", "Library entry name")
-  .argument("<path>", "Planfile path")
-  .option("--title <title>", "Display title")
-  .option("--summary <summary>", "Display summary")
-  .action((name: string, path: string, options: { readonly title?: string; readonly summary?: string }) => {
-    console.log(JSON.stringify(addPlanLibraryEntry({ name, path, ...(options.title ? { title: options.title } : {}), ...(options.summary ? { summary: options.summary } : {}) }), null, 2));
+  .argument("<name>", "Library name")
+  .argument("<path>", "Local library directory")
+  .option("--description <description>", "Display description")
+  .action((name: string, path: string, options: { readonly description?: string }) => {
+    console.log(JSON.stringify(addPlanLibrary({ name, path: cliPath(path), ...(options.description ? { description: options.description } : {}) }), null, 2));
+  });
+
+planLibrary.command("remove")
+  .argument("<name>", "Library name")
+  .action((name: string) => {
+    console.log(JSON.stringify(removePlanLibrary({ name }), null, 2));
+  });
+
+planLibrary.command("show")
+  .argument("<name>", "Library name")
+  .action((name: string) => {
+    console.log(JSON.stringify(showPlanLibrary({ name }), null, 2));
+  });
+
+planLibrary.command("plans")
+  .argument("[name]", "Library name")
+  .action((name: string | undefined) => {
+    console.log(JSON.stringify({ plans: listPlanLibraryPlans({ ...(name ? { library: name } : {}) }) }, null, 2));
+  });
+
+planLibrary.command("read")
+  .argument("<plan>", "Plan name, plan ID, or path")
+  .option("--library <library>", "Library name")
+  .action((planRef: string, options: { readonly library?: string }) => {
+    console.log(showPlanFromLibrary({ plan: planRef, ...(options.library ? { library: options.library } : {}) }).content);
+  });
+
+planLibrary.command("delete-plan")
+  .argument("<plan>", "Plan name, plan ID, or path")
+  .option("--library <library>", "Library name")
+  .action((planRef: string, options: { readonly library?: string }) => {
+    console.log(JSON.stringify(removeSavedPlanFromLibrary({ plan: planRef, ...(options.library ? { library: options.library } : {}) }), null, 2));
   });
 
 planLibrary.command("sync").description("Refresh local library listings.").action(() => {
   console.log(JSON.stringify(syncPlanLibrary(), null, 2));
 });
+
+plan.command("save")
+  .argument("<planfile>", "Planfile Markdown or YAML path")
+  .requiredOption("--path <libraryPath>", "Path inside the selected Plan Library")
+  .option("--library <library>", "Library name", "workspace")
+  .option("--tag <tag>", "Tag to record in the library manifest", collectString, [])
+  .action((planfilePath: string, options: { readonly path: string; readonly library: string; readonly tag: readonly string[] }) => {
+    console.log(JSON.stringify(savePlanToLibrary({
+      planfile_path: cliPath(planfilePath),
+      library: options.library,
+      path: options.path,
+      tags: options.tag,
+    }), null, 2));
+  });
+
+plan.command("save-builder")
+  .argument("<sessionId>", "Plan Builder session ID")
+  .requiredOption("--path <libraryPath>", "Path inside the selected Plan Library")
+  .option("--library <library>", "Library name", "workspace")
+  .option("--tag <tag>", "Tag to record in the library manifest", collectString, [])
+  .action((sessionId: string, options: { readonly path: string; readonly library: string; readonly tag: readonly string[] }) => {
+    console.log(JSON.stringify(saveBuilderSessionToLibrary({
+      session_id: sessionId,
+      library: options.library,
+      path: options.path,
+      tags: options.tag,
+    }), null, 2));
+  });
 
 plan.command("instantiate")
   .argument("<template>", "Template Planfile path")
@@ -1304,20 +1385,23 @@ plan.command("reconcile")
     if (report.parse_status !== "passed" || report.validation_status === "failed" || report.simulation_status === "invalid" || report.simulation_status === "unsafe") process.exitCode = 1;
   });
 
-plan.command("apply").argument("<planfile>", "Planfile Markdown or YAML path").option("--live", "Execute through the local runtime path", false).action(async (path: string, options: { readonly live: boolean }) => {
-  const planfile = withCanonicalPlanDigest(await loadLocalPlanfile(path));
-  const validation = validatePlanfile(planfile);
-  if (!validation.ok) {
-    console.log(JSON.stringify({ ...validation, plan_id: planfile.plan_id }, null, 2));
-    process.exitCode = 1;
-    return;
-  }
-  if (options.live) {
-    console.log(JSON.stringify(await createRunFromPlanfile({ planfile, live: true }), null, 2));
-    return;
-  }
-  console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).applyPlanfile({ planfile }), null, 2));
-});
+plan.command("run")
+  .argument("<planfile>", "Planfile Markdown/YAML path or Plan Library reference")
+  .option("--library <library>", "Resolve the plan from a named Plan Library")
+  .action(async (path: string, options: { readonly library?: string }) => {
+    const planfile = withCanonicalPlanDigest(await loadPlanfileOrLibraryRef(path, options.library));
+    const result = await checkAndCreateRunFromPlanfile({ planfile, live: true });
+    printRunCreationResult(result);
+  });
+
+plan.command("apply")
+  .argument("<planfile>", "Planfile Markdown/YAML path or Plan Library reference")
+  .option("--library <library>", "Resolve the plan from a named Plan Library")
+  .action(async (path: string, options: { readonly library?: string }) => {
+    const planfile = withCanonicalPlanDigest(await loadPlanfileOrLibraryRef(path, options.library));
+    const result = await checkAndCreateRunFromPlanfile({ planfile, live: true });
+    printRunCreationResult(result);
+  });
 
 plan.command("resume").argument("<planId>", "Plan ID").action(async (planId: string) => {
   console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).resumePlan(planId), null, 2));
@@ -1338,14 +1422,8 @@ schedule.command("create")
   .option("--timezone <timezone>", "Schedule timezone", Intl.DateTimeFormat().resolvedOptions().timeZone ?? "local")
   .action(async (path: string, options: { readonly daily: boolean; readonly weekly: boolean; readonly cron?: string; readonly at?: string; readonly timezone?: string }) => {
     const planfile = withCanonicalPlanDigest(await loadLocalPlanfile(path));
-    const validation = validatePlanfile(planfile);
-    if (!validation.ok) {
-      console.log(JSON.stringify({ ...validation, plan_id: planfile.plan_id }, null, 2));
-      process.exitCode = 1;
-      return;
-    }
     const currentProfile = await getCurrentProfile().catch(() => undefined);
-    const record = createScheduleRecord({
+    const record = checkAndCreateScheduleRecord({
       planfile,
       planfile_path: path,
       cadence: scheduleCadence(options.cron ? "cron" : options.weekly ? "weekly" : "daily"),
@@ -1354,6 +1432,7 @@ schedule.command("create")
       runtime_profile: currentProfile?.name ?? "local",
     });
     console.log(JSON.stringify(record, null, 2));
+    if (record.status === "blocked") process.exitCode = 1;
   });
 
 schedule.command("list").action(() => {
@@ -1370,13 +1449,13 @@ schedule.command("run")
       return;
     }
     const planfile = withCanonicalPlanDigest(await loadLocalPlanfile(record.planfile_path));
-    const validation = validatePlanfile(planfile);
-    if (!validation.ok) {
-      console.log(JSON.stringify({ ...validation, schedule_id: scheduleId, plan_id: planfile.plan_id }, null, 2));
+    const result = await checkAndCreateRunFromPlanfile({ planfile, live: true });
+    if (result.status === "blocked") {
+      console.log(JSON.stringify({ schedule_id: scheduleId, ...result }, null, 2));
       process.exitCode = 1;
       return;
     }
-    console.log(JSON.stringify(await applyLocalPlanfile({ planfile, live: true }), null, 2));
+    printRunCreationResult(result);
   });
 
 plan.command("approve").argument("<planId>", "Plan ID").requiredOption("--reason <reason>", "Approval reason").requiredOption("--approval-token <approvalToken>", "Approval token").option("--approved-by <approvedBy>", "Approver identifier", "human-local").action(async (planId: string, options: { readonly reason: string; readonly approvalToken: string; readonly approvedBy: string }) => {
@@ -1467,6 +1546,13 @@ async function loadLocalPlanfile(path: string) {
   return path.endsWith(".yaml") || path.endsWith(".yml") ? parsePlanfileYaml(text) : parsePlanfileMarkdown(text);
 }
 
+async function loadPlanfileOrLibraryRef(pathOrRef: string, library: string | undefined) {
+  const local = cliPath(pathOrRef);
+  if (existsSync(local)) return loadLocalPlanfile(local);
+  const entry = resolvePlanLibraryEntry({ plan: pathOrRef, ...(library ? { library } : {}) });
+  return loadLocalPlanfile(entry.path);
+}
+
 async function readPlanfileEditMarkdown(path: string): Promise<string> {
   const local = cliPath(path);
   const text = await readFile(local, "utf8");
@@ -1524,6 +1610,7 @@ function formatPlanExplanation(input: {
   readonly planfile: Awaited<ReturnType<typeof loadLocalPlanfile>>;
   readonly validation: ReturnType<typeof validatePlanfile>;
   readonly requirements: ReturnType<typeof derivePlanRequirements>;
+  readonly plan_check_report?: ReturnType<typeof runPlanCheck>;
 }): string {
   const scheduleInfo = input.requirements.schedule_info
     ? JSON.stringify(input.requirements.schedule_info)
@@ -1534,6 +1621,7 @@ function formatPlanExplanation(input: {
     `Status: ${input.planfile.status}`,
     `Mode: ${input.planfile.mode}`,
     `Validation: ${input.validation.ok ? "passed" : "failed"}`,
+    ...(input.plan_check_report ? [`Plan Check: ${input.plan_check_report.status}`] : []),
     `Portability: ${input.requirements.portability_level}`,
     "",
     "Requirements:",
@@ -1551,11 +1639,42 @@ function formatPlanExplanation(input: {
     `- Credentials: ${lineList(input.requirements.missing_credentials)}`,
     `- Permissions: ${lineList(input.requirements.missing_permissions)}`,
     ...(input.requirements.suggested_commands.length > 0 ? ["", "Suggested Commands:", ...input.requirements.suggested_commands.map((command) => `- ${command}`)] : []),
+    ...(input.plan_check_report && input.plan_check_report.suggested_actions.length > 0
+      ? ["", "Next Actions:", ...input.plan_check_report.suggested_actions.map((action) => `- ${action.label}${action.command ? `: ${action.command}` : ""}`)]
+      : []),
   ].join("\n");
 }
 
 function lineList(values: readonly string[]): string {
   return values.length > 0 ? values.join(", ") : "none";
+}
+
+function printRunCreationResult(result: Awaited<ReturnType<typeof checkAndCreateRunFromPlanfile>>): void {
+  if (result.status === "blocked") {
+    console.log(JSON.stringify(result, null, 2));
+    process.exitCode = 1;
+    return;
+  }
+  console.log([
+    `Run created: ${result.run_id}`,
+    "View live:",
+    `  open-lagrange run watch ${result.run_id}`,
+    "Inspect:",
+    `  open-lagrange run status ${result.run_id}`,
+    "",
+    JSON.stringify({
+      run_id: result.run_id,
+      status: result.snapshot.status,
+      plan_id: result.snapshot.plan_id,
+      artifacts: result.snapshot.artifacts.map((artifact) => artifact.artifact_id),
+      next_actions: result.snapshot.next_actions,
+      plan_check_report: {
+        status: result.plan_check_report.status,
+        portability: result.plan_check_report.portability,
+        warnings: result.plan_check_report.warnings,
+      },
+    }, null, 2),
+  ].join("\n"));
 }
 
 function requireBuilderSession(sessionId: string) {

@@ -66,6 +66,46 @@ export const PlanfileLifecycle = z.object({
   simulation_status: z.enum(["unknown", "ready", "needs_input", "missing_requirements", "invalid", "unsafe"]).optional(),
 }).strict();
 
+export const PlanfilePackRequirement = z.object({
+  id: z.string().min(1),
+  version: z.string().min(1).optional(),
+  required: z.boolean().default(true),
+}).strict();
+
+export const PlanfileProviderRequirement = z.object({
+  id: z.string().min(1),
+  kind: z.string().min(1),
+  required: z.boolean().default(true),
+  acceptable: z.array(z.string().min(1)).optional(),
+}).strict();
+
+export const PlanfileCredentialRequirement = z.object({
+  ref: z.string().min(1),
+  required: z.boolean().default(true),
+  purpose: z.string().min(1).optional(),
+}).strict();
+
+export const PlanfileRuntimeRequirement = z.object({
+  mode: z.array(z.enum(["local", "remote"])).optional(),
+}).strict();
+
+export const PlanfileParameterRequirement = z.object({
+  type: z.enum(["string", "number", "boolean", "object", "array"]),
+  required: z.boolean().default(false),
+  default: z.unknown().optional(),
+  description: z.string().min(1).optional(),
+}).strict();
+
+export const PlanfileRequirements = z.object({
+  packs: z.array(PlanfilePackRequirement).optional(),
+  providers: z.array(PlanfileProviderRequirement).optional(),
+  credentials: z.array(PlanfileCredentialRequirement).optional(),
+  permissions: z.array(z.string().min(1)).optional(),
+  approvals: z.array(z.string().min(1)).optional(),
+  runtime: PlanfileRuntimeRequirement.optional(),
+  parameters: z.record(z.string(), PlanfileParameterRequirement).optional(),
+}).strict();
+
 export const Planfile = z.object({
   schema_version: z.literal(PLANFILE_SCHEMA_VERSION),
   plan_id: z.string().min(1),
@@ -76,6 +116,7 @@ export const Planfile = z.object({
   edges: z.array(PlanEdge),
   approval_policy: ApprovalPolicy,
   verification_policy: VerificationPolicy,
+  requirements: PlanfileRequirements.optional(),
   execution_context: z.record(z.string(), z.unknown()).optional(),
   lifecycle: PlanfileLifecycle.optional(),
   artifact_refs: z.array(PlanArtifactRef),
@@ -93,4 +134,10 @@ export type PlanEdge = z.infer<typeof PlanEdge>;
 export type ApprovalPolicy = z.infer<typeof ApprovalPolicy>;
 export type VerificationPolicy = z.infer<typeof VerificationPolicy>;
 export type PlanfileLifecycle = z.infer<typeof PlanfileLifecycle>;
+export type PlanfilePackRequirement = z.infer<typeof PlanfilePackRequirement>;
+export type PlanfileProviderRequirement = z.infer<typeof PlanfileProviderRequirement>;
+export type PlanfileCredentialRequirement = z.infer<typeof PlanfileCredentialRequirement>;
+export type PlanfileRuntimeRequirement = z.infer<typeof PlanfileRuntimeRequirement>;
+export type PlanfileParameterRequirement = z.infer<typeof PlanfileParameterRequirement>;
+export type PlanfileRequirements = z.infer<typeof PlanfileRequirements>;
 export type Planfile = z.infer<typeof Planfile>;

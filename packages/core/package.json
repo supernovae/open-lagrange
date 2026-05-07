@@ -18,6 +18,10 @@
       "types": "./dist/planning/index.d.ts",
       "import": "./dist/planning/index.js"
     },
+    "./planning-web": {
+      "types": "./dist/planning/web-api.d.ts",
+      "import": "./dist/planning/web-api.js"
+    },
     "./secrets": {
       "types": "./dist/secrets/index.d.ts",
       "import": "./dist/secrets/index.js"

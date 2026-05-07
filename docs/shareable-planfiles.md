@@ -19,6 +19,7 @@ Use:
 open-lagrange plan requirements path/to/work.plan.md
 open-lagrange plan check path/to/work.plan.md
 open-lagrange plan explain path/to/work.plan.md
+open-lagrange plan save path/to/work.plan.md --library workspace --path team/work.plan.md
 ```
 
 Portability levels:
@@ -28,4 +29,4 @@ Portability levels:
 - `profile_bound`: requires configured profile providers or credentials.
 - `machine_bound`: embeds an absolute local path.
 
-Before sharing a Planfile, run `plan check` and remove machine-specific paths when possible.
+Before sharing a Planfile, run `plan check` and remove machine-specific paths when possible. A saved Planfile should not contain raw secrets; use credential references and profile/provider configuration.

@@ -56,7 +56,7 @@ export function parseSlashCommand(input: string, context: SlashCommandContext = 
     return { kind: "error", command, error: "Usage: /plan-diff <old_planfile> <new_planfile>" };
   }
   if (command === "check" && text) return { kind: "event", command, pane: "chat", event: { type: "plan.check", planfile: text } };
-  if (command === "library") return { kind: "event", command, pane: "chat", event: { type: "plan.library" } };
+  if (command === "library" || command === "plans") return { kind: "event", command, pane: "plan_library", event: { type: "plan.library" } };
   if (command === "providers") return { kind: "event", command, pane: "chat", event: { type: "provider.list" } };
   if (command === "artifacts") return { kind: "event", command, pane: "chat", event: { type: "artifact.show", artifact_id: "list" } };
   if (command === "schedule") return { kind: "event", command, pane: "chat", event: { type: "schedule.list" } };
@@ -74,7 +74,8 @@ export function parseSlashCommand(input: string, context: SlashCommandContext = 
     const [target, ...goalParts] = rest;
     if (target === "compose" && goalParts.length > 0) return { kind: "event", command, pane: "chat", event: flowForPlanCompose(goalParts.join(" "), context).event };
     if (target === "check" && goalParts.length > 0) return { kind: "event", command, pane: "chat", event: { type: "plan.check", planfile: goalParts.join(" ") } };
-    if (target === "library") return { kind: "event", command, pane: "chat", event: { type: "plan.library" } };
+    if (target === "library") return { kind: "event", command, pane: "plan_library", event: { type: "plan.library" } };
+    if ((target === "run" || target === "apply") && goalParts.length > 0) return { kind: "event", command, pane: "run", event: { type: "plan.apply", planfile: goalParts.join(" ") } };
     if (target === "repo" && goalParts.length > 0) return { kind: "event", command, pane: "chat", event: flowForRepositoryPlan(goalParts.join(" "), context).event };
     if (text) return { kind: "event", command, pane: "chat", event: { type: "plan.create", target: "generic", goal: text, dry_run: true } };
     return { kind: "error", command, error: "Usage: /plan repo <goal>" };

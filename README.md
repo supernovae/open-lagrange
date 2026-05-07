@@ -100,10 +100,10 @@ open-lagrange secrets status
 
 ## Run A Planfile
 
-Run the included live URL summary Planfile:
+Run the included URL summary Planfile:
 
 ```bash
-open-lagrange plan apply examples/planfiles/research-url-summary.plan.md --live
+open-lagrange plan run examples/planfiles/research-url-summary.plan.md
 ```
 
 Author a new Planfile and write it to `.open-lagrange/plans/`:
@@ -119,10 +119,20 @@ open-lagrange plan check .open-lagrange/plans/<plan_id>.plan.md
 open-lagrange plan explain .open-lagrange/plans/<plan_id>.plan.md
 ```
 
+Save it for reuse:
+
+```bash
+open-lagrange plan save .open-lagrange/plans/<plan_id>.plan.md \
+  --library workspace \
+  --path research/release-readiness.plan.md
+open-lagrange plan library list
+open-lagrange plan library plans workspace
+```
+
 Create a Durable Run from the authored Planfile:
 
 ```bash
-open-lagrange plan apply .open-lagrange/plans/<plan_id>.plan.md --live
+open-lagrange plan run .open-lagrange/plans/<plan_id>.plan.md
 ```
 
 The command returns a `run_id`. Use that ID as the primary handle for status,
@@ -171,6 +181,14 @@ The web console shows:
 Plan Builder creates Durable Runs and navigates directly to `/runs/<run_id>`.
 The web UI renders RunSnapshot and RunEvent projections; it does not execute
 plan nodes directly.
+
+Browse saved Planfiles in the web Plan Library:
+
+```text
+http://localhost:3000/plans
+```
+
+From there, Check, Run Now, Schedule, Save, and open the Run Console for the new run.
 
 ## Terminal Console
 
@@ -306,6 +324,11 @@ do not own runtime state.
 - [Web Run Console](docs/web-run-console.md)
 - [TUI Run Console](docs/tui-run-console.md)
 - [Planfiles](docs/planfiles.md)
+- [Plan Check](docs/plan-check.md)
+- [Plan Library](docs/plan-library.md)
+- [Plan Builder to Run Console](docs/plan-builder-run-handoff.md)
+- [Shareable Planfiles](docs/shareable-planfiles.md)
+- [Plan Templates](docs/plan-templates.md)
 - [Repository Plan-to-Patch](docs/repository-plan-to-patch.md)
 - [Research Pack](docs/research-pack.md)
 - [Artifacts](docs/artifacts.md)

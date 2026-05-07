@@ -4,6 +4,8 @@ import { z } from "zod";
 import { stableHash } from "../util/hash.js";
 import { Planfile } from "./planfile-schema.js";
 import { canonicalPlanDigest } from "./planfile-validator.js";
+import { runPlanCheck } from "./plan-check.js";
+import { type PlanCheckReport, planCheckBlocksRun } from "./plan-check-report.js";
 
 export const ScheduleRecord = z.object({
   schedule_id: z.string().min(1),
@@ -21,6 +23,21 @@ export const ScheduleRecord = z.object({
 }).strict();
 
 export type ScheduleRecord = z.infer<typeof ScheduleRecord>;
+
+export type CheckAndCreateScheduleResult =
+  | {
+    readonly status: "blocked";
+    readonly schedule_created: false;
+    readonly plan_check_report: PlanCheckReport;
+    readonly message: string;
+  }
+  | {
+    readonly status: "created";
+    readonly schedule_created: true;
+    readonly plan_check_report: PlanCheckReport;
+    readonly schedule: ScheduleRecord;
+    readonly message: string;
+  };
 
 export function createScheduleRecord(input: {
   readonly planfile: unknown;
@@ -52,6 +69,27 @@ export function createScheduleRecord(input: {
   });
   writeScheduleRecord(record, input.index_path);
   return record;
+}
+
+export function checkAndCreateScheduleRecord(input: Parameters<typeof createScheduleRecord>[0]): CheckAndCreateScheduleResult {
+  const now = input.now ?? new Date().toISOString();
+  const report = runPlanCheck({ planfile: input.planfile, live: true, now });
+  if (planCheckBlocksRun(report)) {
+    return {
+      status: "blocked",
+      schedule_created: false,
+      plan_check_report: report,
+      message: `Plan Check blocked schedule creation: ${report.status}.`,
+    };
+  }
+  const schedule = createScheduleRecord({ ...input, now });
+  return {
+    status: "created",
+    schedule_created: true,
+    plan_check_report: report,
+    schedule,
+    message: "Schedule saved for manual run. Automatic scheduling is not implemented yet.",
+  };
 }
 
 export function listScheduleRecords(indexPath = defaultScheduleIndexPath()): ScheduleRecord[] {

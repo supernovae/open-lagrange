@@ -42,6 +42,10 @@ export const ArtifactKind = z.enum([
   "regenerated_planfile",
   "validation_report",
   "simulation_report",
+  "plan_check_report",
+  "plan_library_manifest",
+  "plan_template",
+  "saved_planfile",
 ]);
 
 export const ArtifactRole = z.enum(["primary_output", "supporting_evidence", "debug_log", "intermediate", "superseded"]);

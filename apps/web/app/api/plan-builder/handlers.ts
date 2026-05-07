@@ -1,5 +1,5 @@
 import { listModelRouteConfigs } from "@open-lagrange/core/evals";
-import { acceptDefaultAnswers, answerQuestion, composeInitialPlan, createRunFromBuilderSession, createScheduleRecord, diffPlanfileMarkdown, getPlanBuilderSession, importBuilderPlanfileFromMarkdown, reconcilePlanfileMarkdown, renderPlanfileMarkdown, revisePlan, saveReadyPlanfile, simulatePlan, stabilizePlan, updateBuilderPlanfileFromMarkdown, validatePlan, type RuntimeProfileForComposition } from "@open-lagrange/core/planning";
+import { acceptDefaultAnswers, answerQuestion, checkAndCreateRunFromBuilderSession, checkAndCreateScheduleRecord, composeInitialPlan, diffPlanfileMarkdown, getPlanBuilderSession, importBuilderPlanfileFromMarkdown, reconcilePlanfileMarkdown, renderPlanfileMarkdown, revisePlan, runPlanCheck, saveBuilderSessionToLibrary, saveReadyPlanfile, simulatePlan, stabilizePlan, updateBuilderPlanfileFromMarkdown, validatePlan, type RuntimeProfileForComposition } from "@open-lagrange/core/planning";
 import { getCurrentProfile } from "@open-lagrange/runtime-manager";
 import { z } from "zod";
 import { HttpError } from "../http";
@@ -23,10 +23,12 @@ export const RevisePayload = z.object({
 
 export const SavePayload = z.object({
   output_path: z.string().min(1),
+  library: z.string().min(1).optional(),
+  library_path: z.string().min(1).optional(),
 }).strict();
 
 export const RunPayload = z.object({
-  live: z.boolean().default(false),
+  live: z.boolean().default(true),
 }).strict();
 
 export const SchedulePayload = z.object({
@@ -106,21 +108,36 @@ export function savePlanBuilderPlanfile(sessionId: string, raw: unknown): unknow
       message: "Answer blocking questions or validate the Plan Builder session before saving.",
     });
   }
-  return saveReadyPlanfile(session, payload.output_path);
+  const saved = saveReadyPlanfile(session, payload.output_path);
+  const library = payload.library_path ? saveBuilderSessionToLibrary({
+    session_id: sessionId,
+    path: payload.library_path,
+    ...(payload.library ? { library: payload.library } : {}),
+  }) : undefined;
+  return { saved, ...(library ? { library } : {}) };
 }
 
 export async function runPlanBuilderPlanfile(sessionId: string, raw: unknown): Promise<unknown> {
   const payload = RunPayload.parse(raw);
-  requireReadySession(sessionId);
-  return createRunFromBuilderSession({ session_id: sessionId, live: payload.live });
+  const session = requireReadySession(sessionId);
+  const plan_check_report = runPlanCheck({ planfile: session.current_planfile, live: true, runtime_profile: await planningRuntimeProfile() });
+  if (plan_check_report.status === "invalid" || plan_check_report.status === "unsafe" || plan_check_report.status === "missing_requirements") {
+    return {
+      status: "blocked",
+      run_created: false,
+      plan_check_report,
+      message: `Plan Check blocked run creation: ${plan_check_report.status}.`,
+    };
+  }
+  return checkAndCreateRunFromBuilderSession({ session_id: sessionId, live: payload.live });
 }
 
-export function schedulePlanBuilderPlanfile(sessionId: string, raw: unknown): unknown {
+export async function schedulePlanBuilderPlanfile(sessionId: string, raw: unknown): Promise<unknown> {
   const payload = SchedulePayload.parse(raw);
   const session = requireReadySession(sessionId);
   const path = `.open-lagrange/plans/${session.current_planfile.plan_id}.plan.md`;
   saveReadyPlanfile(session, path);
-  return createScheduleRecord({
+  return checkAndCreateScheduleRecord({
     planfile: session.current_planfile,
     planfile_path: path,
     cadence: payload.cadence,

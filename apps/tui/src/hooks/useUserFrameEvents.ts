@@ -4,7 +4,7 @@ import { explainSystem, getCapabilitiesSummary, routeIntent } from "@open-lagran
 import { listDemos, runDemo } from "@open-lagrange/core/demos";
 import type { DemoRunResult } from "@open-lagrange/core/demos";
 import { inspectPack } from "@open-lagrange/core/packs";
-import { acceptDefaultAnswers, answerQuestion, composeInitialPlan, composePlanfileFromIntent, createRunFromBuilderSession, derivePlanRequirements, diffPlanfileMarkdown, getPlanBuilderSession, importBuilderPlanfileFromMarkdown, listPlanBuilderSessions, listPlanLibrary, listScheduleRecords, parsePlanfileMarkdown, parsePlanfileYaml, reconcilePlanfileMarkdown, renderPlanfileMarkdown, resumeRun, retryRunNode, saveReadyPlanfile, simulatePlan, updateBuilderPlanfileFromMarkdown, validatePlan, validatePlanfile, withCanonicalPlanDigest } from "@open-lagrange/core/planning";
+import { acceptDefaultAnswers, answerQuestion, checkAndCreateRunFromBuilderSession, checkAndCreateRunFromPlanfile, composeInitialPlan, composePlanfileFromIntent, diffPlanfileMarkdown, getPlanBuilderSession, importBuilderPlanfileFromMarkdown, listPlanBuilderSessions, listPlanLibraries, listPlanLibraryPlans, listScheduleRecords, parsePlanfileMarkdown, parsePlanfileYaml, planCheckBlocksRun, reconcilePlanfileMarkdown, renderPlanfileMarkdown, resumeRun, retryRunNode, runPlanCheck, saveReadyPlanfile, simulatePlan, updateBuilderPlanfileFromMarkdown, validatePlan, validatePlanfile, withCanonicalPlanDigest } from "@open-lagrange/core/planning";
 import { buildRunSnapshot } from "@open-lagrange/core/runs";
 import { runResearchBriefCommand, runResearchExportCommand, runResearchFetchCommand, runResearchSearchCommand, runResearchSummarizeUrlCommand, type ResearchCommandResult } from "@open-lagrange/core/research";
 import { buildGeneratedPackFromMarkdown, generateSkillFrame, generateWorkflowSkill, parseSkillfileMarkdown } from "@open-lagrange/core/skills";
@@ -140,23 +140,28 @@ async function submitLocalOrRemoteEvent(event: TuiUserFrameEvent): Promise<UserF
   if (event.type === "plan_builder.run") {
     const session = requireBuilderSession(event.session_id);
     if (!session.current_planfile || (session.status !== "ready" && session.status !== "approved")) return { status: "failed", message: `Plan Builder session is not ready: ${session.session_id}` };
-    const result = await createRunFromBuilderSession({ session_id: session.session_id, live: event.live });
-    return { status: "completed", message: `Run created: ${result.run_id}`, output: result };
+    const result = await checkAndCreateRunFromBuilderSession({ session_id: session.session_id, live: true });
+    return { status: result.status === "blocked" ? "failed" : "completed", message: runCreationMessage(result), output: result };
   }
   if (event.type === "plan.check") {
     const planfile = withCanonicalPlanDigest(await loadLocalPlanfile(event.planfile));
     const profile = await getCurrentProfile().catch(() => undefined);
-    const validation = validatePlanfile(planfile);
-    const requirements = derivePlanRequirements({ planfile, ...(profile ? { runtime_profile: profile } : {}) });
+    const report = runPlanCheck({ planfile, live: true, ...(profile ? { runtime_profile: profile } : {}) });
     return {
-      status: validation.ok && !hasMissingRequirements(requirements) ? "completed" : "failed",
-      message: planCheckMessage(planfile.plan_id, validation.ok, requirements),
-      output: { validation, requirements },
+      status: planCheckBlocksRun(report) ? "failed" : "completed",
+      message: planCheckReportMessage(report),
+      output: { plan_check_report: report },
     };
   }
   if (event.type === "plan.library") {
-    const plans = listPlanLibrary();
-    return { status: "completed", message: planLibraryMessage(plans), output: { plans } };
+    const libraries = listPlanLibraries();
+    const plans = listPlanLibraryPlans();
+    return { status: "completed", message: planLibraryMessage(plans), output: { libraries, plans } };
+  }
+  if (event.type === "plan.apply") {
+    const planfile = withCanonicalPlanDigest(await loadLocalPlanfile(event.planfile));
+    const result = await checkAndCreateRunFromPlanfile({ planfile, live: true });
+    return { status: result.status === "blocked" ? "failed" : "completed", message: runCreationMessage(result), output: result };
   }
   if (event.type === "doctor.run") return { status: "completed", message: "Doctor checks completed.", output: await runDoctor() };
   if (event.type === "status.show") return { status: "completed", message: "Runtime status loaded.", output: await (await createPlatformClientFromCurrentProfile()).getRuntimeStatus() };
@@ -467,28 +472,35 @@ async function readPlanfileEditMarkdown(path: string): Promise<string> {
   return text;
 }
 
-function hasMissingRequirements(report: ReturnType<typeof derivePlanRequirements>): boolean {
-  return report.missing_packs.length > 0
-    || report.missing_providers.length > 0
-    || report.missing_credentials.length > 0
-    || report.missing_permissions.length > 0;
-}
-
-function planCheckMessage(planId: string, validationOk: boolean, requirements: ReturnType<typeof derivePlanRequirements>): string {
+function runCreationMessage(result: Awaited<ReturnType<typeof checkAndCreateRunFromPlanfile>>): string {
+  if (result.status === "blocked") {
+    return [
+      `Plan Check blocked run creation: ${result.plan_check_report.status}`,
+      ...result.plan_check_report.suggested_actions.map((action) => `- ${action.label}${action.command ? `: ${action.command}` : ""}`),
+    ].join("\n");
+  }
   return [
-    `Plan check: ${planId}`,
-    `Validation: ${validationOk ? "passed" : "failed"}`,
-    `Portability: ${requirements.portability_level}`,
-    `Required packs: ${lineList(requirements.required_packs)}`,
-    `Required providers: ${lineList(requirements.required_providers)}`,
-    `Missing providers: ${lineList(requirements.missing_providers)}`,
-    `Approvals: ${lineList(requirements.approval_requirements)}`,
-    `Side effects: ${lineList(requirements.side_effects)}`,
-    ...(requirements.suggested_commands.length > 0 ? ["", "Suggested commands:", ...requirements.suggested_commands.map((command) => `- ${command}`)] : []),
+    `Run created: ${result.run_id}`,
+    `Status: ${result.snapshot.status}`,
+    `Watch: open-lagrange run watch ${result.run_id}`,
+    `Inspect: open-lagrange run status ${result.run_id}`,
   ].join("\n");
 }
 
-function planLibraryMessage(plans: ReturnType<typeof listPlanLibrary>): string {
+function planCheckReportMessage(report: ReturnType<typeof runPlanCheck>): string {
+  return [
+    `Plan Check: ${report.plan_id}`,
+    `Status: ${report.status}`,
+    `Portability: ${report.portability}`,
+    `Required packs: ${lineList(report.required_packs.map((item) => `${item.id}:${item.status}`))}`,
+    `Required providers: ${lineList(report.required_providers.map((item) => `${item.id}:${item.status}`))}`,
+    `Required credentials: ${lineList(report.required_credentials.map((item) => `${item.id}:${item.status}`))}`,
+    `Approvals: ${lineList(report.approval_requirements.map((item) => item.label))}`,
+    ...(report.suggested_actions.length > 0 ? ["", "Next actions:", ...report.suggested_actions.map((action) => `- ${action.label}${action.command ? `: ${action.command}` : ""}`)] : []),
+  ].join("\n");
+}
+
+function planLibraryMessage(plans: ReturnType<typeof listPlanLibraryPlans>): string {
   return [
     `Plan Library: ${plans.length} plan(s)`,
     "",

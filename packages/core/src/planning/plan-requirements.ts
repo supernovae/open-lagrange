@@ -43,11 +43,24 @@ export interface DerivePlanRequirementsInput {
 }
 
 export function derivePlanRequirements(input: DerivePlanRequirementsInput): PlanRequirementsReport {
-  const requiredPacks = unique(input.planfile.nodes.flatMap((node) => node.allowed_capability_refs.map(packForCapability).filter(isString)));
-  const requiredProviders = requiredProviderKinds(input.planfile);
-  const requiredCredentials = requiredCredentialNames(input.planfile);
-  const permissions = unique(input.planfile.nodes.flatMap(nodePermissions));
-  const approvalRequirements = unique(input.planfile.nodes.flatMap((node) => node.approval_required ? [`${node.id}: ${node.risk_level}`] : []));
+  const explicit = input.planfile.requirements;
+  const requiredPacks = unique([
+    ...input.planfile.nodes.flatMap((node) => node.allowed_capability_refs.map(packForCapability).filter(isString)),
+    ...(explicit?.packs ?? []).filter((item) => item.required !== false).map((item) => item.id),
+  ]);
+  const requiredProviders = unique([
+    ...requiredProviderKinds(input.planfile),
+    ...(explicit?.providers ?? []).filter((item) => item.required !== false).map((item) => item.id),
+  ]);
+  const requiredCredentials = unique([
+    ...requiredCredentialNames(input.planfile),
+    ...(explicit?.credentials ?? []).filter((item) => item.required !== false).map((item) => item.ref),
+  ]);
+  const permissions = unique([...input.planfile.nodes.flatMap(nodePermissions), ...(explicit?.permissions ?? [])]);
+  const approvalRequirements = unique([
+    ...input.planfile.nodes.flatMap((node) => node.approval_required ? [`${node.id}: ${node.risk_level}`] : []),
+    ...(explicit?.approvals ?? []),
+  ]);
   const sideEffects = unique(input.planfile.nodes.map(nodeSideEffect).filter(isString));
   const missingPacks = missingPacksFor(requiredPacks, input.available_packs);
   const missingProviders = missingProvidersFor(requiredProviders, input.runtime_profile);

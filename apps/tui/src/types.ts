@@ -4,7 +4,7 @@ import type { TaskStatusSnapshot } from "@open-lagrange/core/interface";
 import type { RunSnapshot } from "@open-lagrange/core/runs";
 import type { ActiveObject } from "./state/active-object.js";
 
-export type PaneId = "home" | "chat" | "timeline" | "tasks" | "plan" | "run" | "approvals" | "diff" | "verification" | "review" | "artifact_json" | "demo" | "research" | "pack_builder" | "doctor" | "capabilities" | "help";
+export type PaneId = "home" | "chat" | "timeline" | "tasks" | "plan" | "plan_library" | "run" | "approvals" | "diff" | "verification" | "review" | "artifact_json" | "demo" | "research" | "pack_builder" | "doctor" | "capabilities" | "help";
 export type InputMode = "chat" | "command" | "approval_reason" | "rejection_reason" | "scope_adjustment";
 export type RunConnectionState = "connected" | "reconnecting" | "polling fallback" | "disconnected";
 
@@ -101,6 +101,24 @@ export interface SkillViewSummary {
   readonly planfile_template?: string;
 }
 
+export interface PlanLibraryViewSummary {
+  readonly libraries: readonly {
+    readonly name: string;
+    readonly path: string;
+    readonly source: string;
+    readonly plan_count?: number;
+  }[];
+  readonly plans: readonly {
+    readonly name: string;
+    readonly path: string;
+    readonly title?: string;
+    readonly summary?: string;
+    readonly plan_id?: string;
+    readonly portability_level?: string;
+  }[];
+  readonly plan_check_report?: unknown;
+}
+
 export interface TuiViewModel {
   readonly project?: ProjectRunStatus;
   readonly activeTask?: TaskStatusSnapshot;
@@ -111,6 +129,7 @@ export interface TuiViewModel {
   readonly changedFiles: readonly ChangedFileSummary[];
   readonly verificationResults: readonly VerificationResultSummary[];
   readonly plan?: PlanViewSummary;
+  readonly planLibrary?: PlanLibraryViewSummary;
   readonly run?: RunSnapshot;
   readonly runConnectionState?: RunConnectionState;
   readonly skill?: SkillViewSummary;

@@ -14,6 +14,23 @@ A template defines:
 
 Templates let users avoid knowing capability names or DAG structure while still producing explicit Planfiles.
 
+## Instantiation
+
+Parameterized Planfiles can be rendered locally:
+
+```bash
+open-lagrange plan instantiate templates/brief.plan.md \
+  --param topic="open source container security" \
+  --param max_sources=8 \
+  --write .open-lagrange/plans/container-security.plan.md
+```
+
+Template replacement supports `${key}` and `{{key}}` placeholders. The result should be checked before running:
+
+```bash
+open-lagrange plan check .open-lagrange/plans/container-security.plan.md
+```
+
 ## Current Templates
 
 `research.topic_brief` creates a cited Markdown brief from bounded provider-backed source discovery.
@@ -24,4 +41,4 @@ Templates let users avoid knowing capability names or DAG structure while still 
 
 ## Pack Author Guidance
 
-Templates should reference only real capabilities provided by installed packs. They should not reference fixture or mock behavior for live workflows. Inputs should be bounded and should make side effects visible in the rendered Planfile.
+Templates should reference only real capabilities provided by installed packs. Inputs should be bounded and should make side effects visible in the rendered Planfile.

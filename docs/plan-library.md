@@ -1,28 +1,45 @@
 # Plan Library
 
-Open Lagrange looks for local Planfiles in:
+The Plan Library stores reusable Planfiles as plain local files.
 
-- `.open-lagrange/plans`
-- `~/.open-lagrange/plans`
+Default libraries:
 
-List known plans:
+- workspace: `.open-lagrange/plans`
+- personal: `~/.open-lagrange/plans`
+
+Each library can include `open-lagrange-plans.yaml`:
+
+```yaml
+schema_version: open-lagrange.plan-library.v1
+name: personal
+description: Personal reusable Open Lagrange plans
+plans:
+  - path: research/daily-container-security.plan.md
+    tags:
+      - research
+      - security
+      - daily
+```
+
+## Commands
 
 ```bash
 open-lagrange plan library list
+open-lagrange plan library add team ./team-plans
+open-lagrange plan library show team
+open-lagrange plan library plans team
+open-lagrange plan library remove team
+open-lagrange plan save path/to/work.plan.md --library workspace --path research/work.plan.md
+open-lagrange plan save-builder <session_id> --library workspace --path research/work.plan.md
 ```
 
-Add a named entry to the workspace manifest:
+`plan library sync` refreshes local discovery. Git-backed sync is not implemented yet. Use a local cloned directory and run git manually.
+
+## Run From Library
 
 ```bash
-open-lagrange plan library add daily-security .open-lagrange/plans/daily-security.plan.md
+open-lagrange plan check daily-brief --library workspace
+open-lagrange plan run daily-brief --library workspace
 ```
 
-The manifest file is `open-lagrange-plans.yaml`.
-
-Instantiate a simple local template:
-
-```bash
-open-lagrange plan instantiate templates/brief.plan.md --param topic=security --write .open-lagrange/plans/security.plan.md
-```
-
-Template replacement supports `${key}` and `{{key}}` placeholders. Git-backed sync is intentionally left as a future extension; the current command refreshes local library listings.
+Run creation always passes through Plan Check and opens the Durable Run surface.

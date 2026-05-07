@@ -13,6 +13,7 @@ import { HelpPane } from "./HelpPane.js";
 import { HomeMode } from "../modes/HomeMode.js";
 import { ChatMode } from "../modes/ChatMode.js";
 import { PlanMode } from "../modes/PlanMode.js";
+import { PlanLibraryMode } from "../modes/PlanLibraryMode.js";
 import { RunMode } from "../modes/RunMode.js";
 import { ReviewMode } from "../modes/ReviewMode.js";
 import { PackMode } from "../modes/PackMode.js";
@@ -51,6 +52,7 @@ function content(model: TuiViewModel): React.ReactElement {
   if (model.selectedPane === "timeline") return <TimelinePane items={model.timeline} />;
   if (model.selectedPane === "tasks") return <TaskListPane tasks={model.project?.task_statuses ?? []} />;
   if (model.selectedPane === "plan") return <PlanMode model={model} />;
+  if (model.selectedPane === "plan_library") return <PlanLibraryMode model={model} />;
   if (model.selectedPane === "run") return <RunMode model={model} />;
   if (model.selectedPane === "approvals") return <ApprovalPane approvals={model.approvals} />;
   if (model.selectedPane === "diff") return <DiffViewer model={model} />;
