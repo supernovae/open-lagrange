@@ -11,7 +11,7 @@ describe("run API handlers", () => {
       run_id: expect.stringMatching(/^plan_/),
       snapshot: {
         plan_id: "web_run_plan",
-        status: "pending",
+        status: "queued",
       },
     });
   });

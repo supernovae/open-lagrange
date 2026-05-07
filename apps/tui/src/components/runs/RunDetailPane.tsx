@@ -17,7 +17,7 @@ export function RunDetailPane({ run }: { readonly run: RunSnapshot | undefined }
           <Text>Approvals: {active.approval_refs.length}</Text>
         </>
       ) : <Text color={theme.muted}>No selected step.</Text>}
-      {(run?.errors ?? []).slice(0, 4).map((error) => <Text key={error.error_id} color={theme.error}>{error.node_id ? `${error.node_id}: ` : ""}{error.message}</Text>)}
+      {(run?.errors ?? []).slice(0, 4).map((error, index) => <Text key={`${error.code}:${index}`} color={theme.error}>{error.task_id ? `${error.task_id}: ` : ""}{error.message}</Text>)}
     </Box>
   );
 }

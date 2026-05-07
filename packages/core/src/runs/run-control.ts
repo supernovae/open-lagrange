@@ -1,20 +1,32 @@
 import { z } from "zod";
 import { RunSnapshot } from "./run-snapshot.js";
+import { NodeAttempt as NodeAttemptSchema, RetryReplayMode, apiReplayMode, type NodeAttempt as NodeAttemptType } from "./node-attempt.js";
+import { DurableRunStatus, RunRuntime } from "./run.js";
 
-export const ReplayMode = z.enum(["reuse-artifacts", "refresh-artifacts", "force-new-idempotency-key"]);
-export type ReplayMode = z.infer<typeof ReplayMode>;
+export { apiReplayMode, cliReplayMode } from "./node-attempt.js";
+export type { ReplayMode, RetryReplayMode } from "./node-attempt.js";
 
 export const RunExecutionRecord = z.object({
   run_id: z.string().min(1),
   plan_id: z.string().min(1),
-  status: z.enum(["pending", "running", "completed", "failed", "yielded", "cancel_requested", "cancelled"]),
+  plan_digest: z.string().min(1),
+  plan_title: z.string().min(1).optional(),
+  runtime: RunRuntime,
+  profile_name: z.string().min(1).optional(),
+  status: DurableRunStatus,
   planfile: z.unknown(),
   hatchet_run_id: z.string().min(1).optional(),
   output_dir: z.string().min(1).optional(),
-  cancel_requested_at: z.string().datetime().optional(),
   last_continuation_id: z.string().min(1).optional(),
   created_at: z.string().datetime(),
   updated_at: z.string().datetime(),
+  started_at: z.string().datetime().optional(),
+  completed_at: z.string().datetime().optional(),
+  active_node_id: z.string().min(1).optional(),
+  artifact_refs: z.array(z.string().min(1)).default([]),
+  approval_refs: z.array(z.string().min(1)).default([]),
+  model_call_refs: z.array(z.string().min(1)).default([]),
+  error_refs: z.array(z.string().min(1)).default([]),
 }).strict();
 
 export const RunContinuationRecord = z.object({
@@ -23,23 +35,8 @@ export const RunContinuationRecord = z.object({
   kind: z.enum(["resume", "retry", "cancel"]),
   status: z.enum(["queued", "running", "completed", "failed"]),
   node_id: z.string().min(1).optional(),
-  replay_mode: ReplayMode.optional(),
+  replay_mode: RetryReplayMode.optional(),
   hatchet_run_id: z.string().min(1).optional(),
-  created_at: z.string().datetime(),
-  updated_at: z.string().datetime(),
-}).strict();
-
-export const NodeAttempt = z.object({
-  attempt_id: z.string().min(1),
-  run_id: z.string().min(1),
-  node_id: z.string().min(1),
-  replay_mode: ReplayMode,
-  idempotency_key: z.string().min(1),
-  input_artifact_refs: z.array(z.string()),
-  output_artifact_refs: z.array(z.string()),
-  previous_attempt_id: z.string().min(1).optional(),
-  policy_report: z.unknown().optional(),
-  status: z.enum(["queued", "running", "completed", "failed", "yielded"]),
   created_at: z.string().datetime(),
   updated_at: z.string().datetime(),
 }).strict();
@@ -59,7 +56,7 @@ export const RunUiState = z.object({
 
 export type RunExecutionRecord = z.infer<typeof RunExecutionRecord>;
 export type RunContinuationRecord = z.infer<typeof RunContinuationRecord>;
-export type NodeAttempt = z.infer<typeof NodeAttempt>;
+export type NodeAttempt = NodeAttemptType;
 export type RunUiState = z.infer<typeof RunUiState>;
 
 export interface RunControlStore {
@@ -96,7 +93,7 @@ export const inMemoryRunControlStore: RunControlStore = {
     return continuations.get(continuationId);
   },
   async recordNodeAttempt(attempt) {
-    const parsed = NodeAttempt.parse(attempt);
+    const parsed = NodeAttemptSchema.parse(attempt);
     const items = attempts.get(parsed.run_id) ?? [];
     attempts.set(parsed.run_id, [...items.filter((item) => item.attempt_id !== parsed.attempt_id), parsed]);
     return parsed;
@@ -116,7 +113,7 @@ export const inMemoryRunControlStore: RunControlStore = {
 };
 
 export const RunRetryRequest = z.object({
-  replay_mode: ReplayMode,
+  replay_mode: z.preprocess((value) => typeof value === "string" ? apiReplayMode(value) : value, RetryReplayMode),
 }).strict();
 
 export type RunRetryRequest = z.infer<typeof RunRetryRequest>;
@@ -126,8 +123,6 @@ export function runUiStateKey(runId: string, sessionKey: string): string {
 }
 
 export function snapshotStatusFromExecution(record: RunExecutionRecord): z.infer<typeof RunSnapshot>["status"] {
-  if (record.status === "cancel_requested") return "yielded";
-  if (record.status === "cancelled") return "failed";
   return record.status;
 }
 

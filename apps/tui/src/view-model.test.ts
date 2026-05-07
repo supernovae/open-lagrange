@@ -237,6 +237,7 @@ describe("TUI view model", () => {
           title: "Node 1",
           kind: "inspect",
           status: "running",
+          attempts: [],
           capability_refs: [],
           artifact_refs: [],
           error_refs: [],

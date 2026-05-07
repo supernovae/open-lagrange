@@ -28,7 +28,7 @@ It is built for workflows where “the model said so” is not enough.
 Open Lagrange is organized around five core objects:
 
 - **Plans** are reusable, reviewable Planfiles.
-- **Runs** are executions of a Planfile.
+- **Runs** are durable executions of a Planfile and the canonical visible execution surface.
 - **Packs** provide validated capabilities.
 - **Artifacts** are durable outputs and evidence.
 - **Profiles/Providers** configure where work runs and which model/search services are available.

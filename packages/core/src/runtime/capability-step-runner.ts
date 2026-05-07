@@ -10,6 +10,7 @@ import type { PlanState, PlanStateStore } from "../planning/plan-state.js";
 import { PlanState as PlanStateSchema } from "../planning/plan-state.js";
 import type { PlanArtifactRef } from "../planning/plan-artifacts.js";
 import type { ExecutionIntent } from "../schemas/open-cot.js";
+import type { StructuredError as StructuredErrorType } from "../schemas/open-cot.js";
 import { executionModeFromDryRun } from "./execution-mode.js";
 import { createRunEvent, type RunEvent } from "../runs/run-event.js";
 
@@ -70,8 +71,6 @@ export async function runCapabilityStep(
   });
   await emitRunEvent(options, input, "policy.evaluated", now, {
     capability_ref: input.capability_ref,
-    outcome: policy.result.outcome,
-    reason: policy.result.reason,
     policy_report: policy.report,
   });
   if (policy.result.outcome === "deny" || policy.result.outcome === "yield") {
@@ -309,8 +308,9 @@ async function finish(
   await emitRunEvent(options, input, result.status === "failed" ? "capability.failed" : "capability.completed", result.completed_at, {
     capability_ref: input.capability_ref,
     status: result.status,
-    output_artifact_refs: [...result.output_artifact_refs],
+    artifact_refs: [...result.output_artifact_refs],
     errors: result.structured_errors.map((error) => error.message),
+    structured_errors: result.structured_errors,
   });
   return result;
 }
@@ -418,17 +418,34 @@ async function emitRunEvent(
   ids: { readonly artifact_id?: string; readonly approval_id?: string; readonly model_call_artifact_id?: string } = {},
 ): Promise<void> {
   if (!options.run_id || !options.emit_run_event) return;
-  await options.emit_run_event(createRunEvent({
-    run_id: options.run_id,
-    plan_id: input.plan_id,
-    type,
-    timestamp,
-    node_id: input.node_id,
-    capability_ref: input.capability_ref,
-    trace_id: input.trace_id ?? input.delegation_context.trace_id,
-    ...(ids.artifact_id ? { artifact_id: ids.artifact_id } : {}),
-    ...(ids.approval_id ? { approval_id: ids.approval_id } : {}),
-    ...(ids.model_call_artifact_id ? { model_call_artifact_id: ids.model_call_artifact_id } : {}),
-    payload,
-  }));
+  const base = { run_id: options.run_id, plan_id: input.plan_id, timestamp };
+  const attempt_id = attemptId(input);
+  if (type === "capability.started") await options.emit_run_event(createRunEvent({ ...base, type, node_id: input.node_id, attempt_id, capability_ref: input.capability_ref }));
+  else if (type === "capability.completed") await options.emit_run_event(createRunEvent({ ...base, type, node_id: input.node_id, attempt_id, capability_ref: input.capability_ref, artifact_refs: stringArray(payload.artifact_refs) }));
+  else if (type === "capability.failed") await options.emit_run_event(createRunEvent({ ...base, type, node_id: input.node_id, attempt_id, capability_ref: input.capability_ref, errors: structuredErrorArray(payload.structured_errors) }));
+  else if (type === "policy.evaluated") await options.emit_run_event(createRunEvent({ ...base, type, node_id: input.node_id, capability_ref: input.capability_ref, decision: policyDecision(payload.policy_report), ...(payload.policy_report ? { policy_report: payload.policy_report as never } : {}) }));
+  else if (type === "approval.requested" && ids.approval_id) await options.emit_run_event(createRunEvent({ ...base, type, node_id: input.node_id, approval_id: ids.approval_id }));
+  else if (type === "artifact.created" && ids.artifact_id) await options.emit_run_event(createRunEvent({ ...base, type, node_id: input.node_id, artifact_id: ids.artifact_id, kind: "capability_step_result" }));
+  else if (type === "model_call.completed" && ids.model_call_artifact_id) await options.emit_run_event(createRunEvent({ ...base, type, node_id: input.node_id, artifact_id: ids.model_call_artifact_id, role: stringField(payload.role) ?? "capability", model: stringField(payload.model) ?? "unknown" }));
+}
+
+function attemptId(input: CapabilityStepInputType): string {
+  return input.step_id?.startsWith("attempt_") ? input.step_id : `attempt_${input.plan_id}_${input.node_id}_initial`;
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item.length > 0) : [];
+}
+
+function structuredErrorArray(value: unknown): StructuredErrorType[] {
+  return (Array.isArray(value) ? value.filter((item): item is StructuredErrorType => Boolean(item && typeof item === "object" && "message" in item && "code" in item && "observed_at" in item)) : []);
+}
+
+function policyDecision(value: unknown): string {
+  if (value && typeof value === "object" && typeof (value as { readonly decision?: unknown }).decision === "string") return (value as { readonly decision: string }).decision;
+  return "unknown";
+}
+
+function stringField(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
 }

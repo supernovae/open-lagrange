@@ -12,6 +12,8 @@ import { validatePlanfile, withCanonicalPlanDigest } from "./planfile-validator.
 import { compileWorkOrder } from "./work-order-compiler.js";
 import type { WorkOrder } from "./work-order.js";
 import { createRunEvent, type RunEvent } from "../runs/run-event.js";
+import { deriveRunNextActions } from "../runs/run-next-action.js";
+import { structuredError } from "../reconciliation/records.js";
 
 export type PlanNodeHandler = (workOrder: WorkOrder, context: {
   readonly plan: Planfile;
@@ -69,8 +71,6 @@ export class PlanRunner {
     });
     const recorded = await this.options.store.recordPlanState(state);
     await this.emit("run.created", plan, undefined, {
-      plan_title: plan.goal_frame.interpreted_goal,
-      node_count: plan.nodes.length,
     });
     return recorded;
   }
@@ -107,8 +107,6 @@ export class PlanRunner {
     let state = await this.options.store.getPlanState(plan.plan_id) ?? await this.load(plan);
     const outputs: Record<string, unknown> = {};
     await this.emit("run.started", plan, undefined, {
-      plan_title: plan.goal_frame.interpreted_goal,
-      status: state.status,
     });
     for (let index = 0; index < plan.nodes.length + 2; index += 1) {
       const node = this.readyNodes(plan, state)[0];
@@ -141,11 +139,12 @@ export class PlanRunner {
       if (state.status === "completed" || state.status === "failed" || state.status === "yielded") break;
     }
     if (state.status === "completed") {
-      await this.emit("run.completed", plan, undefined, { status: state.status });
+      await this.emit("run.completed", plan, undefined, { artifact_refs: state.artifact_refs.map((artifact) => artifact.artifact_id) });
     } else if (state.status === "failed") {
-      await this.emit("run.failed", plan, undefined, { status: state.status });
+      await this.emit("run.failed", plan, undefined, { errors: state.node_states.flatMap((node) => node.errors.map((message) => structuredError({ code: "MCP_EXECUTION_FAILED", message, now: this.now(), task_id: node.node_id }))) });
     } else if (state.status === "yielded") {
-      await this.emit("run.yielded", plan, undefined, { status: state.status });
+      const activeNodeId = state.node_states.find((node) => node.status === "yielded")?.node_id;
+      await this.emit("run.yielded", plan, undefined, { reason: "Run yielded before completion.", next_actions: deriveRunNextActions({ run_id: this.options.run_id ?? plan.plan_id, status: "yielded", ...(activeNodeId ? { active_node_id: activeNodeId } : {}), approvals: [], artifacts: [], errors: state.node_states.flatMap((node) => node.errors.map((message) => ({ message }))) }) });
     }
     return { state, outputs };
   }
@@ -185,7 +184,10 @@ export class PlanRunner {
       status,
       title: node.title,
       kind: node.kind,
-      errors: [...errors],
+      artifact_refs: artifacts.map((artifact) => artifact.artifact_id),
+      errors: errors.map((message) => structuredError({ code: "MCP_EXECUTION_FAILED", message, now, task_id: node.id })),
+      reason: errors[0] ?? `Node ${status}.`,
+      next_actions: deriveRunNextActions({ run_id: this.options.run_id ?? plan.plan_id, status, active_node_id: node.id, approvals: [], artifacts: [], errors: errors.map((message) => ({ message })) }),
     });
     for (const artifact of artifacts) {
       await this.emit("artifact.created", plan, node, {
@@ -258,35 +260,72 @@ export class PlanRunner {
     await this.emit("node.started", plan, node, {
       title: node.title,
       kind: node.kind,
-      capability_refs: [...node.allowed_capability_refs],
     });
     await this.emitPhaseStarted(plan, node);
   }
 
   private async emitPhaseStarted(plan: Planfile, node: PlanNode): Promise<void> {
-    if (node.kind === "verify") await this.emit("verification.started", plan, node, { title: node.title });
-    if (node.kind === "repair") await this.emit("repair.started", plan, node, { title: node.title });
+    if (node.kind === "verify") await this.emit("verification.started", plan, node, { command_id: node.id });
+    if (node.kind === "repair") await this.emit("repair.started", plan, node, { repair_attempt: 1 });
   }
 
   private async emitPhaseCompleted(plan: Planfile, node: PlanNode, status: "completed" | "failed" | "yielded" | "skipped"): Promise<void> {
-    if (node.kind === "verify") await this.emit("verification.completed", plan, node, { title: node.title, status });
-    if (node.kind === "repair") await this.emit("repair.completed", plan, node, { title: node.title, status });
+    if (node.kind === "verify") await this.emit("verification.completed", plan, node, { command_id: node.id, passed: status === "completed" });
+    if (node.kind === "repair") await this.emit("repair.completed", plan, node, { repair_attempt: 1, status });
   }
 
   private async emit(type: RunEvent["type"], plan: Planfile, node?: PlanNode, payload: Record<string, unknown> = {}, ids: { readonly artifact_id?: string; readonly approval_id?: string; readonly model_call_artifact_id?: string } = {}): Promise<void> {
     if (!this.options.run_id || !this.options.emit_run_event) return;
-    await this.options.emit_run_event(createRunEvent({
-      run_id: this.options.run_id,
-      plan_id: plan.plan_id,
-      type,
-      timestamp: this.now(),
-      ...(node ? { node_id: node.id } : {}),
-      ...(ids.artifact_id ? { artifact_id: ids.artifact_id } : {}),
-      ...(ids.approval_id ? { approval_id: ids.approval_id } : {}),
-      ...(ids.model_call_artifact_id ? { model_call_artifact_id: ids.model_call_artifact_id } : {}),
-      payload,
-    }));
+    const base = { run_id: this.options.run_id, plan_id: plan.plan_id, timestamp: this.now() };
+    const attempt_id = node ? attemptId(plan, node) : undefined;
+    if (type === "run.created" || type === "run.started" || type === "run.cancelled") {
+      await this.options.emit_run_event(createRunEvent({ ...base, type, ...(type === "run.cancelled" && typeof payload.reason === "string" ? { reason: payload.reason } : {}) }));
+      return;
+    }
+    if (type === "run.completed") {
+      await this.options.emit_run_event(createRunEvent({ ...base, type, artifact_refs: stringArray(payload.artifact_refs) }));
+      return;
+    }
+    if (type === "run.failed") {
+      await this.options.emit_run_event(createRunEvent({ ...base, type, errors: structuredErrors(payload.errors) }));
+      return;
+    }
+    if (type === "run.yielded") {
+      await this.options.emit_run_event(createRunEvent({ ...base, type, reason: stringField(payload.reason) ?? "Run yielded.", next_actions: Array.isArray(payload.next_actions) ? payload.next_actions as never : [] }));
+      return;
+    }
+    if (!node || !attempt_id) return;
+    const nodeBase = { ...base, node_id: node.id, attempt_id, title: node.title };
+    if (type === "node.started") await this.options.emit_run_event(createRunEvent({ ...nodeBase, type }));
+    else if (type === "node.completed") await this.options.emit_run_event(createRunEvent({ ...nodeBase, type, artifact_refs: stringArray(payload.artifact_refs) }));
+    else if (type === "node.failed") await this.options.emit_run_event(createRunEvent({ ...nodeBase, type, errors: structuredErrors(payload.errors) }));
+    else if (type === "node.yielded") await this.options.emit_run_event(createRunEvent({ ...nodeBase, type, reason: stringField(payload.reason) ?? "Node yielded.", next_actions: Array.isArray(payload.next_actions) ? payload.next_actions as never : [] }));
+    else if (type === "artifact.created" && ids.artifact_id) await this.options.emit_run_event(createRunEvent({ ...base, type, node_id: node.id, artifact_id: ids.artifact_id, kind: stringField(payload.kind) ?? "capability_step_result" }));
+    else if (type === "verification.started") await this.options.emit_run_event(createRunEvent({ ...nodeBase, type, command_id: stringField(payload.command_id) ?? node.id }));
+    else if (type === "verification.completed") await this.options.emit_run_event(createRunEvent({ ...nodeBase, type, command_id: stringField(payload.command_id) ?? node.id, passed: Boolean(payload.passed), ...(stringField(payload.report_ref) ? { report_ref: stringField(payload.report_ref) } : {}) }));
+    else if (type === "repair.started") await this.options.emit_run_event(createRunEvent({ ...nodeBase, type, repair_attempt: numberField(payload.repair_attempt) ?? 1 }));
+    else if (type === "repair.completed") await this.options.emit_run_event(createRunEvent({ ...nodeBase, type, repair_attempt: numberField(payload.repair_attempt) ?? 1, status: stringField(payload.status) ?? "completed" }));
   }
+}
+
+function attemptId(plan: Planfile, node: PlanNode): string {
+  return `attempt_${plan.plan_id}_${node.id}_initial`;
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item.length > 0) : [];
+}
+
+function structuredErrors(value: unknown): ReturnType<typeof structuredError>[] {
+  return Array.isArray(value) ? value.filter((item): item is ReturnType<typeof structuredError> => Boolean(item && typeof item === "object" && "message" in item && "code" in item && "observed_at" in item)) : [];
+}
+
+function stringField(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function numberField(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isInteger(value) ? value : undefined;
 }
 
 function nodeEventForStatus(status: "completed" | "failed" | "yielded" | "skipped"): RunEvent["type"] {

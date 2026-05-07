@@ -5,7 +5,7 @@ import { createRunSummary, registerRun } from "../artifacts/run-index.js";
 import { createCapabilitySnapshotForTask } from "../capability-registry/registry.js";
 import { createMockDelegationContext } from "../clients/mock-delegation.js";
 import { listModelRouteConfigs } from "../evals/model-route-config.js";
-import { buildRunSnapshot, createRunEvent, ReplayMode, type ReplayMode as ReplayModeType, type RunSnapshot } from "../runs/index.js";
+import { apiReplayMode, buildRunSnapshot, createRunEvent, evaluateNodeReplayPolicy, type RetryReplayMode, type RunSnapshot } from "../runs/index.js";
 import type { SearchProviderConfig } from "../search/index.js";
 import { getStateStore } from "../storage/state-store.js";
 import { stableHash } from "../util/hash.js";
@@ -66,18 +66,8 @@ export async function applyPlanfile(input: ApplyPlanfileInput): Promise<PlanStat
     now,
   });
   const recorded = await store.recordPlanState(state);
-  await store.appendRunEvent({
-    event_id: `evt_${stableHash({ run_id: runId, type: "run.created", now }).slice(0, 20)}`,
-    run_id: runId,
-    plan_id: plan.plan_id,
-    type: "run.created",
-    timestamp: now,
-    payload: {
-      plan_title: plan.goal_frame.interpreted_goal,
-      node_count: plan.nodes.length,
-      mode: "dry_run",
-    },
-  });
+  await recordCanonicalRun({ run_id: runId, plan, status: "queued", runtime: "local_dev", now, ...(input.output_dir ? { output_dir: input.output_dir } : {}) });
+  await store.appendRunEvent(createRunEvent({ run_id: runId, plan_id: plan.plan_id, type: "run.created", timestamp: now }));
   return recorded;
 }
 
@@ -88,19 +78,11 @@ export async function createRunFromPlanfile(input: ApplyPlanfileInput): Promise<
   const plan = input.live === true ? liveExecutionPlan(basePlan, now) : basePlan;
   const runId = input.run_id ?? runIdForPlan(plan, now);
   if (input.live === true) {
-    const state = await prepareRunState({ plan, run_id: runId, now, mode: "live" });
-    const record = await getStateStore().recordRunExecution({
-      run_id: runId,
-      plan_id: plan.plan_id,
-      status: "pending",
-      planfile: plan,
-      ...(input.output_dir ? { output_dir: input.output_dir } : {}),
-      created_at: now,
-      updated_at: now,
-    });
+    const state = await prepareRunState({ plan, run_id: runId, now });
+    const record = await recordCanonicalRun({ run_id: runId, plan, status: "queued", runtime: "local_dev", now, ...(input.output_dir ? { output_dir: input.output_dir } : {}) });
     const hatchet = await submitPlanRunWorkflow(runId).catch(async () => undefined);
     if (hatchet) {
-      await getStateStore().recordRunExecution({ ...record, hatchet_run_id: hatchet, status: "running", updated_at: new Date().toISOString() });
+      await getStateStore().recordRunExecution({ ...record, hatchet_run_id: hatchet, runtime: "hatchet", status: "running", started_at: new Date().toISOString(), updated_at: new Date().toISOString() });
     } else {
       void executeStoredRun(runId).catch(() => undefined);
     }
@@ -138,37 +120,42 @@ export async function resumeRun(input: { readonly run_id: string; readonly now?:
   if (!record) return { run_id: input.run_id, status: "missing", message: "Run was not found." };
   const continuationId = `cont_${stableHash({ run_id: input.run_id, kind: "resume", now }).slice(0, 16)}`;
   await store.recordRunContinuation({ continuation_id: continuationId, run_id: input.run_id, kind: "resume", status: "queued", created_at: now, updated_at: now });
-  await store.appendRunEvent(createRunEvent({ run_id: input.run_id, plan_id: record.plan_id, type: "run.resume_requested", timestamp: now, payload: { continuation_id: continuationId } }));
   const hatchetRunId = await submitPlanRunContinuationWorkflow(continuationId).catch(async () => undefined);
   if (hatchetRunId) await store.recordRunContinuation({ continuation_id: continuationId, run_id: input.run_id, kind: "resume", status: "queued", hatchet_run_id: hatchetRunId, created_at: now, updated_at: new Date().toISOString() });
   else void executeRunContinuation(continuationId).catch(() => undefined);
   return actionResult({ run_id: input.run_id, status: "queued", continuation_id: continuationId, ...(hatchetRunId ? { hatchet_run_id: hatchetRunId } : {}), ...snapshotPatch(await buildRunSnapshot({ run_id: input.run_id })), message: "Run resume requested." });
 }
 
-export async function retryRunNode(input: { readonly run_id: string; readonly node_id: string; readonly replay_mode: ReplayModeType; readonly now?: string }): Promise<RunActionResult> {
-  const replayMode = ReplayMode.parse(input.replay_mode);
+export async function retryRunNode(input: { readonly run_id: string; readonly node_id: string; readonly replay_mode: RetryReplayMode | string; readonly now?: string }): Promise<RunActionResult> {
+  const replayMode = apiReplayMode(input.replay_mode);
   const now = input.now ?? new Date().toISOString();
   const store = getStateStore();
   const record = await store.getRunExecution(input.run_id);
   if (!record) return { run_id: input.run_id, status: "missing", message: "Run was not found." };
+  const plan = Planfile.parse(record.planfile);
+  const node = plan.nodes.find((candidate) => candidate.id === input.node_id);
+  if (!node) return { run_id: input.run_id, status: "missing", message: `Node was not found: ${input.node_id}` };
+  const policy = evaluateNodeReplayPolicy({ node, replay_mode: replayMode });
+  if (!policy.ok) return { run_id: input.run_id, status: "failed", message: policy.reason ?? "Retry replay policy denied the request." };
   const prior = (await store.listNodeAttempts(input.run_id, input.node_id)).at(-1);
+  const attemptNumber = (await store.listNodeAttempts(input.run_id, input.node_id)).length + 1;
   const attemptId = `attempt_${stableHash({ run_id: input.run_id, node_id: input.node_id, replay_mode: replayMode, now }).slice(0, 16)}`;
   const continuationId = `cont_${stableHash({ run_id: input.run_id, node_id: input.node_id, replay_mode: replayMode, now }).slice(0, 16)}`;
   await store.recordNodeAttempt({
     attempt_id: attemptId,
     run_id: input.run_id,
+    plan_id: record.plan_id,
     node_id: input.node_id,
+    attempt_number: attemptNumber,
     replay_mode: replayMode,
-    idempotency_key: replayMode === "force-new-idempotency-key" ? `${input.run_id}:${input.node_id}:${attemptId}` : `${input.run_id}:${input.node_id}:replay:${replayMode}`,
+    idempotency_key: replayMode === "force_new_idempotency_key" ? `${input.run_id}:${input.node_id}:${attemptId}` : `${input.run_id}:${input.node_id}:replay:${replayMode}`,
     input_artifact_refs: [],
     output_artifact_refs: [],
     ...(prior ? { previous_attempt_id: prior.attempt_id } : {}),
-    status: "queued",
-    created_at: now,
-    updated_at: now,
+    status: policy.requires_approval ? "requires_approval" : "running",
+    started_at: now,
   });
   await store.recordRunContinuation({ continuation_id: continuationId, run_id: input.run_id, kind: "retry", node_id: input.node_id, replay_mode: replayMode, status: "queued", created_at: now, updated_at: now });
-  await store.appendRunEvent(createRunEvent({ run_id: input.run_id, plan_id: record.plan_id, type: "run.retry_requested", timestamp: now, node_id: input.node_id, payload: { continuation_id: continuationId, attempt_id: attemptId, replay_mode: replayMode } }));
   const hatchetRunId = await submitPlanNodeReplayWorkflow(continuationId).catch(async () => undefined);
   if (hatchetRunId) await store.recordRunContinuation({ continuation_id: continuationId, run_id: input.run_id, kind: "retry", node_id: input.node_id, replay_mode: replayMode, status: "queued", hatchet_run_id: hatchetRunId, created_at: now, updated_at: new Date().toISOString() });
   else void executeRunContinuation(continuationId).catch(() => undefined);
@@ -181,9 +168,9 @@ export async function cancelRun(input: { readonly run_id: string; readonly now?:
   const record = await store.getRunExecution(input.run_id);
   if (!record) return { run_id: input.run_id, status: "missing", message: "Run was not found." };
   const continuationId = `cont_${stableHash({ run_id: input.run_id, kind: "cancel", now }).slice(0, 16)}`;
-  await store.recordRunExecution({ ...record, status: "cancel_requested", cancel_requested_at: now, last_continuation_id: continuationId, updated_at: now });
+  await store.recordRunExecution({ ...record, status: "cancelled", completed_at: now, last_continuation_id: continuationId, updated_at: now });
   await store.recordRunContinuation({ continuation_id: continuationId, run_id: input.run_id, kind: "cancel", status: "queued", created_at: now, updated_at: now });
-  await store.appendRunEvent(createRunEvent({ run_id: input.run_id, plan_id: record.plan_id, type: "run.cancel_requested", timestamp: now, payload: { continuation_id: continuationId } }));
+  await store.appendRunEvent(createRunEvent({ run_id: input.run_id, plan_id: record.plan_id, type: "run.cancelled", timestamp: now, reason: "Cancellation requested." }));
   const hatchetRunId = await submitPlanRunCancelWorkflow(continuationId).catch(async () => undefined);
   if (hatchetRunId) await store.recordRunContinuation({ continuation_id: continuationId, run_id: input.run_id, kind: "cancel", status: "queued", hatchet_run_id: hatchetRunId, created_at: now, updated_at: new Date().toISOString() });
   else await executeRunCancellation(continuationId);
@@ -194,11 +181,11 @@ export async function executeStoredRun(runId: string): Promise<RunSnapshot | und
   const store = getStateStore();
   const record = await store.getRunExecution(runId);
   if (!record) return undefined;
-  await store.recordRunExecution({ ...record, status: "running", updated_at: new Date().toISOString() });
+  await store.recordRunExecution({ ...record, status: "running", started_at: record.started_at ?? new Date().toISOString(), updated_at: new Date().toISOString() });
   await executeLiveLocalPlanfile({ plan: Planfile.parse(record.planfile), run_id: runId, now: new Date().toISOString(), ...(record.output_dir ? { output_dir: record.output_dir } : {}) });
   const snapshot = await buildRunSnapshot({ run_id: runId, planfile: Planfile.parse(record.planfile) });
   const latest = await store.getRunExecution(runId);
-  if (latest && snapshot) await store.recordRunExecution({ ...latest, status: snapshot.status, updated_at: new Date().toISOString() });
+  if (latest && snapshot) await store.recordRunExecution({ ...latest, status: snapshot.status, completed_at: snapshot.completed_at, artifact_refs: snapshot.artifacts.map((artifact) => artifact.artifact_id), approval_refs: snapshot.approvals.map((approval) => approval.approval_id), model_call_refs: snapshot.model_calls.map((call) => call.artifact_id), error_refs: snapshot.errors.map((error, index) => `${error.code}:${index}`), updated_at: new Date().toISOString() });
   return snapshot;
 }
 
@@ -219,7 +206,7 @@ export async function executeRunContinuation(continuationId: string): Promise<Ru
       ...state,
       status: "running",
       node_states: state.node_states.map((node) => resetNodeIds.includes(node.node_id)
-        ? resetPlanNodeState(node, node.node_id === continuation.node_id || continuation.kind === "resume" ? "ready" : "pending", continuation.replay_mode === "reuse-artifacts")
+        ? resetPlanNodeState(node, node.node_id === continuation.node_id || continuation.kind === "resume" ? "ready" : "pending", continuation.replay_mode === "reuse_artifacts")
         : node),
       updated_at: new Date().toISOString(),
     });
@@ -239,7 +226,7 @@ export async function executeRunCancellation(continuationId: string): Promise<Ru
   const now = new Date().toISOString();
   await store.recordRunExecution({ ...record, status: "cancelled", updated_at: now });
   await store.recordRunContinuation({ ...continuation, status: "completed", updated_at: now });
-  await store.appendRunEvent(createRunEvent({ run_id: record.run_id, plan_id: record.plan_id, type: "run.cancelled", timestamp: now, payload: { continuation_id: continuationId } }));
+  await store.appendRunEvent(createRunEvent({ run_id: record.run_id, plan_id: record.plan_id, type: "run.cancelled", timestamp: now, reason: "Run cancelled." }));
   return buildRunSnapshot({ run_id: record.run_id, planfile: Planfile.parse(record.planfile) });
 }
 
@@ -367,7 +354,33 @@ function snapshotPatch(snapshot: RunSnapshot | undefined): { readonly snapshot?:
   return snapshot ? { snapshot } : {};
 }
 
-async function prepareRunState(input: { readonly plan: PlanfileType; readonly run_id: string; readonly now: string; readonly mode: "live" | "dry_run" }): Promise<PlanState> {
+async function recordCanonicalRun(input: {
+  readonly run_id: string;
+  readonly plan: PlanfileType;
+  readonly status: "queued" | "running" | "requires_approval" | "yielded" | "failed" | "completed" | "cancelled";
+  readonly runtime: "hatchet" | "local_dev";
+  readonly output_dir?: string;
+  readonly now: string;
+}) {
+  return getStateStore().recordRunExecution({
+    run_id: input.run_id,
+    plan_id: input.plan.plan_id,
+    plan_digest: input.plan.canonical_plan_digest ?? stableHash(input.plan),
+    plan_title: input.plan.goal_frame.interpreted_goal,
+    runtime: input.runtime,
+    status: input.status,
+    planfile: input.plan,
+    ...(input.output_dir ? { output_dir: input.output_dir } : {}),
+    artifact_refs: [],
+    approval_refs: [],
+    model_call_refs: [],
+    error_refs: [],
+    created_at: input.now,
+    updated_at: input.now,
+  });
+}
+
+async function prepareRunState(input: { readonly plan: PlanfileType; readonly run_id: string; readonly now: string }): Promise<PlanState> {
   const snapshot = createCapabilitySnapshotForTask({
     allowed_capabilities: input.plan.nodes.flatMap((node) => node.allowed_capability_refs),
     allowed_scopes: ["research:read", "project:read"],
@@ -392,7 +405,6 @@ async function prepareRunState(input: { readonly plan: PlanfileType; readonly ru
     plan_id: input.plan.plan_id,
     type: "run.created",
     timestamp: input.now,
-    payload: { plan_title: input.plan.goal_frame.interpreted_goal, node_count: input.plan.nodes.length, mode: input.mode },
   }));
   return recorded;
 }

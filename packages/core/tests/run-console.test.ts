@@ -215,21 +215,21 @@ describe("run console event model", () => {
       now,
     });
     const events = [
-      event("run.created", "run_snapshot", "plan_snapshot", { plan_title: "Snapshot plan" }),
+      event("run.created", "run_snapshot", "plan_snapshot"),
       event("run.started", "run_snapshot", "plan_snapshot"),
-      event("node.started", "run_snapshot", "plan_snapshot", { title: "Node A", kind: "inspect" }, "node_a"),
-      event("approval.requested", "run_snapshot", "plan_snapshot", { reason: "Needs approval" }, "node_a", { approval_id: "approval_a" }),
-      event("artifact.created", "run_snapshot", "plan_snapshot", { artifact_id: "artifact_a" }, "node_a", { artifact_id: "artifact_a" }),
-      event("model_call.completed", "run_snapshot", "plan_snapshot", { title: "Planner call" }, "node_a", { model_call_artifact_id: "model_call_a" }),
-      event("node.yielded", "run_snapshot", "plan_snapshot", { message: "Waiting" }, "node_a"),
-      event("run.yielded", "run_snapshot", "plan_snapshot"),
+      event("node.started", "run_snapshot", "plan_snapshot", {}, "node_a"),
+      event("approval.requested", "run_snapshot", "plan_snapshot", {}, "node_a", { approval_id: "approval_a" }),
+      event("artifact.created", "run_snapshot", "plan_snapshot", { kind: "capability_step_result" }, "node_a", { artifact_id: "artifact_a" }),
+      event("model_call.completed", "run_snapshot", "plan_snapshot", { role: "planner", model: "test-model" }, "node_a", { artifact_id: "model_call_a" }),
+      event("node.yielded", "run_snapshot", "plan_snapshot", { reason: "Waiting" }, "node_a"),
+      event("run.yielded", "run_snapshot", "plan_snapshot", { reason: "Waiting" }),
     ];
 
     const snapshot = await buildRunSnapshot({ run_id: "run_snapshot", events, store });
 
     expect(snapshot?.active_node_id).toBe("node_a");
     expect(snapshot?.approvals[0]?.approval_id).toBe("approval_a");
-    expect(snapshot?.model_calls[0]?.model_call_artifact_id).toBe("model_call_a");
+    expect(snapshot?.model_calls[0]?.artifact_id).toBe("model_call_a");
     expect(snapshot?.next_actions.map((action) => action.action_type)).toEqual(expect.arrayContaining(["approve", "reject", "resume", "inspect_artifact"]));
   });
 
@@ -251,9 +251,9 @@ describe("run console event model", () => {
     const snapshot = await buildRunSnapshot({
       run_id: "run_builder_source",
       events: [
-        event("run.created", "run_builder_source", plan.plan_id, { plan_title: "Builder source plan" }),
-        event("node.yielded", "run_builder_source", plan.plan_id, { title: "Inspect", kind: "inspect" }, "inspect_output"),
-        event("run.yielded", "run_builder_source", plan.plan_id),
+        event("run.created", "run_builder_source", plan.plan_id),
+        event("node.yielded", "run_builder_source", plan.plan_id, { reason: "Waiting" }, "inspect_output"),
+        event("run.yielded", "run_builder_source", plan.plan_id, { reason: "Waiting" }),
       ],
       planfile: plan,
       store,
@@ -266,14 +266,15 @@ describe("run console event model", () => {
     const attempt = await inMemoryRunControlStore.recordNodeAttempt({
       attempt_id: "attempt_1",
       run_id: "run_control",
+      plan_id: "plan_control",
       node_id: "node_a",
-      replay_mode: "reuse-artifacts",
+      attempt_number: 1,
+      replay_mode: "reuse_artifacts",
       idempotency_key: "run_control:node_a:reuse-artifacts",
       input_artifact_refs: ["input_a"],
       output_artifact_refs: [],
-      status: "queued",
-      created_at: now,
-      updated_at: now,
+      status: "running",
+      started_at: now,
     });
     const uiState = await inMemoryRunControlStore.recordRunUiState({
       run_id: "run_control",
@@ -283,7 +284,7 @@ describe("run console event model", () => {
       updated_at: now,
     });
 
-    expect(attempt.replay_mode).toBe("reuse-artifacts");
+    expect(attempt.replay_mode).toBe("reuse_artifacts");
     expect(await inMemoryRunControlStore.listNodeAttempts("run_control", "node_a")).toHaveLength(1);
     expect((await inMemoryRunControlStore.getRunUiState("run_control", "session_a"))?.active_tab).toBe(uiState.active_tab);
   });
@@ -300,18 +301,17 @@ function memoryPlanStore(): PlanStateStore {
   };
 }
 
-function event(type: RunEvent["type"], runId: string, planId: string, payload: Record<string, unknown> = {}, nodeId?: string, ids: { readonly artifact_id?: string; readonly approval_id?: string; readonly model_call_artifact_id?: string } = {}): RunEvent {
-  return createRunEvent({
-    run_id: runId,
-    plan_id: planId,
-    type,
-    timestamp: now,
-    payload,
-    ...(nodeId ? { node_id: nodeId } : {}),
-    ...(ids.artifact_id ? { artifact_id: ids.artifact_id } : {}),
-    ...(ids.approval_id ? { approval_id: ids.approval_id } : {}),
-    ...(ids.model_call_artifact_id ? { model_call_artifact_id: ids.model_call_artifact_id } : {}),
-  });
+function event(type: RunEvent["type"], runId: string, planId: string, payload: Record<string, unknown> = {}, nodeId?: string, ids: { readonly artifact_id?: string; readonly approval_id?: string } = {}): RunEvent {
+  const base = { run_id: runId, plan_id: planId, timestamp: now };
+  const attempt_id = `attempt_${nodeId ?? "run"}_1`;
+  if (type === "run.created" || type === "run.started") return createRunEvent({ ...base, type });
+  if (type === "run.yielded") return createRunEvent({ ...base, type, reason: String(payload.reason ?? "Yielded"), next_actions: [] });
+  if (type === "node.started") return createRunEvent({ ...base, type, node_id: nodeId ?? "node", attempt_id, title: "Node A" });
+  if (type === "node.yielded") return createRunEvent({ ...base, type, node_id: nodeId ?? "node", attempt_id, reason: String(payload.reason ?? "Yielded"), next_actions: [] });
+  if (type === "approval.requested") return createRunEvent({ ...base, type, node_id: nodeId, approval_id: ids.approval_id ?? "approval" });
+  if (type === "artifact.created") return createRunEvent({ ...base, type, node_id: nodeId, artifact_id: ids.artifact_id ?? "artifact", kind: String(payload.kind ?? "capability_step_result") });
+  if (type === "model_call.completed") return createRunEvent({ ...base, type, node_id: nodeId, artifact_id: ids.artifact_id ?? "model_call", role: String(payload.role ?? "planner"), model: String(payload.model ?? "test") });
+  throw new Error(`Unsupported test event: ${type}`);
 }
 
 function planfile(): PlanfileType {

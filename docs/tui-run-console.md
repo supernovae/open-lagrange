@@ -1,6 +1,6 @@
 # TUI Run Console
 
-The TUI Run Console uses the same run snapshot model as the web UI.
+The TUI Run Console uses the canonical Durable Run snapshot model. It does not execute plan nodes; it renders projections and sends resume, retry, cancel, and approval control requests.
 
 Layout:
 
@@ -28,4 +28,4 @@ Slash commands:
 - `/run resume <run_id>`
 - `/run retry <run_id> <node_id> --mode reuse-artifacts|refresh-artifacts|force-new-idempotency-key`
 
-The TUI switches to Run Console when a Plan Builder run returns a snapshot.
+The TUI switches to Run Console when a Durable Run is created or selected. Retry requires an explicit replay mode.

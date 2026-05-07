@@ -87,12 +87,7 @@ export async function handleResolveRunApproval(runId: string, approvalId: string
     type: "approval.resolved",
     timestamp: new Date().toISOString(),
     approval_id: approvalId,
-    payload: {
-      status: decision,
-      title: decision === "approved" ? "Approval granted" : "Approval rejected",
-      summary: payload.reason,
-      decided_by: payload.decided_by,
-    },
+    decision,
   });
   return await requireRunSnapshot(runId);
 }

@@ -5,7 +5,8 @@ import { ApprovalContinuationContext, ApprovalContinuationEnvelope, ApprovalDeci
 import { approvalTokenForRequest, approvalTokenHash } from "../approval/approval-token.js";
 import { Observation, StructuredError, type Observation as ObservationType, type StructuredError as StructuredErrorType } from "../schemas/open-cot.js";
 import { PlanState } from "../planning/plan-state.js";
-import { NodeAttempt, RunContinuationRecord, RunExecutionRecord, RunUiState } from "../runs/run-control.js";
+import { RunContinuationRecord, RunExecutionRecord, RunUiState } from "../runs/run-control.js";
+import { NodeAttempt } from "../runs/node-attempt.js";
 import { RunEvent } from "../runs/run-event.js";
 import { eventsAfter } from "../runs/run-event-store.js";
 import { parseTaskStatus, type TaskStatusSnapshot } from "../status/status-store.js";
@@ -361,7 +362,7 @@ export function createSqliteStateStore(options: SqliteStateStoreOptions): OpenLa
           node_id = excluded.node_id,
           record_json = excluded.record_json,
           updated_at = excluded.updated_at
-      `).run(parsed.attempt_id, parsed.run_id, parsed.node_id, JSON.stringify(parsed), parsed.updated_at);
+      `).run(parsed.attempt_id, parsed.run_id, parsed.node_id, JSON.stringify(parsed), parsed.completed_at ?? parsed.started_at);
       return parsed;
     },
     async listNodeAttempts(runId, nodeId) {

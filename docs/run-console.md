@@ -1,6 +1,6 @@
 # Run Console
 
-The Run Console is the shared execution view for web, TUI, and CLI.
+The Run Console is the shared execution view for web, TUI, and CLI. Durable Run is the canonical execution surface for new flows.
 
 Product flow:
 
@@ -25,7 +25,8 @@ Research runs should surface search results, source sets, fetched sources, extra
 
 Execution authority:
 
-- Live runs are represented by durable Hatchet run metadata when Hatchet is configured.
+- Hatchet owns durable execution when configured.
+- Local development fallback is marked as `local_dev` in the run record.
 - SQLite stores projection records, event history, node attempts, artifact metadata, and UI state.
 - UI reads snapshots/events and sends actions. It does not own workflow state.
 

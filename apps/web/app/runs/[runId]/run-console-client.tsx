@@ -39,12 +39,17 @@ interface TimelineItem {
   readonly event_id: string;
   readonly timestamp: string;
   readonly type: string;
-  readonly title: string;
-  readonly summary: string;
   readonly node_id?: string;
   readonly artifact_id?: string;
   readonly approval_id?: string;
-  readonly severity: "info" | "success" | "warning" | "error";
+  readonly capability_ref?: string;
+  readonly command_id?: string;
+  readonly reason?: string;
+  readonly decision?: string;
+  readonly status?: string;
+  readonly passed?: boolean;
+  readonly errors?: readonly ErrorItem[];
+  readonly next_actions?: readonly NextAction[];
 }
 
 interface ArtifactItem {
@@ -66,31 +71,37 @@ interface ApprovalItem {
 }
 
 interface ModelCallItem {
-  readonly model_call_artifact_id: string;
+  readonly artifact_id: string;
   readonly title: string;
   readonly summary: string;
+  readonly role: string;
+  readonly model: string;
   readonly node_id?: string;
 }
 
 interface PolicyReportItem {
-  readonly event_id: string;
   readonly node_id?: string;
   readonly capability_ref?: string;
-  readonly outcome: string;
+  readonly decision: string;
   readonly reason: string;
+  readonly created_at: string;
 }
 
 interface ErrorItem {
-  readonly error_id: string;
-  readonly node_id?: string;
+  readonly code: string;
+  readonly task_id?: string;
   readonly message: string;
+  readonly observed_at?: string;
 }
 
 interface NextAction {
+  readonly action_id: string;
   readonly label: string;
-  readonly command: string;
+  readonly command?: string;
   readonly action_type: string;
   readonly required: boolean;
+  readonly target_ref?: string;
+  readonly description?: string;
 }
 
 const tabs: readonly { readonly id: TabId; readonly label: string }[] = [
@@ -143,7 +154,7 @@ export default function RunConsoleClient({ runId }: { readonly runId: string }):
         selected_node_id: snapshot?.nodes.some((node) => node.node_id === selectedId) ? selectedId : undefined,
         selected_artifact_id: snapshot?.artifacts.some((artifact) => artifact.artifact_id === selectedId) ? selectedId : undefined,
         selected_approval_id: snapshot?.approvals.some((approval) => approval.approval_id === selectedId) ? selectedId : undefined,
-        selected_model_call_id: snapshot?.model_calls.some((call) => call.model_call_artifact_id === selectedId) ? selectedId : undefined,
+        selected_model_call_id: snapshot?.model_calls.some((call) => call.artifact_id === selectedId) ? selectedId : undefined,
         last_viewed_event_id: lastEventId || undefined,
       });
     }, 350);
@@ -232,7 +243,7 @@ export default function RunConsoleClient({ runId }: { readonly runId: string }):
       return;
     }
     if (!url) {
-      setMessage(action.command);
+      setMessage(action.command ?? action.description ?? action.label);
       return;
     }
     await mutate(url, {});
@@ -331,7 +342,7 @@ function RunHeader(input: { readonly snapshot: RunSnapshot | undefined; readonly
       <div className="tokenTools">
         <input value={input.token} onChange={(event) => updateToken(event.target.value, input.setToken)} placeholder="API bearer token" />
         <button type="button" onClick={input.refresh} disabled={input.busy}>Refresh</button>
-        <button type="button" onClick={input.cancel} disabled={input.busy || !input.snapshot || input.snapshot.status === "completed" || input.snapshot.status === "failed"}>Cancel</button>
+        <button type="button" onClick={input.cancel} disabled={input.busy || !input.snapshot || terminalStatus(input.snapshot.status)}>Cancel</button>
       </div>
     </header>
   );
@@ -367,7 +378,7 @@ function RunStepList(input: { readonly nodes: readonly RunNode[]; readonly activ
 }
 
 function RunTimeline({ items }: { readonly items: readonly TimelineItem[] }): React.ReactNode {
-  return <section className="runPanel"><h2>Timeline</h2>{items.length ? items.map((item) => <article key={item.event_id} className={`timelineItem ${item.severity}`}><span>{item.timestamp}</span><strong>{item.title}</strong><p>{item.summary}</p></article>) : <p className="emptyState">No events recorded.</p>}</section>;
+  return <section className="runPanel"><h2>Timeline</h2>{items.length ? items.map((item) => <article key={item.event_id} className={`timelineItem ${eventTone(item)}`}><span>{item.timestamp}</span><strong>{eventTitle(item)}</strong><p>{eventSummary(item)}</p></article>) : <p className="emptyState">No events recorded.</p>}</section>;
 }
 
 function RunNextActions({ actions, runAction }: { readonly actions: readonly NextAction[]; readonly runAction: (action: NextAction) => void }): React.ReactNode {
@@ -405,11 +416,11 @@ function RunApprovalPanel(input: { readonly approvals: readonly ApprovalItem[]; 
 }
 
 function RunModelCallsPanel({ calls }: { readonly calls: readonly ModelCallItem[] }): React.ReactNode {
-  return <section className="runPanel"><h2>Model Calls</h2>{calls.length ? calls.map((call) => <article key={call.model_call_artifact_id} className="recordCard"><h3>{call.title}</h3><p>{call.summary}</p><span>{call.node_id ?? "run"}</span></article>) : <p className="emptyState">No model calls recorded.</p>}</section>;
+  return <section className="runPanel"><h2>Model Calls</h2>{calls.length ? calls.map((call) => <article key={call.artifact_id} className="recordCard"><h3>{call.title}</h3><p>{call.summary}</p><span>{call.node_id ?? "run"} · {call.role} · {call.model}</span></article>) : <p className="emptyState">No model calls recorded.</p>}</section>;
 }
 
 function RunLogsPanel({ errors, policies }: { readonly errors: readonly ErrorItem[]; readonly policies: readonly PolicyReportItem[] }): React.ReactNode {
-  return <section className="runPanel"><h2>Logs</h2>{errors.map((error) => <pre key={error.error_id} className="logLine">{error.node_id ? `${error.node_id}: ` : ""}{error.message}</pre>)}{policies.map((policy) => <pre key={policy.event_id} className="logLine">{policy.node_id ?? "run"} policy {policy.outcome}: {policy.reason}</pre>)}{!errors.length && !policies.length ? <p className="emptyState">No logs recorded.</p> : null}</section>;
+  return <section className="runPanel"><h2>Logs</h2>{errors.map((error, index) => <pre key={`${error.code}-${index}`} className="logLine">{error.task_id ? `${error.task_id}: ` : ""}{error.message}</pre>)}{policies.map((policy, index) => <pre key={`${policy.created_at}-${index}`} className="logLine">{policy.node_id ?? "run"} policy {policy.decision}: {policy.reason}</pre>)}{!errors.length && !policies.length ? <p className="emptyState">No logs recorded.</p> : null}</section>;
 }
 
 function RunPlanPane({ markdown }: { readonly markdown: string | undefined }): React.ReactNode {
@@ -451,7 +462,7 @@ function snapshotRefreshMessage(snapshot: RunSnapshot): string {
   return [
     `Run snapshot: ${snapshot.status}`,
     snapshot.active_node_id ? `Active node: ${snapshot.active_node_id}` : "Active node: none",
-    latest ? `Latest event: ${latest.type} - ${latest.summary}` : "Latest event: none",
+    latest ? `Latest event: ${latest.type} - ${eventSummary(latest)}` : "Latest event: none",
     `Artifacts: ${snapshot.artifacts.length}`,
     `Next actions: ${snapshot.next_actions.length}`,
   ].join("\n");
@@ -488,7 +499,33 @@ function removeUndefined(value: unknown): unknown {
 
 function statusTone(status: string): string {
   if (status.includes("failed") || status.includes("error")) return "bad";
-  if (status.includes("yielded") || status.includes("requested")) return "warn";
+  if (status.includes("yielded") || status.includes("requested") || status.includes("approval") || status.includes("cancelled")) return "warn";
   if (status.includes("completed") || status.includes("running")) return "good";
   return "neutral";
+}
+
+function terminalStatus(status: string): boolean {
+  return status === "completed" || status === "failed" || status === "cancelled";
+}
+
+function eventTone(item: TimelineItem): string {
+  if (item.type.endsWith(".failed")) return "error";
+  if (item.type.endsWith(".completed")) return "success";
+  if (item.type.endsWith(".yielded") || item.type.includes("approval") || item.type === "run.cancelled") return "warning";
+  return "info";
+}
+
+function eventTitle(item: TimelineItem): string {
+  const subject = item.node_id ?? item.artifact_id ?? item.approval_id ?? item.capability_ref ?? item.command_id;
+  return subject ? `${item.type} · ${subject}` : item.type;
+}
+
+function eventSummary(item: TimelineItem): string {
+  if (item.reason) return item.reason;
+  if (item.decision) return `Decision: ${item.decision}`;
+  if (typeof item.passed === "boolean") return item.passed ? "Verification passed." : "Verification failed.";
+  if (item.status) return `Status: ${item.status}`;
+  if (item.errors?.length) return item.errors.map((error) => error.message).join("; ");
+  if (item.next_actions?.length) return `${item.next_actions.length} next action${item.next_actions.length === 1 ? "" : "s"}.`;
+  return "Recorded.";
 }

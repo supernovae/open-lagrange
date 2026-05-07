@@ -33,7 +33,7 @@ export function RunConsoleMode({ model }: { readonly model: TuiViewModel }): Rea
 }
 
 function RunLogs({ run }: { readonly run: TuiViewModel["run"] }): React.ReactElement {
-  return <Box flexDirection="column"><Text color={theme.title}>Logs</Text>{(run?.errors ?? []).map((error) => <Text key={error.error_id} color={theme.error}>{error.message}</Text>)}{(run?.policy_reports ?? []).map((policy) => <Text key={policy.event_id}>{policy.outcome}: {policy.reason}</Text>)}</Box>;
+  return <Box flexDirection="column"><Text color={theme.title}>Logs</Text>{(run?.errors ?? []).map((error, index) => <Text key={`${error.code}:${index}`} color={theme.error}>{error.message}</Text>)}{(run?.policy_reports ?? []).map((policy) => <Text key={`${policy.capability_ref}:${policy.created_at}`}>{policy.decision}: {policy.reason}</Text>)}</Box>;
 }
 
 function RunPlan({ run }: { readonly run: TuiViewModel["run"] }): React.ReactElement {

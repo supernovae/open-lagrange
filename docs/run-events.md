@@ -1,11 +1,10 @@
 # Run Events
 
-Run events are the durable execution log for Planfile runs. UI surfaces read this log through snapshots instead of owning workflow state.
+Run events are the canonical execution log for Durable Runs. UI surfaces read this log through RunSnapshots instead of owning execution state.
 
 Event types:
 
-- `run.created`, `run.started`, `run.completed`, `run.failed`, `run.yielded`
-- `run.resume_requested`, `run.retry_requested`, `run.cancel_requested`, `run.cancelled`
+- `run.created`, `run.started`, `run.completed`, `run.failed`, `run.yielded`, `run.cancelled`
 - `node.started`, `node.completed`, `node.failed`, `node.yielded`
 - `capability.started`, `capability.completed`, `capability.failed`
 - `policy.evaluated`
@@ -15,7 +14,7 @@ Event types:
 - `verification.started`, `verification.completed`
 - `repair.started`, `repair.completed`
 
-Each event includes `event_id`, `run_id`, `plan_id`, `type`, `timestamp`, optional IDs for node/capability/artifact/approval/model call, and structured `payload`.
+Each stored event includes cursor metadata (`event_id`, `plan_id`) plus the canonical event fields for its `type`. Event details are top-level typed fields, not an opaque payload.
 
 Storage:
 

@@ -1,6 +1,11 @@
+export * from "./run.js";
 export * from "./run-event.js";
 export * from "./run-event-store.js";
-export * from "./run-control.js";
+export { RunExecutionRecord, RunContinuationRecord, RunRetryRequest, RunUiState, inMemoryRunControlStore, runUiStateKey, snapshotStatusFromExecution } from "./run-control.js";
+export type { RunControlStore } from "./run-control.js";
+export * from "./node-attempt.js";
+export * from "./node-replay-policy.js";
+export * from "./run-errors.js";
 export * from "./run-next-action.js";
 export * from "./run-snapshot.js";
 export * from "./run-snapshot-builder.js";

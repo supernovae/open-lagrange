@@ -19,8 +19,7 @@ import { buildGeneratedPackFromMarkdown, generateSkillFrame, generateWorkflowSki
 import { createPlatformClientFromCurrentProfile } from "@open-lagrange/platform-client";
 import { addLocalProfile, addRemoteProfile, bootstrapLocalRuntime, configureCurrentProfileModelProvider, deleteCurrentProfileSecret, describeCurrentProfileModelProvider, describeCurrentProfileSecret, getCurrentProfile, getProfilePackPaths, initRuntime, listCurrentProfileModelProviders, listCurrentProfileSecrets, listKnownModelProviders, loadConfig, removeProfile, restartLocalRuntime, setCurrentProfile, setCurrentProfileSecret, startLocalRuntime, stopLocalRuntime, tailLogs, getRuntimeStatus } from "@open-lagrange/runtime-manager";
 import type { SecretRef } from "@open-lagrange/core/secrets";
-import { buildRunSnapshot } from "@open-lagrange/core/runs";
-import { ReplayMode } from "@open-lagrange/core/runs";
+import { apiReplayMode, buildRunSnapshot } from "@open-lagrange/core/runs";
 import { getStateStore } from "@open-lagrange/core/storage";
 import { parseEditorCommand } from "./editor-command.js";
 import { groupedHelpText } from "./help-taxonomy.js";
@@ -285,7 +284,7 @@ run.command("explain").argument("<runId>", "Run ID").action(async (runId: string
     `Artifacts: ${snapshot.artifacts.length}`,
     `Approvals: ${snapshot.approvals.length}`,
     `Model calls: ${snapshot.model_calls.length}`,
-    `Next: ${snapshot.next_actions.map((action) => action.command).join(" | ") || "none"}`,
+    `Next: ${snapshot.next_actions.map((action) => action.command ?? action.label).join(" | ") || "none"}`,
   ].join("\n"));
 });
 
@@ -308,8 +307,8 @@ run.command("retry")
   .argument("<nodeId>", "Node ID")
   .requiredOption("--mode <mode>", "Replay mode: reuse-artifacts, refresh-artifacts, or force-new-idempotency-key")
   .action(async (runId: string, nodeId: string, options: { readonly mode: string }) => {
-    const replay_mode = ReplayMode.parse(options.mode);
-    console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).retryRunNode(runId, nodeId, replay_mode), null, 2));
+    apiReplayMode(options.mode);
+    console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).retryRunNode(runId, nodeId, options.mode as "reuse-artifacts" | "refresh-artifacts" | "force-new-idempotency-key"), null, 2));
   });
 
 run.command("cancel").argument("<runId>", "Run ID").action(async (runId: string) => {

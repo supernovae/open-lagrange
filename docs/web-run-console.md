@@ -6,7 +6,7 @@ The web Run Console lives at:
 /runs/:runId
 ```
 
-Plan Builder `Run Now` creates a run through `POST /api/runs` and navigates to the console. The page streams live events through `GET /api/runs/:runId/stream` and keeps manual refresh as a fallback.
+Plan Builder `Run Now` creates a Durable Run through `POST /api/runs` and navigates to the console. The page streams canonical `RunEvent` projections through `GET /api/runs/:runId/stream` and keeps manual refresh as a fallback.
 
 Tabs:
 
@@ -32,4 +32,4 @@ API routes:
 - `POST /api/runs/:runId/approvals/:approvalId/approve`
 - `POST /api/runs/:runId/approvals/:approvalId/reject`
 
-The page stores the bearer token in the same `open-lagrange-api-token` local storage key used by the workbench. Tab and selection state is stored in browser storage and synced to backend UI state for cross-surface continuity.
+The bearer token is kept in session storage for manual browser sessions. Tab and selection state is stored in browser storage and synced to backend UI state for cross-surface continuity. UI state is never workflow state.
