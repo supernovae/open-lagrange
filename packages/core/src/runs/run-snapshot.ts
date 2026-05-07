@@ -60,6 +60,7 @@ export const RunSnapshot = z.object({
   plan_id: z.string().min(1),
   plan_title: z.string().min(1).optional(),
   status: DurableRunStatus,
+  runtime: z.enum(["hatchet", "local_dev"]),
   active_node_id: z.string().min(1).optional(),
   nodes: z.array(RunNodeSnapshot),
   timeline: z.array(RunEvent),
@@ -82,3 +83,9 @@ export type ApprovalRequestSummary = z.infer<typeof ApprovalRequestSummary>;
 export type ModelCallSummary = z.infer<typeof ModelCallSummary>;
 export type RunSnapshotStatus = z.infer<typeof DurableRunStatus>;
 export type RunSnapshot = z.infer<typeof RunSnapshot>;
+
+export function applyRunEventToSnapshot(snapshot: RunSnapshot, event: RunEvent): RunSnapshot {
+  if (snapshot.timeline.some((item) => item.event_id === event.event_id)) return snapshot;
+  const timeline = [...snapshot.timeline, event].sort((left, right) => left.timestamp.localeCompare(right.timestamp) || left.event_id.localeCompare(right.event_id));
+  return RunSnapshot.parse({ ...snapshot, timeline });
+}

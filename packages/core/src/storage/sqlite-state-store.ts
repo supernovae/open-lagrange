@@ -8,7 +8,7 @@ import { PlanState } from "../planning/plan-state.js";
 import { RunContinuationRecord, RunExecutionRecord, RunUiState } from "../runs/run-control.js";
 import { NodeAttempt } from "../runs/node-attempt.js";
 import { RunEvent } from "../runs/run-event.js";
-import { eventsAfter } from "../runs/run-event-store.js";
+import { RunEventEnvelope, eventsAfter, publishRunEventEnvelope } from "../runs/run-event-store.js";
 import { parseTaskStatus, type TaskStatusSnapshot } from "../status/status-store.js";
 import type { OpenLagrangeStateStore } from "./state-store.js";
 
@@ -72,7 +72,8 @@ export function createSqliteStateStore(options: SqliteStateStoreOptions): OpenLa
       plan_id text not null,
       type text not null,
       event_json text not null,
-      timestamp text not null
+      timestamp text not null,
+      sequence integer not null default 0
     );
     create index if not exists run_events_run_id_idx on run_events(run_id, timestamp);
     create index if not exists run_events_timestamp_idx on run_events(timestamp);
@@ -108,6 +109,14 @@ export function createSqliteStateStore(options: SqliteStateStoreOptions): OpenLa
       updated_at text not null
     );
   `);
+  const runEventColumns = db.prepare("pragma table_info(run_events)").all() as readonly Record<string, unknown>[];
+  if (!runEventColumns.some((column) => column.name === "sequence")) {
+    try {
+      db.exec("alter table run_events add column sequence integer not null default 0");
+    } catch {
+      // Another process may have added this projection column.
+    }
+  }
 
   return {
     async recordProjectStatus(snapshot) {
@@ -290,24 +299,35 @@ export function createSqliteStateStore(options: SqliteStateStoreOptions): OpenLa
     },
     async appendRunEvent(event) {
       const parsed = RunEvent.parse(event);
+      const existing = db.prepare("select sequence from run_events where event_id = ?").get(parsed.event_id) as { readonly sequence?: unknown } | undefined;
+      const sequence = typeof existing?.sequence === "number"
+        ? existing.sequence
+        : Number((db.prepare("select coalesce(max(sequence), 0) + 1 as sequence from run_events where run_id = ?").get(parsed.run_id) as { readonly sequence: unknown }).sequence);
       db.prepare(`
-        insert into run_events (event_id, run_id, plan_id, type, event_json, timestamp)
-        values (?, ?, ?, ?, ?, ?)
+        insert into run_events (event_id, run_id, plan_id, type, event_json, timestamp, sequence)
+        values (?, ?, ?, ?, ?, ?, ?)
         on conflict(event_id) do update set
           run_id = excluded.run_id,
           plan_id = excluded.plan_id,
           type = excluded.type,
           event_json = excluded.event_json,
           timestamp = excluded.timestamp
-      `).run(parsed.event_id, parsed.run_id, parsed.plan_id, parsed.type, JSON.stringify(parsed), parsed.timestamp);
-      return parsed;
+      `).run(parsed.event_id, parsed.run_id, parsed.plan_id, parsed.type, JSON.stringify(parsed), parsed.timestamp, sequence);
+      const envelope = envelopeForRow(db, parsed.run_id, parsed.event_id);
+      publishRunEventEnvelope(envelope);
+      return envelope;
     },
-    async listRunEvents(runId) {
-      const rows = db.prepare("select event_json from run_events where run_id = ? order by timestamp asc, event_id asc").all(runId);
-      return rows.map((row) => RunEvent.parse(JSON.parse(String((row as Record<string, unknown>).event_json))));
+    async listRunEvents(runId, options = {}) {
+      const rows = db.prepare("select event_id, event_json, timestamp, sequence from run_events where run_id = ? order by sequence asc, timestamp asc, event_id asc").all(runId);
+      const envelopes = rows.map((row) => rowToEnvelope(db, runId, row as Record<string, unknown>));
+      return limitEnvelopes(eventsAfter(envelopes, options.after), options.limit);
     },
     async listRunEventsAfter(runId, cursorEventId) {
-      return eventsAfter(await this.listRunEvents(runId), cursorEventId);
+      return this.listRunEvents(runId, cursorEventId ? { after: cursorEventId } : {});
+    },
+    async getLatestEventId(runId) {
+      const row = db.prepare("select event_id from run_events where run_id = ? order by sequence desc, timestamp desc, event_id desc limit 1").get(runId) as { readonly event_id?: unknown } | undefined;
+      return typeof row?.event_id === "string" ? row.event_id : undefined;
     },
     async listRecentRunIds(limit = 20) {
       const rows = db.prepare(`
@@ -401,6 +421,36 @@ function readJson<T>(db: DatabaseSync, sql: string, values: readonly string[], s
   if (!row) return undefined;
   const value = row.snapshot_json ?? row.decision_json ?? row.context_json ?? row.envelope_json ?? row.state_json ?? row.event_json ?? row.record_json ?? row.state_json;
   return schema.parse(JSON.parse(String(value)));
+}
+
+function envelopeForRow(db: DatabaseSync, runId: string, eventId: string): RunEventEnvelope {
+  const row = db.prepare("select event_id, event_json, timestamp, sequence from run_events where run_id = ? and event_id = ?").get(runId, eventId);
+  return rowToEnvelope(db, runId, row as Record<string, unknown>);
+}
+
+function rowToEnvelope(db: DatabaseSync, runId: string, row: Record<string, unknown>): RunEventEnvelope {
+  const event = RunEvent.parse(JSON.parse(String(row.event_json)));
+  const runtime = runRuntime(db, runId);
+  return RunEventEnvelope.parse({
+    event_id: String(row.event_id),
+    run_id: runId,
+    sequence: Number(row.sequence) || 1,
+    timestamp: String(row.timestamp),
+    runtime,
+    event,
+  });
+}
+
+function runRuntime(db: DatabaseSync, runId: string): "hatchet" | "local_dev" {
+  const row = db.prepare("select record_json from run_executions where run_id = ?").get(runId) as Record<string, unknown> | undefined;
+  if (!row) return "local_dev";
+  const parsed = RunExecutionRecord.safeParse(JSON.parse(String(row.record_json)));
+  return parsed.success ? parsed.data.runtime : "local_dev";
+}
+
+function limitEnvelopes(events: readonly RunEventEnvelope[], limit: number | undefined): readonly RunEventEnvelope[] {
+  if (limit === undefined) return events;
+  return events.slice(0, Math.max(0, limit));
 }
 
 function writeApproval(db: DatabaseSync, request: ApprovalRequestType, decision: ApprovalDecisionType, updatedAt: string): void {

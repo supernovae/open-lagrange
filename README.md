@@ -300,6 +300,8 @@ do not own runtime state.
 - [Durable Runs](docs/durable-runs.md)
 - [Run Console](docs/run-console.md)
 - [Run Events](docs/run-events.md)
+- [Run Event Streaming](docs/run-event-streaming.md)
+- [Run Watch](docs/run-watch.md)
 - [Node Replay](docs/node-replay.md)
 - [Web Run Console](docs/web-run-console.md)
 - [TUI Run Console](docs/tui-run-console.md)

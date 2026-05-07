@@ -15,15 +15,15 @@ export async function buildRunSnapshot(input: {
   readonly store?: PlanStateStore;
 }): Promise<RunSnapshotType | undefined> {
   const stateStore = input.store ?? getStateStore();
-  const controlStore = getStateStore();
-  const events = input.events ?? await controlStore.listRunEvents(input.run_id);
-  const run = input.events || input.planfile ? undefined : await controlStore.getRunExecution(input.run_id);
+  const controlStore = input.events ? undefined : getStateStore();
+  const events = input.events ?? (await controlStore?.listRunEvents(input.run_id) ?? []).map((envelope) => envelope.event);
+  const run = input.events || input.planfile ? undefined : await controlStore?.getRunExecution(input.run_id);
   const planfile = input.planfile ?? parseStoredPlanfile(run?.planfile);
   const created = events.find((event) => event.type === "run.created");
   const planId = created?.plan_id ?? run?.plan_id ?? planfile?.plan_id;
   if (!planId) return undefined;
   const planState = await stateStore.getPlanState(planId);
-  const attempts = await controlStore.listNodeAttempts(input.run_id);
+  const attempts = await controlStore?.listNodeAttempts(input.run_id) ?? [];
   const planTitle = run?.plan_title ?? planfile?.goal_frame.interpreted_goal;
   const nodeDefinitions = planfile?.nodes.map((node) => ({
     node_id: node.id,
@@ -132,6 +132,7 @@ export async function buildRunSnapshot(input: {
     plan_id: planId,
     ...(planTitle ? { plan_title: planTitle } : {}),
     status,
+    runtime: run?.runtime ?? "local_dev",
     ...(activeNodeId ? { active_node_id: activeNodeId } : {}),
     nodes,
     timeline: events,

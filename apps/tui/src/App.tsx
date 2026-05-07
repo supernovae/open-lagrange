@@ -10,7 +10,9 @@ import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts.js";
 import { useUserFrameEvents } from "./hooks/useUserFrameEvents.js";
 import { Layout } from "./components/Layout.js";
 import { runDoctor, startLocalRuntime, tailLogs } from "@open-lagrange/runtime-manager";
-import type { RunSnapshot } from "@open-lagrange/core/runs";
+import { applyRunEventToSnapshot, type RunEvent, type RunSnapshot } from "@open-lagrange/core/runs";
+import { createPlatformClientFromCurrentProfile } from "@open-lagrange/platform-client";
+import type { RunConnectionState } from "./types.js";
 import type { ActiveObject } from "./state/active-object.js";
 
 export interface AppProps {
@@ -38,6 +40,7 @@ export function App(props: AppProps): React.ReactElement {
   const [seenStatusError, setSeenStatusError] = useState<string | undefined>();
   const [pendingFlow, setPendingFlow] = useState<SuggestedFlow | undefined>();
   const [runSnapshot, setRunSnapshot] = useState<RunSnapshot | undefined>();
+  const [runConnectionState, setRunConnectionState] = useState<RunConnectionState>("disconnected");
   const [activeObject, setActiveObject] = useState<ActiveObject | undefined>();
   const { submitEvent } = useUserFrameEvents();
   const status = useProjectStatus({ ...(projectId ? { projectId } : {}), pollIntervalMs: props.pollIntervalMs, ...(props.apiUrl ? { apiUrl: props.apiUrl } : {}) });
@@ -56,9 +59,10 @@ export function App(props: AppProps): React.ReactElement {
     conversation,
     ...(pendingFlow ? { pendingFlow } : {}),
     ...(runSnapshot ? { run: runSnapshot } : {}),
+    runConnectionState,
     ...(activeObject ? { activeObject } : {}),
     ...(expandedTurnId ? { expandedTurnId } : {}),
-  }), [status.project, selectedPane, scrollOffset, status.isLoading, status.health, status.lastError, conversation, pendingFlow, runSnapshot, activeObject, expandedTurnId]);
+  }), [status.project, selectedPane, scrollOffset, status.isLoading, status.health, status.lastError, conversation, pendingFlow, runSnapshot, runConnectionState, activeObject, expandedTurnId]);
 
   useEffect(() => {
     if (!status.lastError) {
@@ -82,6 +86,48 @@ export function App(props: AppProps): React.ReactElement {
       apply: props.apply ?? false,
     });
   }, [started, props.goal, props.repo, props.workspaceId, props.dryRun, props.apply]);
+
+  useEffect(() => {
+    if (!runSnapshot?.run_id) {
+      setRunConnectionState("disconnected");
+      return;
+    }
+    const controller = new AbortController();
+    const runId = runSnapshot.run_id;
+    let latestEventId = runSnapshot.timeline.at(-1)?.event_id;
+    void (async () => {
+      const client = await createPlatformClientFromCurrentProfile();
+      setRunConnectionState("connected");
+      await client.streamRunEvents(runId, {
+        ...(latestEventId ? { afterEventId: latestEventId } : {}),
+        signal: controller.signal,
+        onEvent: async (envelope) => {
+          latestEventId = envelope.event_id;
+          setRunConnectionState("connected");
+          setRunSnapshot((current) => current ? applyRunEventToSnapshot(current, envelope.event as RunEvent) : current);
+          const snapshot = await client.getRunSnapshot(runId) as RunSnapshot;
+          if (!controller.signal.aborted) setRunSnapshot(snapshot);
+        },
+        onError: async () => {
+          if (!controller.signal.aborted) setRunConnectionState("reconnecting");
+        },
+        onReconnect: async (attempt) => {
+          if (controller.signal.aborted) return;
+          setRunConnectionState(attempt >= 3 ? "polling fallback" : "reconnecting");
+          if (attempt >= 3) setRunSnapshot(await client.getRunSnapshot(runId) as RunSnapshot);
+        },
+      });
+    })().catch((error) => {
+      if (!controller.signal.aborted) {
+        setRunConnectionState("polling fallback");
+        appendTurn(errorTurn(error instanceof Error ? error.message : "Run event stream failed.", projectId, activeTask?.task_run_id, "Run stream"));
+      }
+    });
+    return () => {
+      controller.abort();
+      setRunConnectionState("disconnected");
+    };
+  }, [runSnapshot?.run_id]);
 
   useKeyboardShortcuts({
     selectedPane,

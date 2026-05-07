@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { handleCreateRun, handleRetryRunNode, handleUpdateRunUiState } from "./handlers";
+import { createRunEvent } from "@open-lagrange/core/runs";
+import { getStateStore } from "@open-lagrange/core/storage";
+import { handleCreateRun, handleRetryRunNode, handleRunEvents, handleUpdateRunUiState } from "./handlers";
+import { GET as streamRunEvents } from "./[runId]/events/stream/route";
 
 const now = "2026-05-03T12:00:00.000Z";
 
@@ -37,6 +40,35 @@ describe("run API handlers", () => {
     const result = await handleUpdateRunUiState("run_ui", request, { active_tab: "timeline", selected_node_id: "node_a" });
 
     expect(result).toMatchObject({ run_id: "run_ui", session_key: "session-test", active_tab: "timeline", selected_node_id: "node_a" });
+  });
+
+  it("returns event stream envelopes after a cursor", async () => {
+    const first = await getStateStore().appendRunEvent(createRunEvent({ run_id: "run_api_events", plan_id: "plan_api_events", type: "run.created", timestamp: now }));
+    const second = await getStateStore().appendRunEvent(createRunEvent({ run_id: "run_api_events", plan_id: "plan_api_events", type: "run.started", timestamp: "2026-05-03T12:00:01.000Z" }));
+
+    const result = await handleRunEvents("run_api_events", { after: first.event_id }) as { readonly events: readonly { readonly event_id: string; readonly sequence: number }[] };
+
+    expect(result.events).toEqual([expect.objectContaining({ event_id: second.event_id, sequence: 2 })]);
+  });
+
+  it("streams persisted event envelopes over SSE", async () => {
+    const event = await getStateStore().appendRunEvent(createRunEvent({ run_id: "run_api_stream", plan_id: "plan_api_stream", type: "run.created", timestamp: now }));
+    const controller = new AbortController();
+    const response = await streamRunEvents(new Request("http://localhost/api/runs/run_api_stream/events/stream", { signal: controller.signal }), { params: Promise.resolve({ runId: "run_api_stream" }) });
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error("missing response body");
+
+    let text = "";
+    for (let index = 0; index < 5 && !text.includes("event: run.event"); index += 1) {
+      const chunk = await reader.read();
+      text += new TextDecoder().decode(chunk.value);
+    }
+    controller.abort();
+    reader.releaseLock();
+
+    expect(response.headers.get("content-type")).toContain("text/event-stream");
+    expect(text).toContain("event: run.event");
+    expect(text).toContain(`id: ${event.event_id}`);
   });
 });
 

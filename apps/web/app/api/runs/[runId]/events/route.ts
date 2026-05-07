@@ -10,7 +10,13 @@ export async function GET(request: Request, context: { readonly params: Promise<
   try {
     requireApiAuth(request);
     const { runId } = await context.params;
-    return json(await handleRunEvents(runId));
+    const url = new URL(request.url);
+    const limit = url.searchParams.get("limit");
+    const after = url.searchParams.get("after") ?? undefined;
+    return json(await handleRunEvents(runId, {
+      ...(after ? { after } : {}),
+      ...(limit ? { limit: Number.parseInt(limit, 10) } : {}),
+    }));
   } catch (error) {
     return handleRouteError(error);
   }

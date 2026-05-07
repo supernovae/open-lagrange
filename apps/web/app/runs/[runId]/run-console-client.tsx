@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 type TabId = "overview" | "timeline" | "artifacts" | "approvals" | "model_calls" | "logs" | "plan";
+type LiveState = "connected" | "reconnecting" | "polling fallback" | "disconnected";
 
 interface RunSnapshot {
   readonly run_id: string;
@@ -10,6 +11,7 @@ interface RunSnapshot {
   readonly builder_session_id?: string;
   readonly plan_title: string;
   readonly status: string;
+  readonly runtime: "hatchet" | "local_dev";
   readonly active_node_id?: string;
   readonly nodes: readonly RunNode[];
   readonly timeline: readonly TimelineItem[];
@@ -50,6 +52,16 @@ interface TimelineItem {
   readonly passed?: boolean;
   readonly errors?: readonly ErrorItem[];
   readonly next_actions?: readonly NextAction[];
+  readonly sequence?: number;
+}
+
+interface RunEventEnvelope {
+  readonly event_id: string;
+  readonly run_id: string;
+  readonly sequence: number;
+  readonly timestamp: string;
+  readonly runtime: "hatchet" | "local_dev";
+  readonly event: TimelineItem;
 }
 
 interface ArtifactItem {
@@ -124,6 +136,7 @@ export default function RunConsoleClient({ runId }: { readonly runId: string }):
   const [busy, setBusy] = useState(false);
   const [retryNodeId, setRetryNodeId] = useState<string>("");
   const [lastEventId, setLastEventId] = useState<string>("");
+  const [liveState, setLiveState] = useState<LiveState>("disconnected");
 
   const selectedNode = useMemo(() => snapshot?.nodes.find((node) => node.node_id === (selectedId || snapshot.active_node_id)), [selectedId, snapshot]);
   const selectedArtifact = useMemo(() => snapshot?.artifacts.find((artifact) => artifact.artifact_id === selectedId), [selectedId, snapshot]);
@@ -142,8 +155,11 @@ export default function RunConsoleClient({ runId }: { readonly runId: string }):
   useEffect(() => {
     if (!tokenLoaded) return;
     const controller = new AbortController();
-    void streamRun(controller.signal);
-    return () => controller.abort();
+    void streamRun(controller.signal, token);
+    return () => {
+      controller.abort();
+      setLiveState("disconnected");
+    };
   }, [runId, token, tokenLoaded]);
 
   useEffect(() => {
@@ -161,40 +177,48 @@ export default function RunConsoleClient({ runId }: { readonly runId: string }):
     return () => window.clearTimeout(timeout);
   }, [activeTab, selectedId, lastEventId, runId]);
 
-  async function streamRun(signal: AbortSignal): Promise<void> {
-    try {
-      const suffix = lastEventId ? `?cursor=${encodeURIComponent(lastEventId)}` : "";
-      const response = await fetch(`/api/runs/${encodeURIComponent(runId)}/stream${suffix}`, { headers: headers(token), signal });
-      if (!response.ok || !response.body) {
-        const data = await readBody(response);
-        setMessage(requestFailureMessage(response.status, data, `/api/runs/${runId}/stream`, "Run Console event stream"));
-        await refresh(true, token);
-        return;
+  async function streamRun(signal: AbortSignal, streamToken: string): Promise<void> {
+    let cursor = lastEventId || undefined;
+    let failures = 0;
+    while (!signal.aborted) {
+      try {
+        const suffix = cursor ? `?after=${encodeURIComponent(cursor)}` : "";
+        const response = await fetch(`/api/runs/${encodeURIComponent(runId)}/events/stream${suffix}`, { headers: headers(streamToken), signal });
+        if (!response.ok || !response.body) {
+          const data = await readBody(response);
+          throw new Error(requestFailureMessage(response.status, data, `/api/runs/${runId}/events/stream`, "Run Console event stream"));
+        }
+        failures = 0;
+        setLiveState("connected");
+        for await (const frame of readSseFrames(response.body, signal)) {
+          const nextCursor = handleSseFrame(frame);
+          if (nextCursor) cursor = nextCursor;
+        }
+      } catch (error) {
+        if (signal.aborted) return;
+        failures += 1;
+        setLiveState(failures >= 3 ? "polling fallback" : "reconnecting");
+        setMessage(error instanceof Error ? error.message : String(error));
+        await refresh(true, streamToken);
+        await sleep(Math.min(10_000, 500 * (2 ** Math.min(5, failures))), signal);
       }
-      const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
-      let buffer = "";
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += value;
-        const frames = buffer.split("\n\n");
-        buffer = frames.pop() ?? "";
-        for (const frame of frames) handleSseFrame(frame);
-      }
-    } catch (error) {
-      if (!signal.aborted) void refresh(true);
     }
   }
 
-  function handleSseFrame(frame: string): void {
-    const lines = frame.split("\n");
-    const event = lines.find((line) => line.startsWith("event: "))?.slice(7) ?? "message";
-    const id = lines.find((line) => line.startsWith("id: "))?.slice(4);
-    const dataLine = lines.find((line) => line.startsWith("data: "));
-    if (!dataLine) return;
-    const data = JSON.parse(dataLine.slice(6)) as unknown;
-    if (id) setLastEventId(id);
-    if (event === "run.snapshot" && data && typeof data === "object" && "run_id" in data) setSnapshot(data as RunSnapshot);
+  function handleSseFrame(frame: SseFrame): string | undefined {
+    if (frame.event === "run.error") {
+      setLiveState("polling fallback");
+      setMessage(frame.data ?? "Run event stream reported an error.");
+      void refresh(true);
+      return undefined;
+    }
+    if (frame.event !== "run.event" || !frame.data) return undefined;
+    const envelope = JSON.parse(frame.data) as RunEventEnvelope;
+    const event = { ...envelope.event, sequence: envelope.sequence };
+    setLastEventId(envelope.event_id);
+    setSnapshot((current) => current ? applyRunEventToSnapshot(current, event) : current);
+    void refresh(true);
+    return envelope.event_id;
   }
 
   async function refresh(quiet = false, tokenOverride?: string): Promise<void> {
@@ -299,7 +323,7 @@ export default function RunConsoleClient({ runId }: { readonly runId: string }):
         <a href="/?view=workflows">Runs</a>
         <a href="/?view=providers">Providers</a>
       </nav>
-      <RunHeader snapshot={snapshot} runId={runId} token={token} setToken={setToken} refresh={() => refresh()} cancel={cancel} busy={busy} />
+      <RunHeader snapshot={snapshot} runId={runId} token={token} setToken={setToken} refresh={() => refresh()} cancel={cancel} busy={busy} liveState={liveState} />
       {message ? <pre className="messageBox">{message}</pre> : null}
       {retryNodeId ? <RetryModeDialog nodeId={retryNodeId} onCancel={() => setRetryNodeId("")} onSelect={retryWithMode} /> : null}
       <nav className="tabBar">
@@ -327,7 +351,7 @@ export default function RunConsoleClient({ runId }: { readonly runId: string }):
   );
 }
 
-function RunHeader(input: { readonly snapshot: RunSnapshot | undefined; readonly runId: string; readonly token: string; readonly setToken: (value: string) => void; readonly refresh: () => void; readonly cancel: () => void; readonly busy: boolean }): React.ReactNode {
+function RunHeader(input: { readonly snapshot: RunSnapshot | undefined; readonly runId: string; readonly token: string; readonly setToken: (value: string) => void; readonly refresh: () => void; readonly cancel: () => void; readonly busy: boolean; readonly liveState: LiveState }): React.ReactNode {
   return (
     <header className="runHeader">
       <div>
@@ -335,6 +359,8 @@ function RunHeader(input: { readonly snapshot: RunSnapshot | undefined; readonly
         <h1>{input.snapshot?.plan_title ?? input.runId}</h1>
         <div className="statusStrip">
           <span className={`statusPill ${statusTone(input.snapshot?.status ?? "pending")}`}>{input.snapshot?.status ?? "loading"}</span>
+          <span>Runtime: {input.snapshot?.runtime ?? "unknown"}</span>
+          <span>Live: {input.liveState}</span>
           <span>{input.snapshot?.active_node_id ? `Active node: ${input.snapshot.active_node_id}` : "No active node"}</span>
           <span>{input.snapshot?.started_at ?? ""}</span>
         </div>
@@ -378,7 +404,8 @@ function RunStepList(input: { readonly nodes: readonly RunNode[]; readonly activ
 }
 
 function RunTimeline({ items }: { readonly items: readonly TimelineItem[] }): React.ReactNode {
-  return <section className="runPanel"><h2>Timeline</h2>{items.length ? items.map((item) => <article key={item.event_id} className={`timelineItem ${eventTone(item)}`}><span>{item.timestamp}</span><strong>{eventTitle(item)}</strong><p>{eventSummary(item)}</p></article>) : <p className="emptyState">No events recorded.</p>}</section>;
+  const ordered = [...items].sort((left, right) => (left.sequence ?? Number.MAX_SAFE_INTEGER) - (right.sequence ?? Number.MAX_SAFE_INTEGER) || left.timestamp.localeCompare(right.timestamp) || left.event_id.localeCompare(right.event_id));
+  return <section className="runPanel"><h2>Timeline</h2>{ordered.length ? ordered.map((item) => <article key={item.event_id} className={`timelineItem ${eventTone(item)}`}><span>{item.timestamp}</span><strong>{eventTitle(item)}</strong><p>{eventSummary(item)}</p></article>) : <p className="emptyState">No events recorded.</p>}</section>;
 }
 
 function RunNextActions({ actions, runAction }: { readonly actions: readonly NextAction[]; readonly runAction: (action: NextAction) => void }): React.ReactNode {
@@ -495,6 +522,69 @@ function writeLocalUiState(runId: string, state: { readonly activeTab: TabId; re
 function removeUndefined(value: unknown): unknown {
   if (!value || typeof value !== "object" || Array.isArray(value)) return value;
   return Object.fromEntries(Object.entries(value as Record<string, unknown>).filter((entry): entry is [string, unknown] => entry[1] !== undefined));
+}
+
+interface SseFrame {
+  readonly event: string;
+  readonly data?: string;
+  readonly id?: string;
+}
+
+async function* readSseFrames(body: ReadableStream<Uint8Array>, signal: AbortSignal): AsyncIterable<SseFrame> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  try {
+    for (;;) {
+      if (signal.aborted) return;
+      const { done, value } = await reader.read();
+      if (done) return;
+      buffer += decoder.decode(value, { stream: true });
+      const frames = buffer.split("\n\n");
+      buffer = frames.pop() ?? "";
+      for (const raw of frames) {
+        const parsed = parseSseFrame(raw);
+        if (parsed) yield parsed;
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+function parseSseFrame(raw: string): SseFrame | undefined {
+  const lines = raw.split("\n");
+  if (lines.every((line) => line.startsWith(":") || line.trim() === "")) return undefined;
+  let event = "message";
+  let id: string | undefined;
+  const data: string[] = [];
+  for (const line of lines) {
+    if (line.startsWith(":") || !line) continue;
+    const index = line.indexOf(":");
+    const field = index >= 0 ? line.slice(0, index) : line;
+    const value = index >= 0 ? line.slice(index + 1).replace(/^ /, "") : "";
+    if (field === "event") event = value;
+    if (field === "id") id = value;
+    if (field === "data") data.push(value);
+  }
+  return { event, ...(id ? { id } : {}), ...(data.length ? { data: data.join("\n") } : {}) };
+}
+
+function applyRunEventToSnapshot(snapshot: RunSnapshot, event: TimelineItem): RunSnapshot {
+  if (snapshot.timeline.some((item) => item.event_id === event.event_id)) return snapshot;
+  const timeline = [...snapshot.timeline, event].sort((left, right) => (left.sequence ?? Number.MAX_SAFE_INTEGER) - (right.sequence ?? Number.MAX_SAFE_INTEGER) || left.timestamp.localeCompare(right.timestamp) || left.event_id.localeCompare(right.event_id));
+  return { ...snapshot, timeline };
+}
+
+async function sleep(ms: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return;
+  await new Promise<void>((resolve) => {
+    const timeout = window.setTimeout(resolve, ms);
+    signal.addEventListener("abort", () => {
+      window.clearTimeout(timeout);
+      resolve();
+    }, { once: true });
+  });
 }
 
 function statusTone(status: string): string {

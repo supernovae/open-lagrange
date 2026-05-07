@@ -231,6 +231,7 @@ describe("TUI view model", () => {
         plan_id: "plan_1",
         plan_title: "Run title",
         status: "running",
+        runtime: "local_dev",
         active_node_id: "node_1",
         nodes: [{
           node_id: "node_1",

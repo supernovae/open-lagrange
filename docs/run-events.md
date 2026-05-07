@@ -19,11 +19,13 @@ Each stored event includes cursor metadata (`event_id`, `plan_id`) plus the cano
 Storage:
 
 - In-memory state stores events for tests and embedded local flows.
-- SQLite stores events in `run_events` with indexes by `run_id` and timestamp.
+- SQLite stores events in `run_events` with indexes by `run_id`, timestamp, and a stable per-run sequence.
 
 Consumers should call `buildRunSnapshot` or the run API instead of replaying workflow details in a UI component.
 
 Streaming:
 
-- `GET /api/runs/:runId/stream` sends historical events after an optional cursor, then streams appended events.
-- The stream also sends snapshot messages so clients can update without polling.
+- `GET /api/runs/:runId/events/stream` sends historical envelopes after an optional cursor, then streams appended envelopes.
+- Stream cursors use `Last-Event-ID` or `?after=<event_id>`.
+- Stream payloads are `RunEventEnvelope` records. The canonical RunEvent remains nested under `event`.
+- Clients should refetch RunSnapshot after events when they need authoritative derived state.

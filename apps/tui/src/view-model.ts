@@ -26,6 +26,7 @@ export function buildViewModel(input: {
   readonly conversation?: readonly ConversationTurn[];
   readonly pendingFlow?: SuggestedFlow;
   readonly run?: TuiViewModel["run"];
+  readonly runConnectionState?: TuiViewModel["runConnectionState"];
   readonly activeObject?: TuiViewModel["activeObject"];
 }): TuiViewModel {
   const activeTask = input.project?.task_statuses[0];
@@ -44,6 +45,7 @@ export function buildViewModel(input: {
     verificationResults: verificationResults(activeTask),
     ...(plan ? { plan } : {}),
     ...(input.run ? { run: input.run } : {}),
+    ...(input.runConnectionState ? { runConnectionState: input.runConnectionState } : {}),
     ...(skill ? { skill } : {}),
     ...(input.activeObject ? { activeObject: input.activeObject } : {}),
     ...(input.pendingFlow ? { pendingFlow: input.pendingFlow } : {}),

@@ -44,8 +44,8 @@ export async function handleRunSnapshot(runId: string): Promise<RunSnapshot | un
   return await buildRunSnapshot({ run_id: runId }) ?? { run_id: runId, status: "missing" };
 }
 
-export async function handleRunEvents(runId: string): Promise<unknown> {
-  return { run_id: runId, events: await getStateStore().listRunEvents(runId) };
+export async function handleRunEvents(runId: string, options: { readonly after?: string; readonly limit?: number } = {}): Promise<unknown> {
+  return { run_id: runId, events: await getStateStore().listRunEvents(runId, options) };
 }
 
 export async function handleResumeRun(runId: string): Promise<unknown> {

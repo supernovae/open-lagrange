@@ -6,6 +6,7 @@ import type { ActiveObject } from "./state/active-object.js";
 
 export type PaneId = "home" | "chat" | "timeline" | "tasks" | "plan" | "run" | "approvals" | "diff" | "verification" | "review" | "artifact_json" | "demo" | "research" | "pack_builder" | "doctor" | "capabilities" | "help";
 export type InputMode = "chat" | "command" | "approval_reason" | "rejection_reason" | "scope_adjustment";
+export type RunConnectionState = "connected" | "reconnecting" | "polling fallback" | "disconnected";
 
 export interface ConversationTurn {
   readonly turn_id: string;
@@ -111,6 +112,7 @@ export interface TuiViewModel {
   readonly verificationResults: readonly VerificationResultSummary[];
   readonly plan?: PlanViewSummary;
   readonly run?: RunSnapshot;
+  readonly runConnectionState?: RunConnectionState;
   readonly skill?: SkillViewSummary;
   readonly activeObject?: ActiveObject;
   readonly pendingFlow?: SuggestedFlow;

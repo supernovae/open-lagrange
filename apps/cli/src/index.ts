@@ -269,6 +269,39 @@ run.command("events").argument("<runId>", "Run ID").action(async (runId: string)
   console.log(JSON.stringify({ run_id: runId, events: await getStateStore().listRunEvents(runId) }, null, 2));
 });
 
+run.command("watch")
+  .argument("<runId>", "Run ID")
+  .option("--after <eventId>", "Resume after an event ID")
+  .option("--json", "Print full event envelopes as JSON lines", false)
+  .option("--follow", "Keep watching after a terminal event", false)
+  .action(async (runId: string, options: { readonly after?: string; readonly json: boolean; readonly follow: boolean }) => {
+    const client = await createPlatformClientFromCurrentProfile();
+    const controller = new AbortController();
+    const seen = new Set<string>();
+    let cursor = options.after;
+    const print = (envelope: RunEventWatchEnvelope): void => {
+      if (seen.has(envelope.event_id)) return;
+      seen.add(envelope.event_id);
+      cursor = envelope.event_id;
+      if (options.json) console.log(JSON.stringify(envelope));
+      else console.log(`${envelope.sequence} ${envelope.timestamp} ${envelope.event.type} ${envelope.event_id}`);
+      if (!options.follow && terminalRunEvent(envelope.event.type)) controller.abort();
+    };
+    await client.streamRunEvents(runId, {
+      ...(cursor ? { afterEventId: cursor } : {}),
+      signal: controller.signal,
+      onEvent: (envelope) => print(envelope as unknown as RunEventWatchEnvelope),
+      onError: (error) => {
+        if (!controller.signal.aborted) console.error(`stream error: ${error.message}`);
+      },
+      onReconnect: async (attempt) => {
+        if (attempt < 3 || controller.signal.aborted) return;
+        const data = await client.getRunEvents(runId, { ...(cursor ? { after: cursor } : {}) }) as { readonly events?: readonly RunEventWatchEnvelope[] };
+        for (const envelope of data.events ?? []) print(envelope);
+      },
+    });
+  });
+
 run.command("explain").argument("<runId>", "Run ID").action(async (runId: string) => {
   const snapshot = await buildRunSnapshot({ run_id: runId });
   if (!snapshot) {
@@ -1665,6 +1698,17 @@ function packageHasScript(dir: string, scriptName: string): boolean {
   } catch {
     return false;
   }
+}
+
+interface RunEventWatchEnvelope {
+  readonly event_id: string;
+  readonly sequence: number;
+  readonly timestamp: string;
+  readonly event: { readonly type: string };
+}
+
+function terminalRunEvent(type: string): boolean {
+  return type === "run.completed" || type === "run.failed" || type === "run.yielded" || type === "run.cancelled";
 }
 
 function cliPath(path: string): string {

@@ -12,11 +12,34 @@ import { withCanonicalPlanDigest } from "../src/planning/planfile-validator.js";
 import { runCapabilityStep } from "../src/runtime/capability-step-runner.js";
 import { buildRunSnapshot } from "../src/runs/run-snapshot-builder.js";
 import { createRunEvent, type RunEvent } from "../src/runs/run-event.js";
+import { inMemoryRunEventStore, subscribeRunEvents } from "../src/runs/run-event-store.js";
 import { inMemoryRunControlStore } from "../src/runs/run-control.js";
 
 const now = "2026-05-03T12:00:00.000Z";
 
 describe("run console event model", () => {
+  it("wraps persisted run events in ordered stream envelopes", async () => {
+    const runId = "run_envelope_stream";
+    const first = event("run.created", runId, "plan_envelope");
+    const second = event("run.started", runId, "plan_envelope");
+    const observed = new Promise<string>((resolve) => {
+      const unsubscribe = subscribeRunEvents(runId, (envelope) => {
+        unsubscribe();
+        resolve(envelope.event_id);
+      });
+    });
+
+    const firstEnvelope = await inMemoryRunEventStore.appendRunEvent(first);
+    const secondEnvelope = await inMemoryRunEventStore.appendRunEvent(second);
+
+    expect(await observed).toBe(first.event_id);
+    expect(firstEnvelope.sequence).toBe(1);
+    expect(secondEnvelope.sequence).toBe(2);
+    expect(secondEnvelope.runtime).toBe("local_dev");
+    await expect(inMemoryRunEventStore.getLatestEventId(runId)).resolves.toBe(second.event_id);
+    await expect(inMemoryRunEventStore.listRunEvents(runId, { after: first.event_id })).resolves.toMatchObject([{ event_id: second.event_id }]);
+  });
+
   it("emits run and node events from PlanRunner in execution order", async () => {
     const events: RunEvent[] = [];
     const store = memoryPlanStore();

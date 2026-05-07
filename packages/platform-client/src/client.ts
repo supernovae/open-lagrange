@@ -1,7 +1,7 @@
 import { getCurrentProfile } from "@open-lagrange/runtime-manager";
 import type { RuntimeProfile } from "@open-lagrange/runtime-manager";
 import { resolveProfileAuthToken } from "@open-lagrange/runtime-manager";
-import type { ApprovalInput, ApplyPlanfileInput, ApplyRepositoryPlanfileInput, CreateBuilderRunInput, CreateRunInput, PlatformClientOptions, SubmitProjectInput, SubmitRepositoryGoalInput } from "./types.js";
+import type { ApprovalInput, ApplyPlanfileInput, ApplyRepositoryPlanfileInput, CreateBuilderRunInput, CreateRunInput, PlatformClientOptions, RunEventEnvelope, RunEventStreamOptions, SubmitProjectInput, SubmitRepositoryGoalInput } from "./types.js";
 
 export class PlatformClient {
   constructor(private readonly options: PlatformClientOptions) {}
@@ -105,8 +105,56 @@ export class PlatformClient {
     return this.get(`/v1/runs/${encodeURIComponent(runId)}`);
   }
 
-  async getRunEvents(runId: string): Promise<unknown> {
-    return this.get(`/v1/runs/${encodeURIComponent(runId)}/events`);
+  async getRunEvents(runId: string, options: { readonly after?: string; readonly limit?: number } = {}): Promise<unknown> {
+    const params = new URLSearchParams();
+    if (options.after) params.set("after", options.after);
+    if (options.limit !== undefined) params.set("limit", String(options.limit));
+    const suffix = params.size > 0 ? `?${params.toString()}` : "";
+    return this.get(`/v1/runs/${encodeURIComponent(runId)}/events${suffix}`);
+  }
+
+  async streamRunEvents(runId: string, options: RunEventStreamOptions = {}): Promise<void> {
+    let afterEventId = options.afterEventId;
+    let attempt = 0;
+    const seen = new Set<string>();
+    while (!options.signal?.aborted) {
+      try {
+        const params = new URLSearchParams();
+        if (afterEventId) params.set("after", afterEventId);
+        const suffix = params.size > 0 ? `?${params.toString()}` : "";
+        const response = await fetch(new URL(`/v1/runs/${encodeURIComponent(runId)}/events/stream${suffix}`, this.options.apiUrl), {
+          method: "GET",
+          ...(options.signal ? { signal: options.signal } : {}),
+          headers: {
+            accept: "text/event-stream",
+            ...(this.options.authToken ? { authorization: `Bearer ${this.options.authToken}` } : {}),
+            ...(afterEventId ? { "Last-Event-ID": afterEventId } : {}),
+          },
+        });
+        if (!response.ok || !response.body) throw new Error(`Control Plane API ${response.status}: ${await response.text()}`);
+        attempt = 0;
+        for await (const frame of readSseFrames(response.body, options.signal)) {
+          if (options.signal?.aborted) return;
+          if (!frame.data || frame.event === "message") continue;
+          if (frame.event === "run.error") {
+            await options.onError?.(new Error(frame.data));
+            continue;
+          }
+          if (frame.event !== "run.event") continue;
+          const envelope = JSON.parse(frame.data) as RunEventEnvelope;
+          if (seen.has(envelope.event_id)) continue;
+          seen.add(envelope.event_id);
+          afterEventId = envelope.event_id;
+          await options.onEvent?.(envelope);
+        }
+      } catch (error) {
+        if (options.signal?.aborted) return;
+        attempt += 1;
+        await options.onError?.(error instanceof Error ? error : new Error(String(error)));
+        await options.onReconnect?.(attempt, afterEventId);
+        await sleep(Math.min(10_000, 500 * (2 ** Math.min(5, attempt))), options.signal);
+      }
+    }
   }
 
   async approveRunRequest(runId: string, approvalId: string, input: { readonly decided_by?: string; readonly reason?: string } = {}): Promise<unknown> {
@@ -205,6 +253,63 @@ export class PlatformClient {
     if (!response.ok) throw new Error(`Control Plane API ${response.status}: ${text}`);
     return data;
   }
+}
+
+interface SseFrame {
+  readonly event: string;
+  readonly data?: string;
+  readonly id?: string;
+}
+
+async function* readSseFrames(body: ReadableStream<Uint8Array>, signal?: AbortSignal): AsyncIterable<SseFrame> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  try {
+    for (;;) {
+      if (signal?.aborted) return;
+      const { done, value } = await reader.read();
+      if (done) return;
+      buffer += decoder.decode(value, { stream: true });
+      const frames = buffer.split("\n\n");
+      buffer = frames.pop() ?? "";
+      for (const raw of frames) {
+        const parsed = parseSseFrame(raw);
+        if (parsed) yield parsed;
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+function parseSseFrame(raw: string): SseFrame | undefined {
+  const lines = raw.split("\n");
+  if (lines.every((line) => line.startsWith(":") || line.trim() === "")) return undefined;
+  let event = "message";
+  let id: string | undefined;
+  const data: string[] = [];
+  for (const line of lines) {
+    if (line.startsWith(":") || !line) continue;
+    const index = line.indexOf(":");
+    const field = index >= 0 ? line.slice(0, index) : line;
+    const value = index >= 0 ? line.slice(index + 1).replace(/^ /, "") : "";
+    if (field === "event") event = value;
+    if (field === "id") id = value;
+    if (field === "data") data.push(value);
+  }
+  return { event, ...(id ? { id } : {}), ...(data.length ? { data: data.join("\n") } : {}) };
+}
+
+async function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) return;
+  await new Promise<void>((resolve) => {
+    const timeout = setTimeout(resolve, ms);
+    signal?.addEventListener("abort", () => {
+      clearTimeout(timeout);
+      resolve();
+    }, { once: true });
+  });
 }
 
 export async function createPlatformClientFromCurrentProfile(): Promise<PlatformClient> {

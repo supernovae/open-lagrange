@@ -15,7 +15,7 @@ export function RunConsoleMode({ model }: { readonly model: TuiViewModel }): Rea
   return (
     <Box flexDirection="row" columnGap={2}>
       <Box flexDirection="column" width="34%">
-        <RunFrame run={run} />
+        <RunFrame run={run} {...(model.runConnectionState ? { connectionState: model.runConnectionState } : {})} />
       </Box>
       <Box flexDirection="column" width="40%">
         {object?.type === "artifact" ? <RunArtifactPane run={run} /> : null}
