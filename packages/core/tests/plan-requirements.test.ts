@@ -51,6 +51,27 @@ describe("plan requirements", () => {
     expect(report.suggested_actions.some((action) => action.action_type === "configure_provider")).toBe(true);
   });
 
+  it("treats a configured live search provider as satisfying the generic search requirement", async () => {
+    const composed = await composePlanfileFromIntent({
+      prompt: "research open source container security",
+      runtime_profile: { name: "local", searchProviders: [{ id: "local-searxng", kind: "searxng", enabled: true }] },
+      mode: "dry_run",
+      now,
+    });
+
+    const report = runPlanCheck({
+      planfile: composed.planfile,
+      runtime_profile: { name: "local", searchProviders: [{ id: "local-searxng", kind: "searxng", enabled: true }] },
+      live: true,
+      now,
+    });
+
+    expect(report.required_providers.some((provider) => provider.id === "search" && provider.status === "present")).toBe(true);
+    expect(report.required_providers.some((provider) => provider.id === "search" && provider.status === "missing")).toBe(false);
+    expect(report.status).not.toBe("missing_requirements");
+  });
+
+
   it("surfaces side effects and approval actions without blocking runnable plans", async () => {
     const composed = await composePlanfileFromIntent({
       prompt: "add JSON output to my CLI",

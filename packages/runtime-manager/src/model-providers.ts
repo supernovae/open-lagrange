@@ -133,7 +133,12 @@ async function describeModelProvider(profile: RuntimeProfile, provider: string):
   const config = profile.modelProviders?.[key] ?? defaultModelProviderProfile(key);
   const secretRefKey = config.api_key_secret_ref ?? descriptor.api_key_secret_ref;
   const endpoint = config.endpoint ?? descriptor.default_endpoint;
-  const configured = Boolean(!descriptor.api_key_env || providerSpecificEnv(descriptor.api_key_env) || (secretRefKey && await hasSecret(profile, secretRefKey)));
+  const configured = Boolean(
+    descriptor.compatibility === "local_openai_compatible"
+      || !descriptor.api_key_env
+      || providerSpecificEnv(descriptor.api_key_env)
+      || (secretRefKey && profile.secretRefs?.[secretRefKey]),
+  );
   return {
     active: activeModelProviderKey(profile),
     provider: key,
@@ -146,16 +151,6 @@ async function describeModelProvider(profile: RuntimeProfile, provider: string):
     redacted: configured ? "********" : "",
     notes: descriptor.notes,
   };
-}
-
-async function hasSecret(profile: RuntimeProfile, key: string): Promise<boolean> {
-  const ref = profile.secretRefs?.[key];
-  if (!ref) return false;
-  try {
-    return await getSecretManager().hasSecret(ref, modelSecretContext(profile, "status"));
-  } catch {
-    return false;
-  }
 }
 
 async function resolveSecret(profile: RuntimeProfile, key: string): Promise<string | undefined> {

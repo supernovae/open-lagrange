@@ -129,7 +129,7 @@ export async function runPlanBuilderPlanfile(sessionId: string, raw: unknown): P
       message: `Plan Check blocked run creation: ${plan_check_report.status}.`,
     };
   }
-  return checkAndCreateRunFromBuilderSession({ session_id: sessionId, live: payload.live });
+  return checkAndCreateRunFromBuilderSession({ session_id: sessionId, live: payload.live, runtime_profile: await planningRuntimeProfile() });
 }
 
 export async function schedulePlanBuilderPlanfile(sessionId: string, raw: unknown): Promise<unknown> {

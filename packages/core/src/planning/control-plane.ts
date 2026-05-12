@@ -172,13 +172,20 @@ export async function checkAndCreateRunFromPlanfile(input: ApplyPlanfileInput): 
   };
 }
 
-export async function checkAndCreateRunFromBuilderSession(input: { readonly session_id: string; readonly live?: boolean; readonly output_dir?: string; readonly now?: string }): Promise<CheckAndCreateRunResult> {
+export async function checkAndCreateRunFromBuilderSession(input: {
+  readonly session_id: string;
+  readonly live?: boolean;
+  readonly output_dir?: string;
+  readonly runtime_profile?: RuntimeProfileForRequirements;
+  readonly now?: string;
+}): Promise<CheckAndCreateRunResult> {
   const session = getPlanBuilderSession(input.session_id);
   if (!session?.current_planfile) throw new Error(`Plan Builder session ${input.session_id} does not have a current Planfile.`);
   return checkAndCreateRunFromPlanfile({
     planfile: session.current_planfile,
     ...(input.live === undefined ? { live: true } : { live: input.live }),
     ...(input.output_dir ? { output_dir: input.output_dir } : {}),
+    ...(input.runtime_profile ? { runtime_profile: input.runtime_profile } : {}),
     ...(input.now ? { now: input.now } : {}),
   });
 }

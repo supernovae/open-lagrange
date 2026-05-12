@@ -44,10 +44,10 @@ export function defaultLocalProfile(input: {
     runtimeManager: input.runtime,
     composeFile: input.composeFile ?? getRuntimePaths().composePath,
     auth: { type: "none" },
-    secretRefs: defaultProfileSecretRefs("local"),
-    activeModelProvider: "openai",
+    secretRefs: {},
+    activeModelProvider: "local",
     modelProviders: {
-      openai: defaultModelProviderProfile(),
+      local: defaultModelProviderProfile("local"),
     },
     ...(input.withSearch ? { searchProviders: [defaultSearxngProviderProfile()] } : {}),
   });
@@ -78,13 +78,6 @@ function stringifyConfig(config: RuntimeConfigType): string {
 
 export function defaultProfileSecretRefs(profileName: string) {
   return {
-    openai: secretRef({
-      provider: "os-keychain",
-      name: "openai-api-key",
-      scope: "profile",
-      profile_name: profileName,
-      description: "OpenAI API key for local model provider access.",
-    }),
     open_lagrange_token: secretRef({
       provider: "os-keychain",
       name: "api-token",
@@ -95,12 +88,12 @@ export function defaultProfileSecretRefs(profileName: string) {
   };
 }
 
-function defaultModelProviderProfile() {
-  const descriptor = getModelProviderDescriptor("openai");
+function defaultModelProviderProfile(provider: string) {
+  const descriptor = getModelProviderDescriptor(provider);
   return {
     provider: descriptor.id,
-    endpoint: descriptor.default_endpoint,
-    api_key_secret_ref: descriptor.api_key_secret_ref,
+    ...(descriptor.default_endpoint ? { endpoint: descriptor.default_endpoint } : {}),
+    ...(descriptor.api_key_secret_ref ? { api_key_secret_ref: descriptor.api_key_secret_ref } : {}),
     models: descriptor.suggested_models,
   };
 }

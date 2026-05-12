@@ -34,7 +34,19 @@ describe("runtime model providers", () => {
   });
 
   it("projects active provider config into runtime env without requiring raw config values", async () => {
-    const profile = defaultLocalProfile({ runtime: "podman" });
+    const profile = {
+      ...defaultLocalProfile({ runtime: "podman" }),
+      activeModelProvider: "openai",
+      secretRefs: {},
+      modelProviders: {
+        openai: {
+          provider: "openai" as const,
+          endpoint: "https://api.openai.com/v1",
+          api_key_secret_ref: "openai",
+          models: { default: "gpt-4o-mini", high: "gpt-4o", coder: "gpt-4o" },
+        },
+      },
+    };
     vi.stubEnv("OPENAI_API_KEY", "sk-test");
 
     const env = await modelProviderRuntimeEnv(profile);
@@ -111,5 +123,7 @@ describe("runtime model providers", () => {
     });
     expect(profile?.secretRefs?.kybern?.name).toBe("kybern-api-key");
     expect(profile?.searchProviders?.[0]?.kind).toBe("searxng");
+    expect(profile?.modelProviders?.openai).toBeUndefined();
+    expect(profile?.secretRefs?.openai).toBeUndefined();
   });
 });

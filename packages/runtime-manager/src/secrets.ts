@@ -60,7 +60,11 @@ export async function deleteCurrentProfileSecret(name: string): Promise<SecretRe
   const ref = profile.secretRefs?.[name] ?? profileSecretRef(profile, name);
   await getSecretManager().deleteSecret(ref, secretContext(profile, "secret_delete"));
   const { [name]: _removed, ...secretRefs } = profile.secretRefs ?? {};
-  const nextProfile = { ...profile, secretRefs };
+  const nextProfile = {
+    ...profile,
+    ...(name === "open_lagrange_token" ? { auth: { type: "none" as const } } : {}),
+    secretRefs,
+  };
   await saveConfig({ ...config, profiles: { ...config.profiles, [profile.name]: nextProfile } });
   return { ...ref, configured: false, redacted: "********" };
 }
@@ -111,24 +115,16 @@ export async function credentialStatuses(profile: RuntimeProfile): Promise<{
   const providerRef = providerRefKey ? profile.secretRefs?.[providerRefKey] : undefined;
   const modelConfigured = descriptor.compatibility === "local_openai_compatible"
     || Boolean(process.env.OPEN_LAGRANGE_MODEL_API_KEY || process.env.OPENAI_API_KEY || process.env.AI_GATEWAY_API_KEY)
-    || Boolean(providerRef && await safeHasSecret(providerRef, secretContext(profile, "status")));
+    || Boolean(providerRef);
   const tokenRef = profile.auth?.tokenRef ?? profile.secretRefs?.open_lagrange_token;
   const authConfigured = profile.auth?.type === "none"
     || Boolean(profile.auth?.tokenEnv && process.env[profile.auth.tokenEnv])
-    || Boolean(tokenRef && await safeHasSecret(tokenRef, secretContext(profile, "status")));
+    || Boolean(tokenRef);
   return {
     modelProvider: { name: "model", state: modelConfigured ? "running" : "not_configured", detail: providerRef?.provider ?? activeProvider },
     remoteAuth: { name: "remote-auth", state: authConfigured ? "running" : "not_configured", detail: tokenRef?.provider ?? profile.auth?.tokenEnv ?? "none" },
     secretProvider: providerRef?.provider ?? tokenRef?.provider ?? "env",
   };
-}
-
-async function safeHasSecret(ref: SecretRef, context: SecretAccessContext): Promise<boolean> {
-  try {
-    return await getSecretManager().hasSecret(ref, context);
-  } catch {
-    return false;
-  }
 }
 
 function secretStoreName(name: string): string {

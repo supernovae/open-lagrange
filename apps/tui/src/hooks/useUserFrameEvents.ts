@@ -140,7 +140,8 @@ async function submitLocalOrRemoteEvent(event: TuiUserFrameEvent): Promise<UserF
   if (event.type === "plan_builder.run") {
     const session = requireBuilderSession(event.session_id);
     if (!session.current_planfile || (session.status !== "ready" && session.status !== "approved")) return { status: "failed", message: `Plan Builder session is not ready: ${session.session_id}` };
-    const result = await checkAndCreateRunFromBuilderSession({ session_id: session.session_id, live: true });
+    const profile = await getCurrentProfile().catch(() => undefined);
+    const result = await checkAndCreateRunFromBuilderSession({ session_id: session.session_id, live: true, ...(profile ? { runtime_profile: profile } : {}) });
     return { status: result.status === "blocked" ? "failed" : "completed", message: runCreationMessage(result), output: result };
   }
   if (event.type === "plan.check") {
@@ -160,7 +161,8 @@ async function submitLocalOrRemoteEvent(event: TuiUserFrameEvent): Promise<UserF
   }
   if (event.type === "plan.apply") {
     const planfile = withCanonicalPlanDigest(await loadLocalPlanfile(event.planfile));
-    const result = await checkAndCreateRunFromPlanfile({ planfile, live: true });
+    const profile = await getCurrentProfile().catch(() => undefined);
+    const result = await checkAndCreateRunFromPlanfile({ planfile, live: true, ...(profile ? { runtime_profile: profile } : {}) });
     return { status: result.status === "blocked" ? "failed" : "completed", message: runCreationMessage(result), output: result };
   }
   if (event.type === "doctor.run") return { status: "completed", message: "Doctor checks completed.", output: await runDoctor() };

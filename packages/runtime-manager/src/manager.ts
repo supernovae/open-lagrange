@@ -187,8 +187,10 @@ async function localProfile(runtime?: "docker" | "podman", withSearch = false): 
   try {
     const profile = await getCurrentProfile();
     if (profile.mode === "local") {
-      const next = withOptionalSearch({ ...profile, ...(runtime ? { runtimeManager: runtime } : {}) }, withSearch);
-      if (withSearch || runtime) await persistCurrentProfile(next);
+      const runtimeProfile = runtime ? { ...profile, runtimeManager: runtime } : profile;
+      const pruned = pruneLegacyDefaultOpenAi(runtimeProfile);
+      const next = withOptionalSearch(pruned, withSearch);
+      if (withSearch || runtime || pruned !== runtimeProfile) await persistCurrentProfile(next);
       return next;
     }
     return profile;
@@ -236,7 +238,7 @@ function managedLocalProfile(input: {
   const base = defaultLocalProfile({ runtime: input.runtime, composeFile: input.composeFile, withSearch: input.withSearch });
   const existing = input.existing;
   if (!existing) return base;
-  return withOptionalSearch({
+  return withOptionalSearch(pruneLegacyDefaultOpenAi({
     ...base,
     ...existing,
     name: "local",
@@ -248,12 +250,37 @@ function managedLocalProfile(input: {
     hatchetUrl: base.hatchetUrl,
     workerUrl: base.workerUrl,
     webUrl: base.webUrl,
-    secretRefs: { ...(base.secretRefs ?? {}), ...(existing.secretRefs ?? {}) },
-    modelProviders: { ...(base.modelProviders ?? {}), ...(existing.modelProviders ?? {}) },
+    secretRefs: existing.secretRefs ?? base.secretRefs,
+    modelProviders: existing.modelProviders ?? base.modelProviders,
     ...(existing.auth ? { auth: existing.auth } : {}),
     ...(existing.activeModelProvider ? { activeModelProvider: existing.activeModelProvider } : {}),
     ...(existing.searchProviders ? { searchProviders: existing.searchProviders } : {}),
-  }, input.withSearch);
+  }), input.withSearch);
+}
+
+function pruneLegacyDefaultOpenAi(profile: RuntimeProfile): RuntimeProfile {
+  if ((profile.activeModelProvider ?? "") === "openai") return profile;
+  const provider = profile.modelProviders?.openai;
+  const ref = profile.secretRefs?.openai;
+  const providerIsFactoryDefault = provider?.provider === "openai"
+    && provider.endpoint === "https://api.openai.com/v1"
+    && provider.api_key_secret_ref === "openai"
+    && provider.models.default === "gpt-4o-mini"
+    && provider.models.high === "gpt-4o"
+    && provider.models.coder === "gpt-4o";
+  const refIsFactoryDefault = !ref
+    || (ref.provider === "os-keychain"
+      && ref.name === "openai-api-key"
+      && ref.scope === "profile"
+      && ref.profile_name === profile.name);
+  if (!providerIsFactoryDefault || !refIsFactoryDefault) return profile;
+  const { openai: _openaiProvider, ...modelProviders } = profile.modelProviders ?? {};
+  const { openai: _openaiRef, ...secretRefs } = profile.secretRefs ?? {};
+  return {
+    ...profile,
+    modelProviders,
+    secretRefs,
+  };
 }
 
 function hasLocalSearxng(profile: RuntimeProfile): boolean {
@@ -416,7 +443,11 @@ function delay(ms: number): Promise<void> {
 async function authHeaders(auth: RuntimeProfile["auth"]): Promise<HeadersInit> {
   if (auth?.type !== "token") return process.env.OPEN_LAGRANGE_API_TOKEN ? { authorization: `Bearer ${process.env.OPEN_LAGRANGE_API_TOKEN}` } : {};
   const profile = await getCurrentProfile().catch(() => undefined);
-  const token = profile ? await resolveProfileAuthToken(profile) : auth.tokenEnv ? process.env[auth.tokenEnv] : undefined;
+  const token = auth.tokenEnv ? process.env[auth.tokenEnv] : undefined;
+  if (!token && profile?.auth?.tokenEnv) {
+    const profileToken = process.env[profile.auth.tokenEnv];
+    return profileToken ? { authorization: `Bearer ${profileToken}` } : {};
+  }
   const resolved = token ?? process.env.OPEN_LAGRANGE_API_TOKEN;
   return resolved ? { authorization: `Bearer ${resolved}` } : {};
 }

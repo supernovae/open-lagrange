@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { buildRunSnapshot, RunRetryRequest, RunUiState, type RunSnapshot } from "@open-lagrange/core/runs";
 import { cancelRun, checkAndCreateRunFromBuilderSession, checkAndCreateRunFromPlanfile, parsePlanfileMarkdown, parsePlanfileYaml, resumeRun, retryRunNode } from "@open-lagrange/core/planning";
 import { getStateStore } from "@open-lagrange/core/storage";
+import { getCurrentProfile } from "@open-lagrange/runtime-manager";
 import { z } from "zod";
 import { HttpError } from "../http";
 
@@ -30,14 +31,15 @@ export const UiStatePayload = z.object({
 
 export async function handleCreateRun(raw: unknown): Promise<unknown> {
   const payload = CreateRunPayload.parse(raw);
+  const runtimeProfile = await getCurrentProfile().catch(() => undefined);
   if (payload.source === "builder_session") {
     if (!payload.session_id) throw new HttpError(400, { error: "SESSION_ID_REQUIRED" });
-    return checkAndCreateRunFromBuilderSession({ session_id: payload.session_id, live: payload.live });
+    return checkAndCreateRunFromBuilderSession({ session_id: payload.session_id, live: payload.live, ...(runtimeProfile ? { runtime_profile: runtimeProfile } : {}) });
   }
   const planfile = payload.source === "planfile_path"
     ? parsePlanfilePath(required(payload.planfile_path, "PLANFILE_PATH_REQUIRED"))
     : required(payload.planfile, "PLANFILE_REQUIRED");
-  return checkAndCreateRunFromPlanfile({ planfile, live: payload.live });
+  return checkAndCreateRunFromPlanfile({ planfile, live: payload.live, ...(runtimeProfile ? { runtime_profile: runtimeProfile } : {}) });
 }
 
 export async function handleRunSnapshot(runId: string): Promise<RunSnapshot | unknown> {

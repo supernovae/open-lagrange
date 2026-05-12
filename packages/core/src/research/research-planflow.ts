@@ -64,7 +64,7 @@ export async function composeResearchPlan(input: ComposeResearchPlanInput): Prom
   return {
     planfile,
     markdown,
-    plan_check_report: runPlanCheck({ planfile, live: true }),
+    plan_check_report: runPlanCheck({ planfile, live: true, ...(input.runtime_profile ? { runtime_profile: input.runtime_profile } : {}) }),
     warnings: composed.warnings,
   };
 }

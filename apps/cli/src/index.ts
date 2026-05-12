@@ -861,7 +861,8 @@ repo.command("apply")
   .option("--json", "Print machine-readable output", false)
   .action(async (path: string, options: { readonly retainWorktree: boolean; readonly allowDirtyBase: boolean; readonly cleanupOnSuccess: boolean; readonly json: boolean }) => {
     const planfile = withCanonicalPlanDigest(await loadLocalPlanfile(path));
-    const check = runPlanCheck({ planfile, live: true });
+    const runtimeProfile = await getCurrentProfile().catch(() => undefined);
+    const check = runPlanCheck({ planfile, live: true, ...(runtimeProfile ? { runtime_profile: runtimeProfile } : {}) });
     if (planCheckBlocksRun(check)) {
       console.log(JSON.stringify({ status: "blocked", plan_check_report: check }, null, 2));
       process.exitCode = 1;
@@ -1427,7 +1428,8 @@ planBuilder.command("save")
 
 planBuilder.command("run").argument("<sessionId>", "Plan Builder session ID").option("--live", "Execute through the local runtime path", false).action(async (sessionId: string, options: { readonly live: boolean }) => {
   const session = requireReadyBuilderSession(sessionId);
-  const result = await checkAndCreateRunFromBuilderSession({ session_id: session.session_id, live: true });
+  const runtimeProfile = await getCurrentProfile().catch(() => undefined);
+  const result = await checkAndCreateRunFromBuilderSession({ session_id: session.session_id, live: true, ...(runtimeProfile ? { runtime_profile: runtimeProfile } : {}) });
   printRunCreationResult(result);
 });
 
@@ -1639,7 +1641,8 @@ plan.command("run")
   .option("--library <library>", "Resolve the plan from a named Plan Library")
   .action(async (path: string, options: { readonly library?: string }) => {
     const planfile = withCanonicalPlanDigest(await loadPlanfileOrLibraryRef(path, options.library));
-    const result = await checkAndCreateRunFromPlanfile({ planfile, live: true });
+    const runtimeProfile = await getCurrentProfile().catch(() => undefined);
+    const result = await checkAndCreateRunFromPlanfile({ planfile, live: true, ...(runtimeProfile ? { runtime_profile: runtimeProfile } : {}) });
     printRunCreationResult(result);
   });
 
@@ -1648,7 +1651,8 @@ plan.command("apply")
   .option("--library <library>", "Resolve the plan from a named Plan Library")
   .action(async (path: string, options: { readonly library?: string }) => {
     const planfile = withCanonicalPlanDigest(await loadPlanfileOrLibraryRef(path, options.library));
-    const result = await checkAndCreateRunFromPlanfile({ planfile, live: true });
+    const runtimeProfile = await getCurrentProfile().catch(() => undefined);
+    const result = await checkAndCreateRunFromPlanfile({ planfile, live: true, ...(runtimeProfile ? { runtime_profile: runtimeProfile } : {}) });
     printRunCreationResult(result);
   });
 
@@ -1698,7 +1702,8 @@ schedule.command("run")
       return;
     }
     const planfile = withCanonicalPlanDigest(await loadLocalPlanfile(record.planfile_path));
-    const result = await checkAndCreateRunFromPlanfile({ planfile, live: true });
+    const runtimeProfile = await getCurrentProfile().catch(() => undefined);
+    const result = await checkAndCreateRunFromPlanfile({ planfile, live: true, ...(runtimeProfile ? { runtime_profile: runtimeProfile } : {}) });
     if (result.status === "blocked") {
       console.log(JSON.stringify({ schedule_id: scheduleId, ...result }, null, 2));
       process.exitCode = 1;
