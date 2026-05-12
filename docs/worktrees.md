@@ -39,3 +39,12 @@ open-lagrange repo cleanup <plan_id>
 ```
 
 The cleanup command updates the durable `WorktreeSession` status to `cleaned`.
+
+Inspect worktree state at any point:
+
+```bash
+open-lagrange repo worktree <plan_id_or_run_id>
+```
+
+The command prints the source repository root, isolated worktree path, branch,
+base ref, base commit, retained/cleaned status, and cleanup command.

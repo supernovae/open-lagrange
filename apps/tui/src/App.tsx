@@ -159,6 +159,19 @@ export function App(props: AppProps): React.ReactElement {
       if (value === "e") { setInput(runSnapshot ? `/run explain ${runSnapshot.run_id}` : "/run explain "); return; }
       if (value === "q") { setSelectedPane("home"); return; }
     }
+    if (selectedPane === "repository" && input.length === 0) {
+      if (value === "g") { setInput("/repo explain"); return; }
+      if (value === "e") { setInput("/repo evidence"); return; }
+      if (value === "p") { setSelectedPane("plan"); return; }
+      if (value === "d") { setSelectedPane("diff"); return; }
+      if (value === "v") { setSelectedPane("verification"); return; }
+      if (value === "r") { setInput(runSnapshot?.active_node_id ? `/run retry ${runSnapshot.run_id} ${runSnapshot.active_node_id} --mode ` : "/repo explain"); return; }
+      if (value === "s") { setSelectedPane("approvals"); return; }
+      if (value === "m") { setActiveObject({ type: "model_call", id: "model_calls" }); return; }
+      if (value === "f") { setInput("/repo patch "); return; }
+      if (value === "x") { setInput("/repo cleanup "); return; }
+      if (value === "q") { setSelectedPane("home"); return; }
+    }
     if (key.pageUp || (key.shift && key.upArrow)) {
       setScrollOffset((value) => expandedTurnId ? Math.max(0, value - 8) : Math.min(conversation.length, value + 3));
       return;

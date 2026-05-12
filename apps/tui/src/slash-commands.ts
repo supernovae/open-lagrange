@@ -64,6 +64,7 @@ export function parseSlashCommand(input: string, context: SlashCommandContext = 
   if (command === "packs") return { kind: "event", command, pane: "chat", event: { type: "pack.list" } };
   if (command === "demos") return { kind: "event", command, pane: "chat", event: { type: "demo.list" } };
   if (command === "diff") return context.project_id ? { kind: "event", command, pane: "diff", event: { type: "request_artifact", project_id: context.project_id, ...(context.task_id ? { task_id: context.task_id } : {}), artifact_type: "diff" } } : { kind: "pane", command, pane: "diff" };
+  if (command === "repository") return { kind: "pane", command, pane: "repository" };
   if (command === "review") return context.project_id ? { kind: "event", command, pane: "review", event: { type: "request_artifact", project_id: context.project_id, ...(context.task_id ? { task_id: context.task_id } : {}), artifact_type: "review" } } : { kind: "pane", command, pane: "review" };
   if (command === "json") return context.project_id ? { kind: "event", command, pane: "artifact_json", event: { type: "request_artifact", project_id: context.project_id, ...(context.task_id ? { task_id: context.task_id } : {}), artifact_type: "artifact_json" } } : { kind: "pane", command, pane: "artifact_json" };
   if (command === "verify") {
@@ -82,8 +83,9 @@ export function parseSlashCommand(input: string, context: SlashCommandContext = 
   }
   if (command === "repo") {
     const [subcommand, ...goalParts] = rest;
-    if (subcommand === "run" && goalParts.length > 0) return { kind: "event", command, pane: "chat", event: flowForRepositoryRun(goalParts.join(" "), context).event };
-    return { kind: "error", command, error: "Usage: /repo run <goal>" };
+    if (subcommand === "run" && goalParts.length > 0) return { kind: "event", command, pane: "repository", event: flowForRepositoryRun(goalParts.join(" "), context).event };
+    if (subcommand === "status" || subcommand === "explain" || subcommand === "diff" || subcommand === "evidence" || subcommand === "verify") return { kind: "pane", command, pane: "repository" };
+    return { kind: "error", command, error: "Usage: /repo run <goal>, /repo status, /repo explain, /repo diff, /repo evidence, or /repo verify" };
   }
   if (command === "skill") {
     const [subcommand, file] = rest;

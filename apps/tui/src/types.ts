@@ -4,7 +4,7 @@ import type { TaskStatusSnapshot } from "@open-lagrange/core/interface";
 import type { RunSnapshot } from "@open-lagrange/core/runs";
 import type { ActiveObject } from "./state/active-object.js";
 
-export type PaneId = "home" | "chat" | "timeline" | "tasks" | "plan" | "plan_library" | "run" | "approvals" | "diff" | "verification" | "review" | "artifact_json" | "demo" | "research" | "pack_builder" | "doctor" | "capabilities" | "help";
+export type PaneId = "home" | "chat" | "timeline" | "tasks" | "plan" | "plan_library" | "run" | "repository" | "approvals" | "diff" | "verification" | "review" | "artifact_json" | "demo" | "research" | "pack_builder" | "doctor" | "capabilities" | "help";
 export type InputMode = "chat" | "command" | "approval_reason" | "rejection_reason" | "scope_adjustment";
 export type RunConnectionState = "connected" | "reconnecting" | "polling fallback" | "disconnected";
 

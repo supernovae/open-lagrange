@@ -11,7 +11,7 @@ import { listDemos, openDemo, runDemo } from "@open-lagrange/core/demos";
 import { runCoreDoctor } from "@open-lagrange/core/doctor";
 import { getPackHealth, inspectPack, listInspectablePacks, runPackSmoke, validateRegisteredPack } from "@open-lagrange/core/packs";
 import { acceptDefaultAnswers, addPlanLibrary, answerQuestion, checkAndCreateRunFromBuilderSession, checkAndCreateRunFromPlanfile, checkAndCreateScheduleRecord, composeInitialPlan, composePlanfileFromIntent, derivePlanRequirements, diffPlanfileMarkdown, generateGoalFrame, generatePlanfile, getPlanBuilderSession, getScheduleRecord, importBuilderPlanfileFromMarkdown, instantiatePlanTemplate, listPlanBuilderSessions, listPlanLibraries, listPlanLibraryPlans, listScheduleRecords, parsePlanfileMarkdown, parsePlanfileYaml, planCheckBlocksRun, reconcilePlanfileMarkdown, removePlanLibrary, removeSavedPlanFromLibrary, renderPlanfileMarkdown, renderPlanMermaid, resolvePlanLibraryEntry, revisePlan, runPlanCheck, saveBuilderSessionToLibrary, savePlanBuilderSession, savePlanToLibrary, saveReadyPlanfile, showPlanFromLibrary, showPlanLibrary, simulatePlan, stabilizePlan, syncPlanLibrary, updateBuilderPlanfileFromMarkdown, validatePlan, validatePlanfile, withCanonicalPlanDigest } from "@open-lagrange/core/planning";
-import { applyRepositoryPlanfile as applyLocalRepositoryPlanfile, approveApprovalRequest, approveRepositoryScopeRequest, cleanupRepositoryPlan as cleanupLocalRepositoryPlan, createRepositoryPlanfile, explainRepositoryPlan, exportRepositoryPlanPatch as exportLocalRepositoryPlanPatch, getRepositoryPlanStatus as getLocalRepositoryPlanStatus, listRepositoryModelCalls, rejectApprovalRequest, rejectRepositoryScopeRequest, resumeRepositoryPlan, runRepositoryDoctor } from "@open-lagrange/core/repository";
+import { applyRepositoryPlanfile as applyLocalRepositoryPlanfile, approveApprovalRequest, approveRepositoryScopeRequest, buildRepositoryDiffView, buildRepositoryRunView, cleanupRepositoryPlan as cleanupLocalRepositoryPlan, createRepositoryPlanfile, exportRepositoryPlanPatch as exportLocalRepositoryPlanPatch, formatRepositoryDiff, formatRepositoryEvidence, formatRepositoryExplanation, formatRepositoryStatus, formatRepositoryVerification, formatRepositoryWorktree, getRepositoryPlanStatus as getLocalRepositoryPlanStatus, listRepositoryModelCalls, rejectApprovalRequest, rejectRepositoryScopeRequest, resumeRepositoryPlan, runRepositoryDoctor } from "@open-lagrange/core/repository";
 import { compareBenchmarkRun, listBenchmarkScenarios, listModelRouteConfigs, renderBenchmarkReport, runModelRoutingBenchmark } from "@open-lagrange/core/evals";
 import { buildResearchRunViewForRun, checkAndCreateResearchRun, composeResearchPlan, explainResearchRunById, exportResearchViewArtifact, runResearchFetchCommand, runResearchSearchCommand, scheduleResearchPlan, writeResearchPlanfile } from "@open-lagrange/core/research";
 import type { SearchProviderConfig } from "@open-lagrange/core/search";
@@ -672,7 +672,8 @@ repo.command("run")
   .option("--require-approval", "Require approval before applying", false)
   .option("--planning-mode <mode>", "deterministic, model, or model-with-fallback", "deterministic")
   .option("--legacy", "Use the original repository task endpoint", false)
-  .action(async (options: { readonly repo: string; readonly goal: string; readonly workspaceId?: string; readonly dryRun: boolean; readonly apply: boolean; readonly requireApproval: boolean; readonly planningMode: string; readonly legacy: boolean }) => {
+  .option("--json", "Print machine-readable output", false)
+  .action(async (options: { readonly repo: string; readonly goal: string; readonly workspaceId?: string; readonly dryRun: boolean; readonly apply: boolean; readonly requireApproval: boolean; readonly planningMode: string; readonly legacy: boolean; readonly json: boolean }) => {
     if (!options.legacy) {
       const created = await createRepositoryPlanfile({
         repo_root: options.repo,
@@ -684,14 +685,24 @@ repo.command("run")
       });
       await writeFile(created.path, created.markdown, "utf8");
       if (!options.apply) {
-        console.log(JSON.stringify({ plan_id: created.planfile.plan_id, path: created.path, canonical_plan_digest: created.planfile.canonical_plan_digest }, null, 2));
+        const payload = { plan_id: created.planfile.plan_id, path: created.path, canonical_plan_digest: created.planfile.canonical_plan_digest, run_command: `open-lagrange repo apply ${created.path}`, status_command: `open-lagrange repo status ${created.planfile.plan_id}` };
+        console.log(options.json ? JSON.stringify(payload, null, 2) : [
+          `Planfile created: ${payload.plan_id}`,
+          `Path: ${payload.path}`,
+          "Run:",
+          `  ${payload.run_command}`,
+          "Inspect:",
+          `  ${payload.status_command}`,
+        ].join("\n"));
         return;
       }
-      console.log(JSON.stringify(await applyLocalRepositoryPlanfile({
+      const status = await applyLocalRepositoryPlanfile({
         planfile: created.planfile,
         allow_dirty_base: false,
         retain_on_failure: true,
-      }), null, 2));
+      });
+      const view = await buildRepositoryRunView({ ref: status.plan_id, status });
+      console.log(options.json ? JSON.stringify(view ?? status, null, 2) : view ? formatRepositoryStatus(view) : JSON.stringify(status, null, 2));
       return;
     }
     console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).submitRepositoryGoal({
@@ -729,7 +740,8 @@ repo.command("apply")
   .option("--retain-worktree", "Retain the isolated worktree after execution", false)
   .option("--allow-dirty-base", "Allow execution when the source worktree has uncommitted changes", false)
   .option("--cleanup-on-success", "Allow cleanup policy to remove retained worktrees later", false)
-  .action(async (path: string, options: { readonly retainWorktree: boolean; readonly allowDirtyBase: boolean; readonly cleanupOnSuccess: boolean }) => {
+  .option("--json", "Print machine-readable output", false)
+  .action(async (path: string, options: { readonly retainWorktree: boolean; readonly allowDirtyBase: boolean; readonly cleanupOnSuccess: boolean; readonly json: boolean }) => {
     const planfile = withCanonicalPlanDigest(await loadLocalPlanfile(path));
     const check = runPlanCheck({ planfile, live: true });
     if (planCheckBlocksRun(check)) {
@@ -737,14 +749,21 @@ repo.command("apply")
       process.exitCode = 1;
       return;
     }
-    console.log(JSON.stringify(await applyLocalRepositoryPlanfile({
+    const status = await applyLocalRepositoryPlanfile({
       planfile,
       allow_dirty_base: options.allowDirtyBase,
       retain_on_failure: options.retainWorktree || !options.cleanupOnSuccess,
-    }), null, 2));
+    });
+    const view = await buildRepositoryRunView({ ref: status.plan_id, status });
+    console.log(options.json ? JSON.stringify(view ?? status, null, 2) : view ? formatRepositoryStatus(view) : JSON.stringify(status, null, 2));
   });
 
-repo.command("status").argument("<planId>", "Plan ID, task ID, or task run ID").action(async (planId: string) => {
+repo.command("status").argument("<planId>", "Plan ID, task ID, or task run ID").option("--json", "Print machine-readable output", false).action(async (planId: string, options: { readonly json: boolean }) => {
+  const view = await buildRepositoryRunView({ ref: planId });
+  if (view) {
+    console.log(options.json ? JSON.stringify(view, null, 2) : formatRepositoryStatus(view));
+    return;
+  }
   const client = await createPlatformClientFromCurrentProfile().catch(() => undefined);
   const status = await getLocalRepositoryPlanStatus(planId) ?? await client?.getRepositoryPlanStatus(planId);
   if (isMissingStatus(status) && client) console.log(JSON.stringify(await client.getTaskStatus(planId), null, 2));
@@ -771,31 +790,63 @@ repo.command("model-calls").argument("<planId>", "Repository plan ID").action((p
   }, null, 2));
 });
 
-repo.command("explain").argument("<planId>", "Repository plan ID").action((planId: string) => {
-  const explanation = explainRepositoryPlan(planId);
-  if (!explanation) {
+repo.command("explain").argument("<planId>", "Repository plan ID").option("--json", "Print machine-readable output", false).action(async (planId: string, options: { readonly json: boolean }) => {
+  const view = await buildRepositoryRunView({ ref: planId });
+  if (!view) {
     console.log(JSON.stringify({ plan_id: planId, status: "missing" }, null, 2));
     process.exitCode = 1;
     return;
   }
-  console.log(JSON.stringify(explanation, null, 2));
+  console.log(options.json ? JSON.stringify(view, null, 2) : formatRepositoryExplanation(view));
 });
 
 repo.command("resume").argument("<planId>", "Repository plan ID").action(async (planId: string) => {
   console.log(JSON.stringify(await resumeRepositoryPlan({ plan_id: planId }), null, 2));
 });
 
-repo.command("diff").argument("<taskId>", "Task ID or task run ID").action(async (taskId: string) => {
+repo.command("evidence").argument("<planId>", "Repository plan ID or run ID").option("--json", "Print machine-readable output", false).action(async (planId: string, options: { readonly json: boolean }) => {
+  const view = await buildRepositoryRunView({ ref: planId });
+  if (!view) throw new Error(`Repository run not found: ${planId}`);
+  console.log(options.json ? JSON.stringify({ run_id: view.run_id, evidence: view.evidence, inspected_files: view.files.inspected }, null, 2) : formatRepositoryEvidence(view));
+});
+
+repo.command("verify").argument("<planId>", "Repository plan ID or run ID").option("--json", "Print machine-readable output", false).action(async (planId: string, options: { readonly json: boolean }) => {
+  const view = await buildRepositoryRunView({ ref: planId });
+  if (!view) throw new Error(`Repository run not found: ${planId}`);
+  console.log(options.json ? JSON.stringify({ run_id: view.run_id, verification_reports: view.verification_reports, repair_attempts: view.repair_attempts }, null, 2) : formatRepositoryVerification(view));
+});
+
+repo.command("worktree").argument("<planId>", "Repository plan ID or run ID").option("--json", "Print machine-readable output", false).action(async (planId: string, options: { readonly json: boolean }) => {
+  const view = await buildRepositoryRunView({ ref: planId });
+  if (!view) throw new Error(`Repository run not found: ${planId}`);
+  console.log(options.json ? JSON.stringify({ run_id: view.run_id, repo_root: view.repo_root, worktree_path: view.worktree_path, branch_name: view.branch_name, base_ref: view.base_ref, base_commit: view.base_commit, status: view.worktree_status }, null, 2) : formatRepositoryWorktree(view));
+});
+
+repo.command("diff").argument("<taskId>", "Task ID, plan ID, or run ID").option("--json", "Print machine-readable output", false).action(async (taskId: string, options: { readonly json: boolean }) => {
+  const view = await buildRepositoryRunView({ ref: taskId });
+  if (view) {
+    console.log(options.json ? JSON.stringify(buildRepositoryDiffView(view), null, 2) : formatRepositoryDiff(view));
+    return;
+  }
   console.log(JSON.stringify(await (await createPlatformClientFromCurrentProfile()).getArtifact("diff", { task_id: taskId, type: "diff" }), null, 2));
 });
 
 repo.command("patch")
   .argument("<planId>", "Repository plan ID")
   .option("--output <path>", "Write final patch to a file")
-  .action(async (planId: string, options: { readonly output?: string }) => {
-    const patch = await exportLocalRepositoryPlanPatch(planId, options.output);
+  .option("--json", "Print machine-readable output", false)
+  .action(async (planId: string, options: { readonly output?: string; readonly json: boolean }) => {
+    const view = await buildRepositoryRunView({ ref: planId });
+    const resolvedPlanId = view?.plan_id ?? planId;
+    const patch = await exportLocalRepositoryPlanPatch(resolvedPlanId, options.output);
     if (options.output && isPatchArtifact(patch)) {
-      console.log(JSON.stringify({ plan_id: patch.plan_id, output: options.output, changed_files: patch.changed_files }, null, 2));
+      const payload = { plan_id: patch.plan_id, output: options.output, changed_files: patch.changed_files, apply_command: `git apply ${options.output}` };
+      console.log(options.json ? JSON.stringify(payload, null, 2) : [
+        `Final patch exported: ${options.output}`,
+        `Files: ${patch.changed_files.length}`,
+        "Apply manually:",
+        `  ${payload.apply_command}`,
+      ].join("\n"));
       return;
     }
     console.log(isPatchArtifact(patch) ? patch.unified_diff : JSON.stringify(patch, null, 2));
@@ -808,8 +859,14 @@ repo.command("review").argument("<planId>", "Plan ID, task ID, or task run ID").
   else console.log(JSON.stringify(review, null, 2));
 });
 
-repo.command("cleanup").argument("<planId>", "Repository plan ID").action(async (planId: string) => {
-  console.log(JSON.stringify(await cleanupLocalRepositoryPlan(planId), null, 2));
+repo.command("cleanup").argument("<planId>", "Repository plan ID").option("--json", "Print machine-readable output", false).action(async (planId: string, options: { readonly json: boolean }) => {
+  const view = await buildRepositoryRunView({ ref: planId });
+  const result = await cleanupLocalRepositoryPlan(view?.plan_id ?? planId);
+  console.log(options.json ? JSON.stringify(result, null, 2) : [
+    `Repository cleanup: ${result.plan_id}`,
+    `Cleaned: ${result.cleaned ? "yes" : "no"}`,
+    ...(result.worktree_path ? [`Worktree: ${result.worktree_path}`] : []),
+  ].join("\n"));
 });
 
 const repoScope = repo.command("scope").description("Approve or reject repository scope expansion requests.");

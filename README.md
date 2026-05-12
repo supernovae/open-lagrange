@@ -230,20 +230,37 @@ open-lagrange repo run \
 Inspect the resulting run:
 
 ```bash
+open-lagrange repo status <plan_id_or_run_id>
+open-lagrange repo explain <plan_id_or_run_id>
+open-lagrange repo evidence <plan_id_or_run_id>
+open-lagrange repo diff <plan_id_or_run_id>
+open-lagrange repo verify <plan_id_or_run_id>
 open-lagrange run status <run_id>
-open-lagrange run explain <run_id>
-open-lagrange run artifacts <run_id>
+open-lagrange run watch <run_id>
 ```
 
 Export the final patch artifact:
 
 ```bash
-open-lagrange repo patch <plan_id> --output final.patch
+open-lagrange repo worktree <plan_id_or_run_id>
+open-lagrange repo patch <plan_id_or_run_id> --output final.patch
+git apply final.patch
+open-lagrange repo cleanup <plan_id_or_run_id>
 ```
 
 Repository runs show phases such as planning, evidence collection, PatchPlan
 generation, worktree application, verification, repair, review, and final patch
 export.
+
+The web Repository Workbench is available at:
+
+```text
+http://localhost:3000/runs/<run_id>/repository
+```
+
+It shows the understood goal, isolated worktree, inspected files, evidence,
+PatchPlans, diffs, verification output, repair attempts, scope expansion
+requests, model-call telemetry, review notes, and final patch export.
 
 ## Research Runs
 
@@ -356,6 +373,12 @@ do not own runtime state.
 - [Shareable Planfiles](docs/shareable-planfiles.md)
 - [Plan Templates](docs/plan-templates.md)
 - [Repository Plan-to-Patch](docs/repository-plan-to-patch.md)
+- [Repository Workbench](docs/repository-workbench.md)
+- [Repository Developer Flow](docs/repository-developer-flow.md)
+- [Repository Artifacts](docs/repository-artifacts.md)
+- [Repository Troubleshooting](docs/repository-troubleshooting.md)
+- [Worktrees](docs/worktrees.md)
+- [Patch Export](docs/patch-export.md)
 - [Research Pack](docs/research-pack.md)
 - [Research Workbench](docs/research-workbench.md)
 - [Research Planfiles](docs/research-planfiles.md)

@@ -20,6 +20,7 @@ import { PackMode } from "../modes/PackMode.js";
 import { DoctorMode } from "../modes/DoctorMode.js";
 import { DemoMode } from "../modes/DemoMode.js";
 import { ResearchMode } from "../modes/ResearchMode.js";
+import { RepositoryMode } from "../modes/RepositoryMode.js";
 import { CapabilitySummary } from "./CapabilitySummary.js";
 import { ConversationPane } from "./ConversationPane.js";
 
@@ -60,6 +61,7 @@ function content(model: TuiViewModel): React.ReactElement {
   if (model.selectedPane === "review") return <ReviewMode model={model} />;
   if (model.selectedPane === "demo") return <DemoMode model={model} />;
   if (model.selectedPane === "research") return <ResearchMode model={model} />;
+  if (model.selectedPane === "repository") return <RepositoryMode model={model} />;
   if (model.selectedPane === "pack_builder") return <PackMode model={model} />;
   if (model.selectedPane === "doctor") return <DoctorMode model={model} />;
   if (model.selectedPane === "capabilities") return <CapabilitySummary model={model} />;
