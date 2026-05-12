@@ -130,7 +130,7 @@ export function reindexArtifacts(input: {
   readonly now?: string;
 } = {}): ArtifactIndex {
   const now = input.now ?? new Date().toISOString();
-  const roots = input.roots ?? [".open-lagrange/demos", ".open-lagrange/plans", ".open-lagrange/skills", ".open-lagrange/generated-packs", ".open-lagrange/research"];
+  const roots = input.roots ?? [".open-lagrange/demos", ".open-lagrange/plans", ".open-lagrange/skills", ".open-lagrange/generated-packs", ".open-lagrange/research", ".open-lagrange/output", ".open-lagrange/exports"];
   const artifacts: ArtifactSummaryType[] = [];
   for (const root of roots) {
     const absolute = resolveLocalPath(root);
@@ -219,6 +219,14 @@ function kindFromPath(path: string): ArtifactKindType | undefined {
   if (name.includes("research-brief")) return "research_brief";
   if (name.includes("citation-index") || name.includes("citation_index")) return "citation_index";
   if (name.includes("markdown-export") || name.includes("markdown_export")) return "markdown_export";
+  if (name.includes("artifact-selection") || name.includes("artifact_selection")) return "artifact_selection";
+  if (name.includes("run-digest") || name.includes("run_digest")) return "run_digest";
+  if (name.includes("run-packet") || name.includes("run_packet")) return "run_packet";
+  if (name.includes("artifact-manifest") || name.includes("artifact_manifest")) return "artifact_manifest";
+  if (name.includes("html-export") || name.includes("html_export")) return "html_export";
+  if (name.includes("pdf-export") || name.includes("pdf_export")) return "pdf_export";
+  if (name.includes("artifact-bundle") || name.includes("artifact_bundle")) return "artifact_bundle";
+  if (name.includes("zip-export") || name.includes("zip_export")) return "zip_export";
   if (name.includes("capability-step") || name.includes("capability_step")) return "capability_step_result";
   if (name.includes("timeline")) return "execution_timeline";
   if (name.includes("model-call") || name.includes("model_call")) return "model_call";

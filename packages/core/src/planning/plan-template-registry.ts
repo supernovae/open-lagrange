@@ -54,7 +54,10 @@ export function createCorePlanTemplateRegistry(): PlanTemplateRegistry {
     .register(researchTopicBriefTemplate)
     .register(researchUrlSummaryTemplate)
     .register(researchDigestTemplate)
-    .register(repositoryPlanToPatchTemplate);
+    .register(repositoryPlanToPatchTemplate)
+    .register(outputResearchPacketTemplate)
+    .register(outputDeveloperPacketTemplate)
+    .register(outputDigestTemplate);
 }
 
 const researchTopicBriefTemplate = PlanTemplate.parse({
@@ -194,6 +197,83 @@ const repositoryPlanToPatchTemplate = PlanTemplate.parse({
   ],
 });
 
+const outputResearchPacketTemplate = PlanTemplate.parse({
+  template_id: "output.research_packet",
+  pack_id: "open-lagrange.output",
+  title: "Research output packet",
+  description: "Create a research packet from selected safe run artifacts.",
+  domains: ["generic", "research"],
+  intent_patterns: ["research packet", "bundle research", "export research", "report", "html", "pdf"],
+  required_capabilities: ["output.select_artifacts", "output.create_run_packet", "output.render_html", "output.export_artifacts"],
+  optional_capabilities: ["output.render_pdf"],
+  parameters_schema: {
+    type: "object",
+    properties: {
+      run_id: { type: "string" },
+      output_format: { type: "string", enum: ["markdown", "html", "pdf", "zip"], default: "markdown" },
+    },
+    required: ["run_id"],
+  },
+  output_kind: "run_packet",
+  schedule_supported: false,
+  nodes_template: [
+    templateNode("select_outputs", "inspect", "Select research outputs", "Select brief, citations, source set, and safe run summary artifacts.", [], "output.select_artifacts", ["Artifact selection"], { run_id: "$parameters.run_id", preset: "research_packet" }),
+    templateNode("create_packet", "finalize", "Create research packet", "Create a Markdown research packet and manifest.", ["select_outputs"], "output.create_run_packet", ["Run packet"], { run_id: "$parameters.run_id", packet_type: "research" }),
+    templateNode("render_html", "finalize", "Render HTML", "Render the packet Markdown as sanitized HTML.", ["create_packet"], "output.render_html", ["HTML export"], { source_markdown_artifact_id: "$nodes.create_packet.output.markdown_artifact_id" }, true),
+  ],
+});
+
+const outputDeveloperPacketTemplate = PlanTemplate.parse({
+  template_id: "output.developer_packet",
+  pack_id: "open-lagrange.output",
+  title: "Developer output packet",
+  description: "Create a developer handoff report from repository run artifacts.",
+  domains: ["generic", "repository"],
+  intent_patterns: ["developer handoff", "developer report", "bundle patch", "export patch", "final patch", "handoff"],
+  required_capabilities: ["output.select_artifacts", "output.create_run_packet", "output.export_artifacts"],
+  optional_capabilities: ["output.render_html", "output.render_pdf"],
+  parameters_schema: {
+    type: "object",
+    properties: {
+      run_id: { type: "string" },
+      output_format: { type: "string", enum: ["markdown", "html", "zip"], default: "markdown" },
+    },
+    required: ["run_id"],
+  },
+  output_kind: "run_packet",
+  schedule_supported: false,
+  nodes_template: [
+    templateNode("select_outputs", "inspect", "Select developer outputs", "Select patch, verification, review, and safe run summary artifacts.", [], "output.select_artifacts", ["Artifact selection"], { run_id: "$parameters.run_id", preset: "developer_packet" }),
+    templateNode("create_packet", "finalize", "Create developer packet", "Create a Markdown developer packet and manifest.", ["select_outputs"], "output.create_run_packet", ["Run packet"], { run_id: "$parameters.run_id", packet_type: "developer" }),
+    templateNode("export_bundle", "finalize", "Export bundle", "Export selected artifacts with a manifest.", ["create_packet"], "output.export_artifacts", ["Artifact bundle"], { artifact_ids: "$nodes.select_outputs.output.selected_artifacts.artifact_id", format: "directory" }, true),
+  ],
+});
+
+const outputDigestTemplate = PlanTemplate.parse({
+  template_id: "output.digest",
+  pack_id: "open-lagrange.output",
+  title: "Run digest",
+  description: "Create a concise Markdown digest from selected safe artifacts.",
+  domains: ["generic", "repository", "research"],
+  intent_patterns: ["digest", "executive summary", "summary", "summarize outputs", "important outputs"],
+  required_capabilities: ["output.select_artifacts", "output.create_digest"],
+  optional_capabilities: [],
+  parameters_schema: {
+    type: "object",
+    properties: {
+      run_id: { type: "string" },
+      digest_style: { type: "string", enum: ["concise", "executive", "developer", "research"], default: "concise" },
+    },
+    required: ["run_id"],
+  },
+  output_kind: "run_digest",
+  schedule_supported: false,
+  nodes_template: [
+    templateNode("select_outputs", "inspect", "Select outputs", "Select safe artifacts for the digest.", [], "output.select_artifacts", ["Artifact selection"], { run_id: "$parameters.run_id", preset: "final_outputs" }),
+    templateNode("create_digest", "finalize", "Create digest", "Create a concise Markdown digest from selected artifacts.", ["select_outputs"], "output.create_digest", ["Run digest"], { run_id: "$parameters.run_id", digest_style: "$parameters.digest_style" }),
+  ],
+});
+
 function templateNode(
   node_id: TemplateNode["node_id"],
   kind: TemplateNode["kind"],
@@ -203,6 +283,7 @@ function templateNode(
   capability_ref: string | undefined,
   expected_outputs: readonly string[],
   input?: unknown,
+  optional?: boolean,
 ): TemplateNode {
   return TemplateNode.parse({
     node_id,
@@ -214,5 +295,6 @@ function templateNode(
     ...(capability_ref ? { capability_ref } : {}),
     expected_outputs: [...expected_outputs],
     ...(input === undefined ? {} : { input }),
+    ...(optional === undefined ? {} : { optional }),
   });
 }

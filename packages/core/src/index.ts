@@ -57,6 +57,7 @@ export * from "./capability-registry/context.js";
 export * from "./capability-registry/open-cot.js";
 export * from "./capability-registry/registry.js";
 export * from "./capability-packs/mock/index.js";
+export * from "./capability-packs/output/index.js";
 export * from "./capability-packs/repository/index.js";
 export * from "./capability-packs/research/index.js";
 export * from "./tasks/create-approval-request.js";

@@ -14,6 +14,7 @@ import { acceptDefaultAnswers, addPlanLibrary, answerQuestion, checkAndCreateRun
 import { applyRepositoryPlanfile as applyLocalRepositoryPlanfile, approveApprovalRequest, approveRepositoryScopeRequest, buildRepositoryDiffView, buildRepositoryRunView, cleanupRepositoryPlan as cleanupLocalRepositoryPlan, createRepositoryPlanfile, exportRepositoryPlanPatch as exportLocalRepositoryPlanPatch, formatRepositoryDiff, formatRepositoryEvidence, formatRepositoryExplanation, formatRepositoryStatus, formatRepositoryVerification, formatRepositoryWorktree, getRepositoryPlanStatus as getLocalRepositoryPlanStatus, listRepositoryModelCalls, rejectApprovalRequest, rejectRepositoryScopeRequest, resumeRepositoryPlan, runRepositoryDoctor } from "@open-lagrange/core/repository";
 import { compareBenchmarkRun, listBenchmarkScenarios, listModelRouteConfigs, renderBenchmarkReport, runModelRoutingBenchmark } from "@open-lagrange/core/evals";
 import { buildResearchRunViewForRun, checkAndCreateResearchRun, composeResearchPlan, explainResearchRunById, exportResearchViewArtifact, runResearchFetchCommand, runResearchSearchCommand, scheduleResearchPlan, writeResearchPlanfile } from "@open-lagrange/core/research";
+import { runOutputDigestCommand, runOutputExportCommand, runOutputManifestCommand, runOutputPacketCommand, runOutputRenderHtmlCommand, runOutputRenderMarkdownCommand, runOutputRenderPdfCommand, runOutputSelectCommand } from "@open-lagrange/core/output";
 import type { SearchProviderConfig } from "@open-lagrange/core/search";
 import { buildGeneratedPackFromMarkdown, generateSkillFrame, generateWorkflowSkill, installGeneratedPack, parseSkillfileMarkdown, parseWorkflowSkillMarkdown, previewWorkflowSkillRun, scaffoldGeneratedPack, validateGeneratedPack, validateWorkflowSkill } from "@open-lagrange/core/skills";
 import { createPlatformClientFromCurrentProfile } from "@open-lagrange/platform-client";
@@ -231,8 +232,125 @@ artifact.command("show").argument("<artifactId>", "Artifact ID").action((artifac
   console.log(JSON.stringify(result, null, 2));
 });
 
-artifact.command("export").argument("<artifactId>", "Artifact ID").requiredOption("--output <path>", "Output path").action((artifactId: string, options: { readonly output: string }) => {
-  console.log(JSON.stringify(exportArtifact({ artifact_id: artifactId, output_path: options.output }), null, 2));
+artifact.command("export")
+  .argument("<artifactId>", "Artifact ID")
+  .requiredOption("--output <path>", "Output path")
+  .option("--format <format>", "markdown, html, pdf, or json")
+  .action(async (artifactId: string, options: { readonly output: string; readonly format?: string }) => {
+    if (!options.format || options.format === "json") {
+      console.log(JSON.stringify(exportArtifact({ artifact_id: artifactId, output_path: options.output }), null, 2));
+      return;
+    }
+    if (options.format === "markdown") {
+      const rendered = await runOutputRenderMarkdownCommand({ source_artifact_id: artifactId, normalize: true });
+      const output = rendered.result && typeof rendered.result === "object" ? rendered.result as { readonly artifact_id?: string } : {};
+      if (!output.artifact_id) throw new Error(`Markdown export failed for artifact ${artifactId}`);
+      console.log(JSON.stringify({ rendered, exported: exportArtifact({ artifact_id: output.artifact_id, output_path: options.output }) }, null, 2));
+      return;
+    }
+    if (options.format === "html") {
+      const rendered = await runOutputRenderHtmlCommand({ source_markdown_artifact_id: artifactId, include_basic_styles: true });
+      const output = rendered.result && typeof rendered.result === "object" ? rendered.result as { readonly artifact_id?: string } : {};
+      if (!output.artifact_id) throw new Error(`HTML export failed for artifact ${artifactId}`);
+      console.log(JSON.stringify({ rendered, exported: exportArtifact({ artifact_id: output.artifact_id, output_path: options.output }) }, null, 2));
+      return;
+    }
+    if (options.format === "pdf") {
+      console.log(JSON.stringify(await runOutputRenderPdfCommand({ source_markdown_artifact_id: artifactId }), null, 2));
+      return;
+    }
+    throw new Error(`Unsupported artifact export format: ${options.format}`);
+  });
+
+const output = program.command("output").description("Select, render, bundle, and export run artifacts.");
+
+output.command("select")
+  .requiredOption("--run <runId>", "Run ID")
+  .option("--preset <preset>", "final_outputs, research_packet, developer_packet, debug_packet, or all_safe", "final_outputs")
+  .option("--include-model-calls", "Include model-call summaries", false)
+  .option("--include-raw-logs", "Include raw logs when policy allows", false)
+  .action(async (options: { readonly run: string; readonly preset: "final_outputs" | "research_packet" | "developer_packet" | "debug_packet" | "all_safe"; readonly includeModelCalls: boolean; readonly includeRawLogs: boolean }) => {
+    console.log(JSON.stringify(await runOutputSelectCommand({
+      run_id: options.run,
+      preset: options.preset,
+      include_model_calls: options.includeModelCalls,
+      include_raw_logs: options.includeRawLogs,
+      include_redacted_only: true,
+      max_artifacts: 50,
+    }), null, 2));
+  });
+
+output.command("digest")
+  .requiredOption("--run <runId>", "Run ID")
+  .option("--style <style>", "concise, executive, developer, or research", "concise")
+  .option("--max-words <count>", "Maximum words", parsePositiveInt, 400)
+  .option("--deterministic", "Skip model synthesis and use deterministic artifact summaries", false)
+  .option("--model", "Prefer configured model synthesis", false)
+  .option("--model-route <routeId>", "Model route ID")
+  .action(async (options: { readonly run: string; readonly style: "concise" | "executive" | "developer" | "research"; readonly maxWords: number; readonly deterministic: boolean; readonly model: boolean; readonly modelRoute?: string }) => {
+    console.log(JSON.stringify(await runOutputDigestCommand({
+      run_id: options.run,
+      digest_style: options.style,
+      max_words: options.maxWords,
+      deterministic: options.deterministic,
+      model: options.model,
+      ...(options.modelRoute ? { model_route_id: options.modelRoute } : {}),
+    }), null, 2));
+  });
+
+output.command("packet")
+  .requiredOption("--run <runId>", "Run ID")
+  .option("--type <type>", "research, developer, debug, or general", "general")
+  .option("--include-model-calls", "Include model-call summaries", false)
+  .option("--include-raw-logs", "Include raw logs when policy allows", false)
+  .option("--deterministic", "Skip model synthesis and use deterministic artifact summaries", false)
+  .option("--model", "Prefer configured model synthesis", false)
+  .action(async (options: { readonly run: string; readonly type: "research" | "developer" | "debug" | "general"; readonly includeModelCalls: boolean; readonly includeRawLogs: boolean; readonly deterministic: boolean; readonly model: boolean }) => {
+    console.log(JSON.stringify(await runOutputPacketCommand({
+      run_id: options.run,
+      packet_type: options.type,
+      include_timeline: true,
+      include_model_calls: options.includeModelCalls,
+      include_policy_reports: false,
+      include_raw_logs: options.includeRawLogs,
+      deterministic: options.deterministic,
+      model: options.model,
+    }), null, 2));
+  });
+
+output.command("render-markdown").argument("<artifactId>", "Artifact ID").action(async (artifactId: string) => {
+  console.log(JSON.stringify(await runOutputRenderMarkdownCommand({ source_artifact_id: artifactId, normalize: true }), null, 2));
+});
+
+output.command("render-html").argument("<artifactId>", "Markdown artifact ID").action(async (artifactId: string) => {
+  console.log(JSON.stringify(await runOutputRenderHtmlCommand({ source_markdown_artifact_id: artifactId, include_basic_styles: true }), null, 2));
+});
+
+output.command("render-pdf").argument("<artifactId>", "Markdown or HTML artifact ID").action(async (artifactId: string) => {
+  console.log(JSON.stringify(await runOutputRenderPdfCommand({ source_markdown_artifact_id: artifactId }), null, 2));
+});
+
+output.command("export")
+  .requiredOption("--run <runId>", "Run ID")
+  .option("--preset <preset>", "final_outputs, research_packet, developer_packet, debug_packet, or all_safe", "final_outputs")
+  .requiredOption("--format <format>", "directory, zip, or json_manifest")
+  .option("--output <path>", "Output directory or ZIP path")
+  .action(async (options: { readonly run: string; readonly preset: "final_outputs" | "research_packet" | "developer_packet" | "debug_packet" | "all_safe"; readonly format: "directory" | "zip" | "json_manifest"; readonly output?: string }) => {
+    const selected = await runOutputSelectCommand({ run_id: options.run, preset: options.preset, include_model_calls: false, include_raw_logs: false, include_redacted_only: true, max_artifacts: 50 });
+    const result = selected.result as { readonly selected_artifacts?: readonly { readonly artifact_id: string }[] };
+    const artifactIds = result.selected_artifacts?.map((artifact) => artifact.artifact_id) ?? [];
+    console.log(JSON.stringify(await runOutputExportCommand({
+      artifact_ids: artifactIds,
+      format: options.format,
+      include_manifest: true,
+      ...(options.output ? { output_path: options.output } : {}),
+    }), null, 2));
+  });
+
+output.command("manifest").requiredOption("--run <runId>", "Run ID").action(async (options: { readonly run: string }) => {
+  const selected = await runOutputSelectCommand({ run_id: options.run, preset: "all_safe", include_model_calls: false, include_raw_logs: false, include_redacted_only: true, max_artifacts: 50 });
+  const result = selected.result as { readonly selected_artifacts?: readonly { readonly artifact_id: string }[] };
+  console.log(JSON.stringify(await runOutputManifestCommand({ artifact_ids: result.selected_artifacts?.map((artifact) => artifact.artifact_id) ?? [], include_lineage: true, include_checksums: true }), null, 2));
 });
 
 artifact.command("reindex").action(() => {

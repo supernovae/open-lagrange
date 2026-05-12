@@ -21,6 +21,7 @@ export function paneTitle(pane: PaneId): string {
   if (pane === "home") return "home";
   if (pane === "research") return "research shortcuts";
   if (pane === "repository") return "repository workbench";
+  if (pane === "output") return "output";
   if (pane === "demo") return "sample Planfiles";
   if (pane === "run") return "runs";
   if (pane === "plan") return "plans";

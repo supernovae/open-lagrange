@@ -96,6 +96,9 @@ function templateScore(intent: IntentFrame, template: PlanTemplate): number {
   if (intent.domain === "research" && extractUrl(intent.original_prompt) && template.template_id === "research.url_summary") score += 5;
   if (intent.domain === "research" && !extractUrl(intent.original_prompt) && template.template_id === "research.topic_brief") score += 3;
   if (intent.domain === "repository" && template.template_id === "repository.plan_to_patch") score += 3;
+  if (isOutputPrompt(text) && template.template_id.startsWith("output.")) score += 5;
+  if (/\bresearch\b/.test(text) && isOutputPrompt(text) && template.template_id === "output.research_packet") score += 3;
+  if (/\bdeveloper\b|\bpatch\b|\bhandoff\b/.test(text) && isOutputPrompt(text) && template.template_id === "output.developer_packet") score += 3;
   return score;
 }
 
@@ -242,6 +245,10 @@ function cleanTopic(prompt: string, url: string | undefined): string {
     .replace(/\bdaily\b/gi, "")
     .replace(/\s+/g, " ")
     .trim() || prompt;
+}
+
+function isOutputPrompt(text: string): boolean {
+  return /\b(pdf|html|export|bundle|packet|digest|executive summary|developer handoff|report)\b/.test(text);
 }
 
 function planIdFor(intent: IntentFrame, template: PlanTemplate): string {

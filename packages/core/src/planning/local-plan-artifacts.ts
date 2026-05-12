@@ -64,6 +64,9 @@ export function createLocalPlanArtifactStore(input: {
         ...optionalString("mode_warning", stringValue(record.mode_warning) ?? stringValue(metadata.mode_warning) ?? modeWarning(record, metadata)),
         validation_status: stringValue(record.validation_status) ?? "not_applicable",
         redaction_status: redactionStatus(record.redaction_status),
+        ...optionalBoolean("restricted", booleanValue(record.restricted) ?? booleanValue(metadata.restricted)),
+        ...optionalString("output_format", stringValue(record.output_format) ?? stringValue(metadata.output_format)),
+        ...optionalString("checksum_sha256", stringValue(record.checksum_sha256) ?? stringValue(metadata.checksum_sha256)),
         ...(input.now ? { created_at: input.now } : {}),
       }));
     },

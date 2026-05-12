@@ -4,7 +4,7 @@ import type { TaskStatusSnapshot } from "@open-lagrange/core/interface";
 import type { RunSnapshot } from "@open-lagrange/core/runs";
 import type { ActiveObject } from "./state/active-object.js";
 
-export type PaneId = "home" | "chat" | "timeline" | "tasks" | "plan" | "plan_library" | "run" | "repository" | "approvals" | "diff" | "verification" | "review" | "artifact_json" | "demo" | "research" | "pack_builder" | "doctor" | "capabilities" | "help";
+export type PaneId = "home" | "chat" | "timeline" | "tasks" | "plan" | "plan_library" | "run" | "repository" | "output" | "approvals" | "diff" | "verification" | "review" | "artifact_json" | "demo" | "research" | "pack_builder" | "doctor" | "capabilities" | "help";
 export type InputMode = "chat" | "command" | "approval_reason" | "rejection_reason" | "scope_adjustment";
 export type RunConnectionState = "connected" | "reconnecting" | "polling fallback" | "disconnected";
 
@@ -45,7 +45,7 @@ export interface ApprovalRequestSummary {
 
 export interface ArtifactSummary {
   readonly artifact_id: string;
-  readonly artifact_type: "diff" | "review" | "verification" | "plan" | "artifact_json" | "skill_frame" | "workflow_skill" | "pack_build_plan" | "generated_pack" | "pack_manifest" | "pack_validation_report" | "pack_test_report" | "pack_install_report" | "pack_smoke_report" | "policy_decision_report" | "evidence_bundle" | "patch_plan_context" | "patch_plan" | "patch_validation_report" | "patch_artifact" | "final_patch_artifact" | "scope_expansion_request" | "repair_patch_plan" | "repair_decision" | "source_search_results" | "source_snapshot" | "source_text" | "source_set" | "research_brief" | "citation_index" | "markdown_export" | "capability_step_result" | "approval_request" | "execution_timeline" | "worktree_session" | "model_call" | "raw_log";
+  readonly artifact_type: "diff" | "review" | "verification" | "plan" | "artifact_json" | "skill_frame" | "workflow_skill" | "pack_build_plan" | "generated_pack" | "pack_manifest" | "pack_validation_report" | "pack_test_report" | "pack_install_report" | "pack_smoke_report" | "policy_decision_report" | "evidence_bundle" | "patch_plan_context" | "patch_plan" | "patch_validation_report" | "patch_artifact" | "final_patch_artifact" | "scope_expansion_request" | "repair_patch_plan" | "repair_decision" | "source_search_results" | "source_snapshot" | "source_text" | "source_set" | "research_brief" | "citation_index" | "markdown_export" | "artifact_selection" | "run_digest" | "run_packet" | "artifact_manifest" | "html_export" | "pdf_export" | "artifact_bundle" | "zip_export" | "capability_step_result" | "approval_request" | "execution_timeline" | "worktree_session" | "model_call" | "raw_log";
   readonly title: string;
   readonly value: unknown;
 }

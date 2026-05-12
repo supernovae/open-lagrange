@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-type TabId = "overview" | "timeline" | "artifacts" | "approvals" | "model_calls" | "logs" | "plan";
+type TabId = "overview" | "timeline" | "artifacts" | "approvals" | "model_calls" | "output" | "logs" | "plan";
 type LiveState = "connected" | "reconnecting" | "polling fallback" | "disconnected";
 
 interface RunSnapshot {
@@ -116,12 +116,26 @@ interface NextAction {
   readonly description?: string;
 }
 
+interface OutputSelection {
+  readonly selection_id?: string;
+  readonly selected_artifacts?: readonly ArtifactItem[];
+  readonly excluded_artifacts?: readonly { readonly artifact_id: string; readonly reason: string }[];
+  readonly warnings?: readonly string[];
+}
+
+interface OutputView {
+  readonly recommended_preset?: string;
+  readonly selection?: OutputSelection;
+  readonly last_result?: unknown;
+}
+
 const tabs: readonly { readonly id: TabId; readonly label: string }[] = [
   { id: "overview", label: "Overview" },
   { id: "timeline", label: "Timeline" },
   { id: "artifacts", label: "Artifacts" },
   { id: "approvals", label: "Approvals" },
   { id: "model_calls", label: "Model Calls" },
+  { id: "output", label: "Output" },
   { id: "logs", label: "Logs" },
   { id: "plan", label: "Plan" },
 ];
@@ -137,6 +151,7 @@ export default function RunConsoleClient({ runId }: { readonly runId: string }):
   const [retryNodeId, setRetryNodeId] = useState<string>("");
   const [lastEventId, setLastEventId] = useState<string>("");
   const [liveState, setLiveState] = useState<LiveState>("disconnected");
+  const [outputView, setOutputView] = useState<OutputView | undefined>();
 
   const selectedNode = useMemo(() => snapshot?.nodes.find((node) => node.node_id === (selectedId || snapshot.active_node_id)), [selectedId, snapshot]);
   const selectedArtifact = useMemo(() => snapshot?.artifacts.find((artifact) => artifact.artifact_id === selectedId), [selectedId, snapshot]);
@@ -236,6 +251,7 @@ export default function RunConsoleClient({ runId }: { readonly runId: string }):
       setSnapshot(data as RunSnapshot);
       if (!selectedId && (data as RunSnapshot).active_node_id) setSelectedId(String((data as RunSnapshot).active_node_id));
       if (!quiet) setMessage(snapshotRefreshMessage(data as RunSnapshot));
+      if (!quiet && activeTab === "output") void refreshOutput(true);
     } catch (error) {
       if (!quiet) setMessage(error instanceof Error ? error.message : String(error));
     } finally {
@@ -315,6 +331,44 @@ export default function RunConsoleClient({ runId }: { readonly runId: string }):
     }
   }
 
+  async function refreshOutput(quiet = false): Promise<void> {
+    try {
+      const response = await fetch(`/api/runs/${encodeURIComponent(runId)}/output`, { headers: headers(token) });
+      const data = await readBody(response);
+      if (!response.ok) {
+        if (!quiet) setMessage(requestFailureMessage(response.status, data, `/api/runs/${runId}/output`, "Run Console output request"));
+        return;
+      }
+      setOutputView(data as OutputView);
+    } catch (error) {
+      if (!quiet) setMessage(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function runOutput(action: Record<string, unknown>): Promise<void> {
+    setBusy(true);
+    setMessage("");
+    try {
+      const response = await fetch(`/api/runs/${encodeURIComponent(runId)}/output`, { method: "POST", headers: headers(token), body: JSON.stringify(action) });
+      const data = await readBody(response);
+      if (!response.ok) {
+        setMessage(requestFailureMessage(response.status, data, `/api/runs/${runId}/output`, "Run Console output request"));
+        return;
+      }
+      setOutputView((current) => ({
+        recommended_preset: current?.recommended_preset ?? "final_outputs",
+        ...(current?.selection ? { selection: current.selection } : {}),
+        last_result: data,
+      }));
+      setMessage("Output request accepted.");
+      await refresh(true);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <main className="runConsole">
       <nav className="runTopNav" aria-label="Run Console navigation">
@@ -342,6 +396,7 @@ export default function RunConsoleClient({ runId }: { readonly runId: string }):
           {activeTab === "artifacts" ? <RunArtifactList artifacts={snapshot?.artifacts ?? []} selectedId={selectedId} setSelectedId={setSelectedId} /> : null}
           {activeTab === "approvals" ? <RunApprovalPanel approvals={snapshot?.approvals ?? []} resolveApproval={resolveApproval} /> : null}
           {activeTab === "model_calls" ? <RunModelCallsPanel calls={snapshot?.model_calls ?? []} /> : null}
+          {activeTab === "output" ? <RunOutputPanel snapshot={snapshot} outputView={outputView} refreshOutput={refreshOutput} runOutput={runOutput} busy={busy} /> : null}
           {activeTab === "logs" ? <RunLogsPanel errors={snapshot?.errors ?? []} policies={snapshot?.policy_reports ?? []} /> : null}
           {activeTab === "plan" ? <RunPlanPane markdown={snapshot?.plan_markdown} /> : null}
         </div>
@@ -444,6 +499,40 @@ function RunApprovalPanel(input: { readonly approvals: readonly ApprovalItem[]; 
 
 function RunModelCallsPanel({ calls }: { readonly calls: readonly ModelCallItem[] }): React.ReactNode {
   return <section className="runPanel"><h2>Model Calls</h2>{calls.length ? calls.map((call) => <article key={call.artifact_id} className="recordCard"><h3>{call.title}</h3><p>{call.summary}</p><span>{call.node_id ?? "run"} · {call.role} · {call.model}</span></article>) : <p className="emptyState">No model calls recorded.</p>}</section>;
+}
+
+function RunOutputPanel(input: {
+  readonly snapshot: RunSnapshot | undefined;
+  readonly outputView: OutputView | undefined;
+  readonly refreshOutput: (quiet?: boolean) => void;
+  readonly runOutput: (action: Record<string, unknown>) => void;
+  readonly busy: boolean;
+}): React.ReactNode {
+  const preset = recommendedPreset(input.snapshot);
+  const selected = input.outputView?.selection?.selected_artifacts ?? [];
+  const excluded = input.outputView?.selection?.excluded_artifacts ?? [];
+  const finalArtifact = selected.find((artifact) => artifact.kind === "research_brief" || artifact.kind === "final_patch_artifact" || artifact.kind === "run_packet" || artifact.kind === "markdown_export") ?? selected[0];
+  return (
+    <section className="runPanel">
+      <h2>Output</h2>
+      <div className="statusStrip">
+        <span>Recommended: {preset}</span>
+        <span>Selected: {selected.length}</span>
+        <span>Excluded: {excluded.length}</span>
+      </div>
+      <div className="buttonRow">
+        <button type="button" disabled={input.busy} onClick={() => input.refreshOutput(false)}>Select Outputs</button>
+        <button type="button" disabled={input.busy} onClick={() => input.runOutput({ action: "packet", packet_type: packetType(input.snapshot), deterministic: true })}>Create Packet</button>
+        <button type="button" disabled={input.busy} onClick={() => input.runOutput({ action: "digest", digest_style: digestStyle(input.snapshot), deterministic: true })}>Create Digest</button>
+        <button type="button" disabled={input.busy || !finalArtifact} onClick={() => input.runOutput({ action: "render_html", artifact_id: finalArtifact?.artifact_id })}>Render HTML</button>
+        <button type="button" disabled={input.busy || !finalArtifact} onClick={() => input.runOutput({ action: "render_pdf", artifact_id: finalArtifact?.artifact_id })}>Render PDF</button>
+      </div>
+      <h3>Recommended Final Outputs</h3>
+      {selected.length ? selected.map((artifact) => <article key={artifact.artifact_id} className="recordCard"><strong>{artifact.title}</strong><p>{artifact.summary}</p><span>{artifact.kind} · {artifact.artifact_id}</span></article>) : <p className="emptyState">Select outputs to see recommended artifacts.</p>}
+      {excluded.length ? <><h3>Excluded</h3>{excluded.slice(0, 8).map((item) => <pre key={`${item.artifact_id}-${item.reason}`} className="logLine">{item.artifact_id}: {item.reason}</pre>)}</> : null}
+      {input.outputView?.last_result ? <><h3>Latest Output Result</h3><pre className="planMarkdown">{JSON.stringify(input.outputView.last_result, null, 2)}</pre></> : null}
+    </section>
+  );
 }
 
 function RunLogsPanel({ errors, policies }: { readonly errors: readonly ErrorItem[]; readonly policies: readonly PolicyReportItem[] }): React.ReactNode {
@@ -618,4 +707,25 @@ function eventSummary(item: TimelineItem): string {
   if (item.errors?.length) return item.errors.map((error) => error.message).join("; ");
   if (item.next_actions?.length) return `${item.next_actions.length} next action${item.next_actions.length === 1 ? "" : "s"}.`;
   return "Recorded.";
+}
+
+function recommendedPreset(snapshot: RunSnapshot | undefined): "research_packet" | "developer_packet" | "final_outputs" {
+  const kinds = new Set(snapshot?.artifacts.map((artifact) => artifact.kind) ?? []);
+  if (kinds.has("research_brief") || kinds.has("citation_index") || kinds.has("source_set")) return "research_packet";
+  if (kinds.has("final_patch_artifact") || kinds.has("patch_artifact") || kinds.has("verification_report")) return "developer_packet";
+  return "final_outputs";
+}
+
+function packetType(snapshot: RunSnapshot | undefined): "research" | "developer" | "general" {
+  const preset = recommendedPreset(snapshot);
+  if (preset === "research_packet") return "research";
+  if (preset === "developer_packet") return "developer";
+  return "general";
+}
+
+function digestStyle(snapshot: RunSnapshot | undefined): "research" | "developer" | "concise" {
+  const preset = recommendedPreset(snapshot);
+  if (preset === "research_packet") return "research";
+  if (preset === "developer_packet") return "developer";
+  return "concise";
 }

@@ -153,6 +153,10 @@ export function App(props: AppProps): React.ReactElement {
       if (value === "a") { setActiveObject({ type: "approval", id: "approvals" }); return; }
       if (value === "f") { setActiveObject({ type: "artifact", id: "artifacts" }); return; }
       if (value === "m") { setActiveObject({ type: "model_call", id: "model_calls" }); return; }
+      if (value === "o") { setActiveObject({ type: "output", id: "output" }); return; }
+      if (value === "d") { setInput(runSnapshot ? `/output digest --run ${runSnapshot.run_id}` : "/output digest --run "); return; }
+      if (value === "x") { setInput(runSnapshot ? `/output export --run ${runSnapshot.run_id} --preset final_outputs --format directory --output ./out` : "/output export --run "); return; }
+      if (value === "h") { setInput(runSnapshot ? `/output render-html ` : "/output render-html "); return; }
       if (value === "l") { setActiveObject({ type: "logs", id: "logs" }); return; }
       if (value === "p") { setActiveObject({ type: "plan", id: "plan" }); return; }
       if (value === "r") { setInput(runSnapshot?.active_node_id ? `/run retry ${runSnapshot.run_id} ${runSnapshot.active_node_id} --mode ` : runSnapshot ? `/run resume ${runSnapshot.run_id}` : "/run resume "); return; }

@@ -303,6 +303,33 @@ open-lagrange research schedule "open source container security" \
   --at 08:00
 ```
 
+## Output Pack
+
+Runs can produce many artifacts. The trusted local Output Pack turns selected
+artifact graphs into useful final deliverables while preserving lineage and
+redaction boundaries.
+
+```bash
+open-lagrange output select --run <run_id> --preset final_outputs
+open-lagrange output digest --run <run_id> --style developer
+open-lagrange output packet --run <run_id> --type research
+open-lagrange output render-html <brief_artifact_id>
+open-lagrange output render-pdf <brief_artifact_id>
+open-lagrange output export \
+  --run <run_id> \
+  --preset research_packet \
+  --format directory \
+  --output ./brief
+```
+
+PDF export is optional and capability-gated. If a sandboxed PDF renderer is not
+configured, the command returns an unsupported result with Markdown, HTML, and
+ZIP alternatives instead of failing the run.
+
+The web Run Console includes an Output tab for recommended final outputs,
+packets, digests, HTML/PDF rendering, and export results. The TUI exposes the
+same flow through the Output pane and delegates export work to the Output Pack.
+
 ## Capability Packs
 
 Capability Packs are the bounded execution surface. Packs declare capabilities,
@@ -385,6 +412,11 @@ do not own runtime state.
 - [Research Schedules](docs/research-schedules.md)
 - [Research Artifacts](docs/research-artifacts.md)
 - [Research Export](docs/research-export.md)
+- [Output Pack](docs/output-pack.md)
+- [Artifact Bundles](docs/artifact-bundles.md)
+- [Run Packets](docs/run-packets.md)
+- [Exporting Artifacts](docs/exporting-artifacts.md)
+- [Output Redaction](docs/output-redaction.md)
 - [Artifacts](docs/artifacts.md)
 - [Artifact lineage](docs/artifact-lineage.md)
 - [Policy decision reports](docs/policy-decision-reports.md)

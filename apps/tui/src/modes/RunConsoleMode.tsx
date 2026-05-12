@@ -6,6 +6,7 @@ import { RunApprovalPane } from "../components/runs/RunApprovalPane.js";
 import { RunDetailPane } from "../components/runs/RunDetailPane.js";
 import { RunFrame } from "../components/runs/RunFrame.js";
 import { RunModelCallsPane } from "../components/runs/RunModelCallsPane.js";
+import { RunOutputPane } from "../components/runs/RunOutputPane.js";
 import { RunTimelinePane } from "../components/runs/RunTimelinePane.js";
 import { theme } from "../theme.js";
 
@@ -21,6 +22,7 @@ export function RunConsoleMode({ model }: { readonly model: TuiViewModel }): Rea
         {object?.type === "artifact" ? <RunArtifactPane run={run} /> : null}
         {object?.type === "approval" ? <RunApprovalPane run={run} /> : null}
         {object?.type === "model_call" ? <RunModelCallsPane run={run} /> : null}
+        {object?.type === "output" ? <RunOutputPane run={run} /> : null}
         {object?.type === "logs" ? <RunLogs run={run} /> : null}
         {object?.type === "plan" ? <RunPlan run={run} /> : null}
         {!object || object.type === "node" ? <RunTimelinePane run={run} /> : null}

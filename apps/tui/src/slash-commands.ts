@@ -65,6 +65,7 @@ export function parseSlashCommand(input: string, context: SlashCommandContext = 
   if (command === "demos") return { kind: "event", command, pane: "chat", event: { type: "demo.list" } };
   if (command === "diff") return context.project_id ? { kind: "event", command, pane: "diff", event: { type: "request_artifact", project_id: context.project_id, ...(context.task_id ? { task_id: context.task_id } : {}), artifact_type: "diff" } } : { kind: "pane", command, pane: "diff" };
   if (command === "repository") return { kind: "pane", command, pane: "repository" };
+  if (command === "output") return { kind: "pane", command, pane: "output" };
   if (command === "review") return context.project_id ? { kind: "event", command, pane: "review", event: { type: "request_artifact", project_id: context.project_id, ...(context.task_id ? { task_id: context.task_id } : {}), artifact_type: "review" } } : { kind: "pane", command, pane: "review" };
   if (command === "json") return context.project_id ? { kind: "event", command, pane: "artifact_json", event: { type: "request_artifact", project_id: context.project_id, ...(context.task_id ? { task_id: context.task_id } : {}), artifact_type: "artifact_json" } } : { kind: "pane", command, pane: "artifact_json" };
   if (command === "verify") {

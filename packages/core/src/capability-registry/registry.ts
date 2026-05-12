@@ -3,6 +3,7 @@ import type { PackExecutionContext } from "@open-lagrange/capability-sdk";
 import { repositoryPack } from "../capability-packs/repository/pack.js";
 import { mockCapabilityPack } from "../capability-packs/mock/pack.js";
 import { researchPack } from "../capability-packs/research/pack.js";
+import { outputPack } from "../capability-packs/output/pack.js";
 import { chatPack } from "../chat-pack/chat-pack.js";
 import { sdkDescriptorsToCapabilitySnapshot } from "./open-cot.js";
 import type { CapabilitySnapshot } from "../schemas/capabilities.js";
@@ -12,6 +13,7 @@ export const packRegistry = createPackRegistry()
   .registerPack(mockCapabilityPack)
   .registerPack(chatPack)
   .registerPack(researchPack)
+  .registerPack(outputPack)
   .registerPack(repositoryPack);
 
 loadInstalledPacksForRuntime(packRegistry);

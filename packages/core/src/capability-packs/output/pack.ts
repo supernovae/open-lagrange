@@ -1,0 +1,102 @@
+import type { CapabilityPack } from "@open-lagrange/capability-sdk";
+import { outputManifest } from "./manifest.js";
+import { outputCapability } from "./descriptors.js";
+import {
+  CreateDigestInput,
+  CreateDigestOutput,
+  CreateManifestInput,
+  CreateManifestOutput,
+  CreateRunPacketInput,
+  CreateRunPacketOutput,
+  ExportArtifactsInput,
+  ExportArtifactsOutput,
+  RenderHtmlInput,
+  RenderHtmlOutput,
+  RenderMarkdownInput,
+  RenderMarkdownOutput,
+  RenderPdfInput,
+  RenderPdfOutput,
+  SelectArtifactsInput,
+  SelectArtifactsOutput,
+} from "./schemas.js";
+import {
+  runOutputCreateDigest,
+  runOutputCreateManifest,
+  runOutputCreateRunPacket,
+  runOutputExportArtifacts,
+  runOutputRenderHtml,
+  runOutputRenderMarkdown,
+  runOutputRenderPdf,
+  runOutputSelectArtifacts,
+} from "./executor.js";
+
+export const outputPack: CapabilityPack = {
+  manifest: outputManifest,
+  capabilities: [
+    outputCapability({
+      name: "output.select_artifacts",
+      description: "Select relevant safe artifacts from a run, plan, or explicit artifact list.",
+      input_schema: SelectArtifactsInput,
+      output_schema: SelectArtifactsOutput,
+      side_effect_kind: "none",
+      execute: runOutputSelectArtifacts,
+    }),
+    outputCapability({
+      name: "output.create_digest",
+      description: "Create a concise Markdown digest from selected safe artifacts.",
+      input_schema: CreateDigestInput,
+      output_schema: CreateDigestOutput,
+      side_effect_kind: "none",
+      execute: runOutputCreateDigest,
+    }),
+    outputCapability({
+      name: "output.create_run_packet",
+      description: "Bundle important run artifacts into a coherent Markdown packet and JSON manifest.",
+      input_schema: CreateRunPacketInput,
+      output_schema: CreateRunPacketOutput,
+      side_effect_kind: "none",
+      execute: runOutputCreateRunPacket,
+    }),
+    outputCapability({
+      name: "output.render_markdown",
+      description: "Normalize Markdown content or a Markdown artifact into an export artifact.",
+      input_schema: RenderMarkdownInput,
+      output_schema: RenderMarkdownOutput,
+      side_effect_kind: "none",
+      execute: runOutputRenderMarkdown,
+    }),
+    outputCapability({
+      name: "output.render_html",
+      description: "Render Markdown to sanitized HTML without external resources.",
+      input_schema: RenderHtmlInput,
+      output_schema: RenderHtmlOutput,
+      side_effect_kind: "none",
+      execute: runOutputRenderHtml,
+    }),
+    outputCapability({
+      name: "output.render_pdf",
+      description: "Render Markdown or HTML to PDF when a sandboxed PDF renderer is available.",
+      input_schema: RenderPdfInput,
+      output_schema: RenderPdfOutput,
+      side_effect_kind: "none",
+      execute: runOutputRenderPdf,
+    }),
+    outputCapability({
+      name: "output.export_artifacts",
+      description: "Export selected artifacts to a directory, ZIP file, or JSON manifest.",
+      input_schema: ExportArtifactsInput,
+      output_schema: ExportArtifactsOutput,
+      side_effect_kind: "filesystem_write",
+      risk_level: "write",
+      execute: runOutputExportArtifacts,
+    }),
+    outputCapability({
+      name: "output.create_manifest",
+      description: "Create a JSON manifest for selected artifacts with optional lineage and checksums.",
+      input_schema: CreateManifestInput,
+      output_schema: CreateManifestOutput,
+      side_effect_kind: "none",
+      execute: runOutputCreateManifest,
+    }),
+  ],
+};

@@ -47,6 +47,14 @@ export const ArtifactKind = z.enum([
   "plan_library_manifest",
   "plan_template",
   "saved_planfile",
+  "artifact_selection",
+  "run_digest",
+  "run_packet",
+  "artifact_manifest",
+  "html_export",
+  "pdf_export",
+  "artifact_bundle",
+  "zip_export",
 ]);
 
 export const ArtifactRole = z.enum(["primary_output", "supporting_evidence", "debug_log", "intermediate", "superseded"]);
@@ -81,7 +89,10 @@ export const ArtifactSummary = z.object({
   validation_status: z.string().min(1).optional(),
   redaction_status: z.enum(["redacted", "not_redacted", "unknown"]).optional(),
   redacted: z.boolean(),
+  restricted: z.boolean().optional(),
   exportable: z.boolean(),
+  output_format: z.string().min(1).optional(),
+  checksum_sha256: z.string().regex(/^[a-f0-9]{64}$/).optional(),
   content_type: z.string().min(1).optional(),
   size_bytes: z.number().int().min(0).optional(),
 }).strict();

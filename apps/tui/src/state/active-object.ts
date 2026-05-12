@@ -4,4 +4,5 @@ export type ActiveObject =
   | { readonly type: "approval"; readonly id: string }
   | { readonly type: "model_call"; readonly id: string }
   | { readonly type: "logs"; readonly id: "logs" }
-  | { readonly type: "plan"; readonly id: "plan" };
+  | { readonly type: "plan"; readonly id: "plan" }
+  | { readonly type: "output"; readonly id: "output" };
