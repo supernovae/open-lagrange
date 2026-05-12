@@ -263,7 +263,5 @@ function PlanCheckPanel({ report }: { readonly report: PlanCheckReport }) {
 }
 
 function apiHeaders(): Record<string, string> {
-  if (typeof window === "undefined") return {};
-  const token = window.sessionStorage.getItem("open-lagrange-api-token") ?? window.localStorage.getItem("open-lagrange-api-token");
-  return token ? { authorization: `Bearer ${token}` } : {};
+  return {};
 }

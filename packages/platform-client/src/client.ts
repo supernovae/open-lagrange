@@ -304,11 +304,17 @@ function parseSseFrame(raw: string): SseFrame | undefined {
 async function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   if (signal?.aborted) return;
   await new Promise<void>((resolve) => {
-    const timeout = setTimeout(resolve, ms);
-    signal?.addEventListener("abort", () => {
-      clearTimeout(timeout);
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const onAbort = (): void => {
+      if (timeout) clearTimeout(timeout);
+      signal?.removeEventListener("abort", onAbort);
       resolve();
-    }, { once: true });
+    };
+    timeout = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener("abort", onAbort, { once: true });
   });
 }
 

@@ -1,3 +1,5 @@
+import { authTokenForRequest } from "./auth/web-session";
+
 export function shouldProxyApiRoute(): boolean {
   return Boolean(process.env.OPEN_LAGRANGE_API_URL);
 }
@@ -10,8 +12,11 @@ export async function proxyApiRoute(request: Request): Promise<Response> {
   const target = new URL(pathname, apiUrl);
   target.search = source.search;
   const headers = new Headers(request.headers);
+  const authToken = authTokenForRequest(request);
+  if (authToken) headers.set("authorization", `Bearer ${authToken}`);
   headers.delete("host");
   headers.delete("content-length");
+  headers.delete("cookie");
   const init: RequestInit = {
     method: request.method,
     headers,

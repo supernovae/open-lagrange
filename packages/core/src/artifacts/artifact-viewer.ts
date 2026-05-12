@@ -61,9 +61,21 @@ export function showArtifact(artifactId: string, indexPath = DEFAULT_ARTIFACT_IN
   if (!summary) return undefined;
   const path = resolvePath(summary.path_or_uri);
   if (!path || !existsSync(path)) return { summary, content: undefined };
+  if (!isTextContentType(summary.content_type)) return { summary, content: undefined };
   const text = readFileSync(path, "utf8");
   const parsed = parseContent(text, summary.content_type);
   return { summary, content: stripSecretValue(parsed) };
+}
+
+export function readArtifactPayload(artifactId: string, indexPath = DEFAULT_ARTIFACT_INDEX_PATH): { readonly summary: ArtifactSummaryType; readonly bytes?: Buffer; readonly content?: unknown } | undefined {
+  const summary = listArtifacts(indexPath).find((artifact) => artifact.artifact_id === artifactId);
+  if (!summary) return undefined;
+  const path = resolvePath(summary.path_or_uri);
+  if (!path || !existsSync(path)) return { summary };
+  const bytes = readFileSync(path);
+  if (!isTextContentType(summary.content_type)) return { summary, bytes };
+  const text = bytes.toString("utf8");
+  return { summary, bytes, content: stripSecretValue(parseContent(text, summary.content_type)) };
 }
 
 export function exportArtifact(input: {
@@ -182,6 +194,19 @@ function parseContent(text: string, contentType: string | undefined): unknown {
     }
   }
   return text;
+}
+
+function isTextContentType(contentType: string | undefined): boolean {
+  if (!contentType) return true;
+  const normalized = contentType.toLowerCase();
+  return normalized.startsWith("text/")
+    || normalized.includes("json")
+    || normalized.includes("xml")
+    || normalized.includes("javascript")
+    || normalized.includes("typescript")
+    || normalized.includes("x-patch")
+    || normalized.includes("diff")
+    || normalized.includes("markdown");
 }
 
 function resolvePath(pathOrUri: string): string | undefined {

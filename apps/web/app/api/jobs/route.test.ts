@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { clearWebSessionCookie, createWebSessionCookie } from "../auth/web-session";
 import { requireApiAuth, parseJson } from "../http";
 import { SubmitJobPayload } from "./schema";
 import { assertAllowedRepoRoot } from "../repository/security";
@@ -20,6 +21,17 @@ describe("job route", () => {
     vi.stubEnv("OPEN_LAGRANGE_API_TOKEN", "test-token");
     expect(() => requireApiAuth(new Request("http://local.test/api/jobs"))).toThrow(/HTTP 401/);
     expect(() => requireApiAuth(new Request("http://local.test/api/jobs", { headers: { authorization: "Bearer test-token" } }))).not.toThrow();
+  });
+
+  it("accepts an HttpOnly web session cookie without exposing the raw token", () => {
+    vi.stubEnv("OPEN_LAGRANGE_API_TOKEN", "test-token");
+    vi.stubEnv("OPEN_LAGRANGE_WEB_SESSION_SECRET", "session-secret");
+    const cookie = createWebSessionCookie("test-token");
+
+    expect(cookie).toContain("HttpOnly");
+    expect(cookie).not.toContain("test-token");
+    expect(() => requireApiAuth(new Request("http://local.test/api/jobs", { headers: { cookie } }))).not.toThrow();
+    expect(clearWebSessionCookie()).toContain("Max-Age=0");
   });
 
   it("rate limits unauthorized attempts before auth decisions", () => {

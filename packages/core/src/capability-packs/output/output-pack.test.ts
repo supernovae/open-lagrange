@@ -1,9 +1,11 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { createArtifactSummary, registerArtifacts } from "../../artifacts/index.js";
+import { createArtifactSummary, registerArtifacts, showArtifact } from "../../artifacts/index.js";
 import { selectArtifacts } from "./artifact-selector.js";
+import { runOutputExportCommand, runOutputManifestCommand } from "./commands.js";
 import { renderMarkdownToHtml } from "./html-renderer.js";
 import { renderPdfUnsupported } from "./pdf-renderer.js";
 
@@ -55,5 +57,44 @@ describe("Output Pack", () => {
       reason: expect.stringContaining("PDF rendering is optional"),
       alternatives: ["markdown", "html", "zip"],
     });
+  });
+
+  it("exports binary artifacts without UTF-8 or JSON coercion", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "ol-output-binary-"));
+    const binaryPath = join(dir, "archive.zip");
+    const outputPath = join(dir, "export");
+    const bytes = Buffer.from([0, 1, 2, 3, 250, 251, 252, 253]);
+    writeFileSync(binaryPath, bytes);
+    const indexPath = join(dir, "index.json");
+    registerArtifacts({
+      index_path: indexPath,
+      artifacts: [
+        createArtifactSummary({ artifact_id: "zip_1", kind: "zip_export", title: "Zip", summary: "Binary zip", path_or_uri: binaryPath, content_type: "application/zip", related_run_id: "run_1" }),
+      ],
+    });
+
+    const result = await runOutputExportCommand({ artifact_ids: ["zip_1"], format: "directory", include_manifest: true, output_path: outputPath, index_path: indexPath, output_dir: join(dir, "output-artifacts") });
+
+    const exportedFile = (result.result as { readonly exported_files?: readonly string[] }).exported_files?.find((file) => file.endsWith("zip_export/zip_1.zip"));
+    expect(exportedFile && existsSync(exportedFile)).toBe(true);
+    expect(readFileSync(exportedFile ?? "")).toEqual(bytes);
+  });
+
+  it("uses the active artifact index when computing manifest checksums", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "ol-output-manifest-"));
+    const firstPath = join(dir, "first.md");
+    const secondPath = join(dir, "second.md");
+    writeFileSync(firstPath, "first", "utf8");
+    writeFileSync(secondPath, "second", "utf8");
+    const firstIndex = join(dir, "first-index.json");
+    const secondIndex = join(dir, "second-index.json");
+    registerArtifacts({ index_path: firstIndex, artifacts: [createArtifactSummary({ artifact_id: "same_id", kind: "research_brief", title: "First", summary: "First", path_or_uri: firstPath, content_type: "text/markdown" })] });
+    registerArtifacts({ index_path: secondIndex, artifacts: [createArtifactSummary({ artifact_id: "same_id", kind: "research_brief", title: "Second", summary: "Second", path_or_uri: secondPath, content_type: "text/markdown" })] });
+
+    const result = await runOutputManifestCommand({ artifact_ids: ["same_id"], include_lineage: true, include_checksums: true, index_path: secondIndex, output_dir: join(dir, "output-artifacts") });
+    const manifestId = (result.result as { readonly artifact_id?: string }).artifact_id ?? "";
+    const manifest = showArtifact(manifestId, secondIndex)?.content as { readonly artifacts?: readonly { readonly checksum_sha256?: string }[] } | undefined;
+
+    expect(manifest?.artifacts?.[0]?.checksum_sha256).toBe(createHash("sha256").update("second").digest("hex"));
   });
 });

@@ -203,11 +203,17 @@ async function* readSseFrames(body: ReadableStream<Uint8Array>, signal: AbortSig
 
 function sleep(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
-    const timeout = window.setTimeout(resolve, ms);
-    signal.addEventListener("abort", () => {
-      window.clearTimeout(timeout);
+    let timeout: number | undefined;
+    const onAbort = (): void => {
+      if (timeout !== undefined) window.clearTimeout(timeout);
+      signal.removeEventListener("abort", onAbort);
       resolve();
-    }, { once: true });
+    };
+    timeout = window.setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal.addEventListener("abort", onAbort, { once: true });
   });
 }
 

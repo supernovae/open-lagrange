@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { dirname, join } from "node:path";
 import { artifacts, createPrimitiveContext, type PackExecutionContext, type PrimitiveArtifactSummary } from "@open-lagrange/capability-sdk";
-import { showArtifact, type ArtifactSummary } from "../../artifacts/index.js";
+import { readArtifactPayload, showArtifact, type ArtifactSummary } from "../../artifacts/index.js";
 import { listModelRouteConfigs } from "../../evals/model-route-config.js";
 import { stableHash } from "../../util/hash.js";
 import { OUTPUT_PACK_ID } from "./manifest.js";
@@ -207,13 +207,15 @@ export async function runOutputRenderPdf(_context: PackExecutionContext, _input:
 }
 
 export async function runOutputExportArtifacts(context: PackExecutionContext, input: ExportArtifactsInput): Promise<ExportArtifactsOutput> {
-  const resolved = resolveArtifactIds(input.artifact_ids, artifactIndexPath(context));
+  const indexPath = artifactIndexPath(context);
+  const resolved = resolveArtifactIds(input.artifact_ids, indexPath);
   const manifest = artifactManifest({
     artifacts: resolved,
     include_lineage: true,
     include_checksums: true,
     manifest_id: `artifact_manifest_${stableHash({ artifacts: input.artifact_ids, format: input.format }).slice(0, 18)}`,
     generated_by: "output.export_artifacts",
+    ...(indexPath ? { index_path: indexPath } : {}),
   });
   const manifestArtifact = input.include_manifest
     ? await writeOutputArtifact(context, {
@@ -239,7 +241,6 @@ export async function runOutputExportArtifacts(context: PackExecutionContext, in
     };
   }
   const outputPath = input.output_path ?? join(".open-lagrange", "exports", exportId + (input.format === "zip" ? ".zip" : ""));
-  const indexPath = artifactIndexPath(context);
   const exportedFiles = input.format === "zip"
     ? [await writeZipExport({ artifacts: resolved, output_path: outputPath, manifest, ...(indexPath ? { index_path: indexPath } : {}) })]
     : [...await writeDirectoryExport({ artifacts: resolved, output_path: outputPath, manifest, ...(indexPath ? { index_path: indexPath } : {}) })];
@@ -266,7 +267,8 @@ export async function runOutputExportArtifacts(context: PackExecutionContext, in
 }
 
 export async function runOutputCreateManifest(context: PackExecutionContext, input: CreateManifestInput): Promise<CreateManifestOutput> {
-  const resolved = resolveArtifactIds(input.artifact_ids, artifactIndexPath(context));
+  const indexPath = artifactIndexPath(context);
+  const resolved = resolveArtifactIds(input.artifact_ids, indexPath);
   const manifestId = `artifact_manifest_${stableHash(input).slice(0, 18)}`;
   const manifest = artifactManifest({
     artifacts: resolved,
@@ -274,6 +276,7 @@ export async function runOutputCreateManifest(context: PackExecutionContext, inp
     include_checksums: input.include_checksums,
     manifest_id: manifestId,
     generated_by: "output.create_manifest",
+    ...(indexPath ? { index_path: indexPath } : {}),
   });
   const artifact = await writeOutputArtifact(context, {
     capability_id: "output.create_manifest",
@@ -332,7 +335,7 @@ async function writeOutputArtifact(context: PackExecutionContext, input: {
     capability_id: input.capability_id,
     ...(typeof context.runtime_config.plan_id === "string" ? { plan_id: context.runtime_config.plan_id } : {}),
     ...(typeof context.runtime_config.node_id === "string" ? { node_id: context.runtime_config.node_id } : {}),
-    ...(context.runtime_config.artifact_store ? { artifact_store: context.runtime_config.artifact_store as NonNullable<Parameters<typeof createPrimitiveContext>[1]["artifact_store"]> } : {}),
+    ...primitiveArtifactStore(context.runtime_config.artifact_store),
   });
   return artifacts.write(primitive, {
     artifact_id: input.artifact_id,
@@ -354,6 +357,13 @@ async function writeOutputArtifact(context: PackExecutionContext, input: {
   });
 }
 
+function primitiveArtifactStore(value: unknown): { readonly artifact_store: NonNullable<Parameters<typeof createPrimitiveContext>[1]["artifact_store"]> } | Record<string, never> {
+  if (value && typeof value === "object" && typeof (value as { readonly write?: unknown }).write === "function") {
+    return { artifact_store: value as NonNullable<Parameters<typeof createPrimitiveContext>[1]["artifact_store"]> };
+  }
+  return {};
+}
+
 function resolveArtifactIds(artifactIds: readonly string[], indexPath: string | undefined): readonly ArtifactSummary[] {
   return artifactIds.map((artifactId) => {
     const shown = showArtifact(artifactId, indexPath);
@@ -369,6 +379,7 @@ function artifactManifest(input: {
   readonly include_checksums: boolean;
   readonly manifest_id: string;
   readonly generated_by: string;
+  readonly index_path?: string;
 }): Record<string, unknown> {
   return {
     schema_version: "open-lagrange.artifact-manifest.v1",
@@ -385,7 +396,7 @@ function artifactManifest(input: {
       content_type: artifact.content_type,
       output_format: artifact.output_format,
       path_or_uri: artifact.path_or_uri,
-      ...(input.include_checksums ? { checksum_sha256: artifact.checksum_sha256 ?? checksum(showArtifact(artifact.artifact_id)?.content) } : {}),
+      ...(input.include_checksums ? { checksum_sha256: artifact.checksum_sha256 ?? checksumArtifact(artifact.artifact_id, input.index_path) } : {}),
       ...(input.include_lineage ? {
         produced_by_pack_id: artifact.produced_by_pack_id,
         produced_by_capability_id: artifact.produced_by_capability_id,
@@ -399,6 +410,12 @@ function artifactManifest(input: {
 function checksum(value: unknown): string {
   const content = typeof value === "string" ? value : JSON.stringify(value ?? null);
   return createHash("sha256").update(content).digest("hex");
+}
+
+function checksumArtifact(artifactId: string, indexPath: string | undefined): string {
+  const payload = readArtifactPayload(artifactId, indexPath);
+  if (payload?.bytes) return createHash("sha256").update(payload.bytes).digest("hex");
+  return checksum(payload?.content);
 }
 
 function titleForDigest(style: string): string {

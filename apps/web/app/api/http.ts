@@ -1,4 +1,5 @@
 import { ZodError, type z } from "zod";
+import { requestHasValidWebSession, tokenMatches } from "./auth/web-session";
 
 const DEFAULT_MAX_BODY_BYTES = 1_000_000;
 const MAX_RATE_LIMIT_BUCKETS = 10_000;
@@ -34,7 +35,7 @@ export function requireApiAuth(request: Request): void {
   if (!expected && process.env.NODE_ENV !== "production") return;
   if (!expected) throw new HttpError(503, { error: "API_AUTH_NOT_CONFIGURED" });
   const actual = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
-  if (!tokenMatches(actual, expected)) throw new HttpError(401, { error: "UNAUTHORIZED" });
+  if (!tokenMatches(actual, expected) && !requestHasValidWebSession(request)) throw new HttpError(401, { error: "UNAUTHORIZED" });
 }
 
 export function enforceRateLimit(request: Request): void {
@@ -94,14 +95,4 @@ function pruneRateLimitBuckets(now: number): void {
     if (!oldestKey) break;
     rateLimitBuckets.delete(oldestKey);
   }
-}
-
-function tokenMatches(actual: string | undefined, expected: string): boolean {
-  if (actual === undefined) return false;
-  let diff = actual.length ^ expected.length;
-  const maxLength = Math.max(actual.length, expected.length);
-  for (let index = 0; index < maxLength; index += 1) {
-    diff |= (actual.charCodeAt(index) || 0) ^ (expected.charCodeAt(index) || 0);
-  }
-  return diff === 0;
 }

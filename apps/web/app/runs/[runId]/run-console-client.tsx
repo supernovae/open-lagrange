@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type TabId = "overview" | "timeline" | "artifacts" | "approvals" | "model_calls" | "output" | "logs" | "plan";
 type LiveState = "connected" | "reconnecting" | "polling fallback" | "disconnected";
@@ -152,19 +152,18 @@ export default function RunConsoleClient({ runId }: { readonly runId: string }):
   const [lastEventId, setLastEventId] = useState<string>("");
   const [liveState, setLiveState] = useState<LiveState>("disconnected");
   const [outputView, setOutputView] = useState<OutputView | undefined>();
+  const snapshotRefreshTimeout = useRef<number | undefined>(undefined);
 
   const selectedNode = useMemo(() => snapshot?.nodes.find((node) => node.node_id === (selectedId || snapshot.active_node_id)), [selectedId, snapshot]);
   const selectedArtifact = useMemo(() => snapshot?.artifacts.find((artifact) => artifact.artifact_id === selectedId), [selectedId, snapshot]);
   const activeNode = snapshot?.nodes.find((node) => node.node_id === snapshot.active_node_id);
 
   useEffect(() => {
-    const storedToken = window.sessionStorage.getItem("open-lagrange-api-token") ?? "";
-    setToken(storedToken);
     setTokenLoaded(true);
     const saved = readLocalUiState(runId);
     if (saved.activeTab) setActiveTab(saved.activeTab);
     if (saved.selectedId) setSelectedId(saved.selectedId);
-    void refresh(false, storedToken);
+    void refresh(false, "");
   }, [runId]);
 
   useEffect(() => {
@@ -172,6 +171,7 @@ export default function RunConsoleClient({ runId }: { readonly runId: string }):
     const controller = new AbortController();
     void streamRun(controller.signal, token);
     return () => {
+      if (snapshotRefreshTimeout.current !== undefined) window.clearTimeout(snapshotRefreshTimeout.current);
       controller.abort();
       setLiveState("disconnected");
     };
@@ -232,8 +232,16 @@ export default function RunConsoleClient({ runId }: { readonly runId: string }):
     const event = { ...envelope.event, sequence: envelope.sequence };
     setLastEventId(envelope.event_id);
     setSnapshot((current) => current ? applyRunEventToSnapshot(current, event) : current);
-    void refresh(true);
+    if (shouldRefreshSnapshotForEvent(envelope.event.type)) scheduleSnapshotRefresh();
     return envelope.event_id;
+  }
+
+  function scheduleSnapshotRefresh(): void {
+    if (snapshotRefreshTimeout.current !== undefined) window.clearTimeout(snapshotRefreshTimeout.current);
+    snapshotRefreshTimeout.current = window.setTimeout(() => {
+      snapshotRefreshTimeout.current = undefined;
+      void refresh(true);
+    }, 500);
   }
 
   async function refresh(quiet = false, tokenOverride?: string): Promise<void> {
@@ -369,6 +377,32 @@ export default function RunConsoleClient({ runId }: { readonly runId: string }):
     }
   }
 
+  async function signIn(): Promise<void> {
+    setBusy(true);
+    setMessage("");
+    try {
+      const response = await fetch("/api/auth/session", { method: "POST", headers: headers(""), body: JSON.stringify({ token }) });
+      const data = await readBody(response);
+      if (!response.ok) {
+        setMessage(requestFailureMessage(response.status, data, "/api/auth/session", "Run Console sign-in"));
+        return;
+      }
+      setToken("");
+      setMessage("Web session established.");
+      await refresh(true, "");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function signOut(): Promise<void> {
+    await fetch("/api/auth/session", { method: "DELETE" });
+    setToken("");
+    setMessage("Web session cleared.");
+  }
+
   return (
     <main className="runConsole">
       <nav className="runTopNav" aria-label="Run Console navigation">
@@ -377,7 +411,7 @@ export default function RunConsoleClient({ runId }: { readonly runId: string }):
         <a href="/?view=workflows">Runs</a>
         <a href="/?view=providers">Providers</a>
       </nav>
-      <RunHeader snapshot={snapshot} runId={runId} token={token} setToken={setToken} refresh={() => refresh()} cancel={cancel} busy={busy} liveState={liveState} />
+      <RunHeader snapshot={snapshot} runId={runId} token={token} setToken={setToken} signIn={signIn} signOut={signOut} refresh={() => refresh()} cancel={cancel} busy={busy} liveState={liveState} />
       {message ? <pre className="messageBox">{message}</pre> : null}
       {retryNodeId ? <RetryModeDialog nodeId={retryNodeId} onCancel={() => setRetryNodeId("")} onSelect={retryWithMode} /> : null}
       <nav className="tabBar">
@@ -406,7 +440,7 @@ export default function RunConsoleClient({ runId }: { readonly runId: string }):
   );
 }
 
-function RunHeader(input: { readonly snapshot: RunSnapshot | undefined; readonly runId: string; readonly token: string; readonly setToken: (value: string) => void; readonly refresh: () => void; readonly cancel: () => void; readonly busy: boolean; readonly liveState: LiveState }): React.ReactNode {
+function RunHeader(input: { readonly snapshot: RunSnapshot | undefined; readonly runId: string; readonly token: string; readonly setToken: (value: string) => void; readonly signIn: () => void; readonly signOut: () => void; readonly refresh: () => void; readonly cancel: () => void; readonly busy: boolean; readonly liveState: LiveState }): React.ReactNode {
   return (
     <header className="runHeader">
       <div>
@@ -421,7 +455,9 @@ function RunHeader(input: { readonly snapshot: RunSnapshot | undefined; readonly
         </div>
       </div>
       <div className="tokenTools">
-        <input value={input.token} onChange={(event) => updateToken(event.target.value, input.setToken)} placeholder="API bearer token" />
+        <input value={input.token} onChange={(event) => updateToken(event.target.value, input.setToken)} placeholder="API token for sign-in" type="password" />
+        <button type="button" onClick={input.signIn} disabled={input.busy || !input.token}>Sign in</button>
+        <button type="button" onClick={input.signOut} disabled={input.busy}>Sign out</button>
         <button type="button" onClick={input.refresh} disabled={input.busy}>Refresh</button>
         <button type="button" onClick={input.cancel} disabled={input.busy || !input.snapshot || terminalStatus(input.snapshot.status)}>Cancel</button>
       </div>
@@ -568,7 +604,7 @@ function isMissingRun(value: unknown): boolean {
 function requestFailureMessage(status: number, data: unknown, route: string, source: string): string {
   const error = data && typeof data === "object" && "error" in data ? String((data as { readonly error?: unknown }).error) : "REQUEST_FAILED";
   const hint = error === "UNAUTHORIZED"
-    ? "This is web/API bearer-token auth for the Run Console, not a web search provider error. Check the token field against OPEN_LAGRANGE_API_TOKEN in the web runtime."
+    ? "Sign in with the web API token or check OPEN_LAGRANGE_API_TOKEN in the web runtime."
     : "Check the web runtime logs for this route.";
   return [`HTTP ${status} ${error}`, `Source: ${source}`, `Route: ${route}`, hint, "", JSON.stringify(data, null, 2)].join("\n");
 }
@@ -586,8 +622,6 @@ function snapshotRefreshMessage(snapshot: RunSnapshot): string {
 
 function updateToken(value: string, setToken: (value: string) => void): void {
   setToken(value);
-  if (value) window.sessionStorage.setItem("open-lagrange-api-token", value);
-  else window.sessionStorage.removeItem("open-lagrange-api-token");
 }
 
 function readLocalUiState(runId: string): { readonly activeTab?: TabId; readonly selectedId?: string } {
@@ -668,12 +702,32 @@ function applyRunEventToSnapshot(snapshot: RunSnapshot, event: TimelineItem): Ru
 async function sleep(ms: number, signal: AbortSignal): Promise<void> {
   if (signal.aborted) return;
   await new Promise<void>((resolve) => {
-    const timeout = window.setTimeout(resolve, ms);
-    signal.addEventListener("abort", () => {
-      window.clearTimeout(timeout);
+    let timeout: number | undefined;
+    const onAbort = (): void => {
+      if (timeout !== undefined) window.clearTimeout(timeout);
+      signal.removeEventListener("abort", onAbort);
       resolve();
-    }, { once: true });
+    };
+    timeout = window.setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal.addEventListener("abort", onAbort, { once: true });
   });
+}
+
+function shouldRefreshSnapshotForEvent(type: string): boolean {
+  return type === "run.completed"
+    || type === "run.failed"
+    || type === "run.yielded"
+    || type === "run.cancelled"
+    || type === "node.completed"
+    || type === "node.failed"
+    || type === "node.yielded"
+    || type === "artifact.created"
+    || type === "approval.requested"
+    || type === "approval.resolved"
+    || type === "model_call.completed";
 }
 
 function statusTone(status: string): string {

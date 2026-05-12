@@ -16,7 +16,7 @@ export async function writeDirectoryExport(input: {
   for (const entry of bundleEntries(input.artifacts, input.index_path)) {
     const file = join(outputPath, safeArchiveEntryName(entry.file_name));
     mkdirSync(dirname(file), { recursive: true });
-    writeFileSync(file, serializeBundleContent(entry.content, entry.artifact.content_type), "utf8");
+    writeFileSync(file, serializeBundleContent(entry.content));
     files.push(file);
   }
   const manifestPath = join(outputPath, "artifact-manifest.json");
@@ -35,7 +35,7 @@ export async function writeZipExport(input: {
   const outputPath = validateOutputPath(input.output_path);
   const zip = new JSZip();
   for (const entry of bundleEntries(input.artifacts, input.index_path)) {
-    zip.file(safeArchiveEntryName(entry.file_name), serializeBundleContent(entry.content, entry.artifact.content_type));
+    zip.file(safeArchiveEntryName(entry.file_name), serializeBundleContent(entry.content));
   }
   zip.file("artifact-manifest.json", JSON.stringify(input.manifest, null, 2));
   const content = await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" });

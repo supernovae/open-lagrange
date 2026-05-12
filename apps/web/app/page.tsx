@@ -207,11 +207,10 @@ export default function Page(): React.ReactNode {
   }
 
   function currentApiToken(): string {
-    return apiToken || window.sessionStorage.getItem("open-lagrange-api-token") || "";
+    return apiToken;
   }
 
   useEffect(() => {
-    setApiToken(window.sessionStorage.getItem("open-lagrange-api-token") ?? "");
     const params = new URLSearchParams(window.location.search);
     const view = params.get("view");
     if (isViewId(view)) setActiveView(view);
@@ -222,6 +221,33 @@ export default function Page(): React.ReactNode {
     }
     void refreshWorkbench();
   }, []);
+
+  async function signIn(): Promise<void> {
+    if (!apiToken) return;
+    setBusy(true);
+    setMessage("");
+    try {
+      const response = await fetch("/api/auth/session", { method: "POST", headers: apiHeaders(""), body: JSON.stringify({ token: apiToken }) });
+      const data = await readResponseBody(response);
+      if (!response.ok) {
+        setMessage(requestFailureMessage("/api/auth/session", response.status, data));
+        return;
+      }
+      setApiToken("");
+      setMessage("Web session established.");
+      await refreshWorkbench(true);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function signOut(): Promise<void> {
+    await fetch("/api/auth/session", { method: "DELETE" });
+    setApiToken("");
+    setMessage("Web session cleared.");
+  }
 
   async function compose(): Promise<void> {
     await call("/api/plan-builder/sessions", { prompt, ...(skillsMarkdown.trim() ? { skills_markdown: skillsMarkdown } : {}) }, (data: BuilderSession) => {
@@ -351,7 +377,7 @@ export default function Page(): React.ReactNode {
   function requestFailureMessage(url: string, status: number, data: unknown): string {
     const error = data && typeof data === "object" && "error" in data ? String((data as { readonly error?: unknown }).error) : "REQUEST_FAILED";
     const hint = error === "UNAUTHORIZED"
-      ? "The bearer token did not match OPEN_LAGRANGE_API_TOKEN in the web runtime."
+      ? "Sign in with the web API token or check OPEN_LAGRANGE_API_TOKEN in the web runtime."
       : error === "API_AUTH_NOT_CONFIGURED"
         ? "The web runtime does not have OPEN_LAGRANGE_API_TOKEN configured."
         : error === "SESSION_NOT_READY"
@@ -395,7 +421,9 @@ export default function Page(): React.ReactNode {
             <h1>{title}</h1>
           </div>
           <div className="topbarActions">
-            <input value={apiToken} onChange={(event) => updateApiToken(event.target.value)} placeholder="API bearer token" />
+            <input value={apiToken} onChange={(event) => updateApiToken(event.target.value)} placeholder="API token for sign-in" type="password" />
+            <button className="secondaryButton" type="button" onClick={() => void signIn()} disabled={busy || !apiToken}>Sign in</button>
+            <button className="secondaryButton" type="button" onClick={() => void signOut()} disabled={busy}>Sign out</button>
             <button className="secondaryButton" type="button" onClick={() => refreshWorkbench()} disabled={busy}>Refresh</button>
           </div>
         </header>
@@ -972,8 +1000,6 @@ function planStateCounts(state: PlanStateSnapshot): Record<"completed" | "runnin
 
 function updateApiTokenValue(value: string, setApiToken: (value: string) => void): void {
   setApiToken(value);
-  if (value) window.sessionStorage.setItem("open-lagrange-api-token", value);
-  else window.sessionStorage.removeItem("open-lagrange-api-token");
 }
 
 function isBuilderSession(value: unknown): value is BuilderSession {

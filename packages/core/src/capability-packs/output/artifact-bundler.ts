@@ -1,17 +1,17 @@
-import { showArtifact, type ArtifactSummary } from "../../artifacts/index.js";
+import { readArtifactPayload, type ArtifactSummary } from "../../artifacts/index.js";
 
 export interface BundleEntry {
   readonly artifact: ArtifactSummary;
-  readonly content: unknown;
+  readonly content: Buffer | string;
   readonly file_name: string;
 }
 
 export function bundleEntries(artifacts: readonly ArtifactSummary[], indexPath?: string): readonly BundleEntry[] {
   return artifacts.map((artifact) => {
-    const shown = showArtifact(artifact.artifact_id, indexPath);
+    const payload = readArtifactPayload(artifact.artifact_id, indexPath);
     return {
       artifact,
-      content: shown?.content,
+      content: payload?.bytes ?? serializeStructuredContent(payload?.content, artifact.content_type),
       file_name: fileNameForArtifact(artifact),
     };
   });
@@ -22,7 +22,11 @@ export function fileNameForArtifact(artifact: ArtifactSummary): string {
   return `${artifact.kind}/${safeName(artifact.artifact_id)}.${extension}`;
 }
 
-export function serializeBundleContent(content: unknown, contentType?: string): string {
+export function serializeBundleContent(content: Buffer | string): Buffer | string {
+  return content;
+}
+
+function serializeStructuredContent(content: unknown, contentType?: string): string {
   if (typeof content === "string") return content;
   if (content === undefined) return "";
   if (contentType?.includes("json")) return JSON.stringify(content, null, 2);

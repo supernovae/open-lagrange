@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { join } from "node:path";
 import { runOutputDigestCommand, runOutputExportCommand, runOutputPacketCommand, runOutputRenderHtmlCommand, runOutputRenderPdfCommand, runOutputSelectCommand } from "@open-lagrange/core/output";
 import { handleRouteError, json, parseJson, requireApiAuth, requireMutationSecurity } from "../../../http";
 import { proxyApiRoute, shouldProxyApiRoute } from "../../../proxy";
@@ -14,7 +15,6 @@ const OutputRequest = z.object({
   artifact_id: z.string().min(1).optional(),
   artifact_ids: z.array(z.string().min(1)).optional(),
   format: z.enum(["directory", "zip", "json_manifest"]).optional(),
-  output_path: z.string().min(1).optional(),
   deterministic: z.boolean().optional(),
   model: z.boolean().optional(),
 }).strict();
@@ -72,11 +72,13 @@ export async function POST(request: Request, { params }: { readonly params: Prom
     if (body.action === "export") {
       const artifactIds = body.artifact_ids ?? [];
       if (artifactIds.length === 0) return json({ error: "MISSING_ARTIFACT_IDS" }, { status: 400 });
+      const format = body.format ?? "json_manifest";
+      const exportPath = join(".open-lagrange", "exports", "runs", runId, `output-${Date.now().toString(36)}${format === "zip" ? ".zip" : ""}`);
       return json(await runOutputExportCommand({
         artifact_ids: artifactIds,
-        format: body.format ?? "json_manifest",
+        format,
         include_manifest: true,
-        ...(body.output_path ? { output_path: body.output_path } : {}),
+        ...(format === "json_manifest" ? {} : { output_path: exportPath }),
       }));
     }
     return json({ error: "UNSUPPORTED_OUTPUT_ACTION" }, { status: 400 });
